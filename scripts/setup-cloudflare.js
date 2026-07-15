@@ -415,7 +415,10 @@ async function main() {
   let wranglerConfig = fs.readFileSync(WRANGLER_JSONC_PATH, 'utf-8');
   let configChanged = false;
 
-  const escapeJson = (str) => str.replace(/"/g, '\\"');
+  // Escape a string for safe embedding inside JSON double-quoted literals.
+  // Use JSON.stringify (which correctly escapes backslashes, quotes, and control
+  // characters) and strip the surrounding quotes it adds.
+  const escapeJson = (str) => JSON.stringify(String(str)).slice(1, -1);
 
   const routeRegex = /"routes"\s*:\s*\[[\s\S]*?\]|"workers_dev"\s*:\s*(true|false)/;
   wranglerConfig = wranglerConfig.replace(routeRegex, routesConfigStr);
