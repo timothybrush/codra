@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 
 @import "tailwindcss";
 
@@ -904,11 +904,11 @@
   @apply text-2xl md:text-3xl lg:text-[2.25rem] font-bold tracking-[-0.04em] leading-none text-foreground tabular-nums;
 }
 
-/* Fonts for the KPI-card surface. Inter for the sans, Geist Mono for the
-   numerals — scoped here because the global @theme sets --font-sans /
+/* Fonts for the KPI-card surface. Geist for the sans (same family as
+   Geist Mono), scoped here because the global @theme sets --font-sans /
    --font-mono to the app's default families. */
 .ui-font-sans {
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
 }
 .ui-font-mono {
   font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -916,11 +916,11 @@
 }
 
 /* Shared panel chrome matching the dashboard stat cards: white/black surface,
-   ui-line border (deeper in dark), Inter, 11px radius. Use for table cards and
+   ui-line border (deeper in dark), Geist, 11px radius. Use for table cards and
    section panels so everything reads as one system. `.ui-well` is the matching
    recessed strip (table header rows, footers) — the stat cards' inner panel. */
 .ui-panel {
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
   border-radius: var(--radius-lg);
   border: 1px solid var(--ui-line);
   background: #ffffff;

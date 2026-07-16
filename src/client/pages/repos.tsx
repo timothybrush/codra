@@ -10,12 +10,15 @@ import { Alert } from '@client/components/ui/alert';
 import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { Switch } from '@client/components/ui/switch';
+import { Input } from '@client/components/ui/input';
+import { Select } from '@client/components/ui/select';
 import {
   GitBranch,
   RefreshCw,
   Save,
   ArrowUpRight,
   RotateCcw,
+  Search,
   Settings2,
   X,
 } from 'lucide-react';
@@ -360,9 +363,28 @@ export function ReposPage() {
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editingRepoId, setEditingRepoId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [strategyFilter, setStrategyFilter] = useState('');
   const [pendingToggles, setPendingToggles] = useState<Set<string>>(() => new Set());
 
   const editingRepo = repos.find(repo => repoId(repo) === editingRepoId) ?? null;
+
+  const filteredRepos = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return repos.filter(repo => {
+      if (q && !`${repo.owner}/${repo.repo}`.toLowerCase().includes(q)) return false;
+      if (statusFilter === 'enabled' && !repo.enabled) return false;
+      if (statusFilter === 'paused' && repo.enabled) return false;
+      if (strategyFilter) {
+        const custom = hasMeaningfulCustomStrategy(repo, globalConfig);
+        if (strategyFilter === 'custom' && !custom) return false;
+        if (strategyFilter === 'global' && custom) return false;
+      }
+      return true;
+    });
+  }, [repos, search, statusFilter, strategyFilter, globalConfig]);
+  const enabledCount = repos.filter(repo => repo.enabled).length;
 
   const loadRepos = () => {
     setLoading(true);
@@ -471,7 +493,7 @@ export function ReposPage() {
     return (
       <section className="page-enter flex flex-col gap-5">
         <PageHeader title="Repositories" />
-        <div className="surface overflow-hidden">
+        <div className="ui-panel overflow-hidden">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="px-5 py-4 border-b border-ui-line/60 last:border-0">
               <Skeleton height={20} />
@@ -534,21 +556,84 @@ export function ReposPage() {
           }}
         />
       ) : (
-        <div className="surface min-w-0 divide-y divide-ui-line/60 overflow-hidden">
-          {repos.map(repo => {
-            const id = repoId(repo);
-            return (
-              <RepoRow
-                key={id}
-                repo={repo}
-                globalConfig={globalConfig}
-                modelOptions={modelOptions}
-                togglePending={pendingToggles.has(id)}
-                onToggleEnabled={handleToggleEnabled}
-                onEdit={(nextRepo) => setEditingRepoId(repoId(nextRepo))}
+        <div className="ui-panel min-w-0 overflow-hidden">
+          {/* Filter toolbar */}
+          <div className="flex flex-col gap-2 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ui-subtle"
               />
-            );
-          })}
+              <Input
+                type="text"
+                size="sm"
+                placeholder="owner/repo..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8"
+                aria-label="Search repositories"
+              />
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="w-full sm:w-40">
+                <Select
+                  value={statusFilter}
+                  onValueChange={setStatusFilter}
+                  placeholder="All statuses"
+                  options={[
+                    { value: '', label: 'All statuses' },
+                    { value: 'enabled', label: 'Enabled' },
+                    { value: 'paused', label: 'Paused' },
+                  ]}
+                  triggerClassName="h-8 text-xs"
+                />
+              </div>
+              <div className="w-full sm:w-40">
+                <Select
+                  value={strategyFilter}
+                  onValueChange={setStrategyFilter}
+                  placeholder="All strategies"
+                  options={[
+                    { value: '', label: 'All strategies' },
+                    { value: 'custom', label: 'Custom strategy' },
+                    { value: 'global', label: 'Global strategy' },
+                  ]}
+                  triggerClassName="h-8 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Rows */}
+          <div className="divide-y divide-ui-line/60">
+            {filteredRepos.length === 0 ? (
+              <p className="px-4 py-10 text-center text-sm text-ui-subtle">
+                No repositories match your filters.
+              </p>
+            ) : (
+              filteredRepos.map(repo => {
+                const id = repoId(repo);
+                return (
+                  <RepoRow
+                    key={id}
+                    repo={repo}
+                    globalConfig={globalConfig}
+                    modelOptions={modelOptions}
+                    togglePending={pendingToggles.has(id)}
+                    onToggleEnabled={handleToggleEnabled}
+                    onEdit={(nextRepo) => setEditingRepoId(repoId(nextRepo))}
+                  />
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer strip */}
+          <div className="ui-well border-t border-ui-line px-4 py-2.5">
+            <p className="ui-font-mono text-[11px] text-ui-subtle">
+              {filteredRepos.length} of {repos.length} repositories · {enabledCount} enabled
+            </p>
+          </div>
         </div>
       )}
 

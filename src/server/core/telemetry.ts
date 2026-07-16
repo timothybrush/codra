@@ -9,6 +9,10 @@ const INSTANCE_ID_KEY = 'codra:instance_id';
  * Generates and stores one in KV if it doesn't exist yet.
  */
 import { queryRows } from '@server/db/client';
+// Static import: version string is inlined at build time by Vite — no runtime cost.
+import pkg from '../../../package.json';
+
+const CODRA_VERSION: string = pkg.version;
 
 export async function getInstanceId(env: AppBindings): Promise<string> {
   try {
@@ -55,12 +59,36 @@ export async function sendTelemetryEvent(
     filesReviewed: number;
     verdict?: string;
     severityDistribution: Record<string, number>;
+    concurrencyLevel: string;
+    prTotalLinesChanged: number;
+    retryCount: number;
   },
 ): Promise<void> {
   try {
     // Opt-out for self-hosters/forks: set TELEMETRY_DISABLED=true (or 1) to send nothing.
     const disabled = String((env as any).TELEMETRY_DISABLED ?? '').toLowerCase();
     if (disabled === 'true' || disabled === '1') {
+      return;
+    }
+
+    // Suppress telemetry from test environments or stub model runs. Test runs use a mock AI
+    // binding that produces a "test-model" model name with hardcoded stub token counts; sending
+    // those to production would pollute the analytics DB with meaningless rows.
+    const environment = String((env as any).ENVIRONMENT ?? '').toLowerCase();
+    if (environment === 'test' || environment === 'local') {
+      logger.debug('Skipping telemetry in non-production environment', { environment });
+      return;
+    }
+
+    // Secondary guard: if every model used is a stub/test model, skip. This catches cases where
+    // ENVIRONMENT is unset but the worker is still running under the vitest mock AI binding.
+    const hasOnlyStubModels =
+      data.modelsUsed.length > 0 &&
+      data.modelsUsed.every((m) => m.toLowerCase().includes('test'));
+    if (hasOnlyStubModels) {
+      logger.debug('Skipping telemetry: only stub/test models detected', {
+        modelsUsed: data.modelsUsed,
+      });
       return;
     }
 
@@ -95,6 +123,10 @@ export async function sendTelemetryEvent(
         filesReviewed: data.filesReviewed,
         verdict: data.verdict,
         severityDistribution: data.severityDistribution,
+        codraVersion: CODRA_VERSION,
+        concurrencyLevel: data.concurrencyLevel,
+        prTotalLinesChanged: data.prTotalLinesChanged,
+        retryCount: data.retryCount,
       }),
       signal: controller.signal,
     }).catch((error) => {

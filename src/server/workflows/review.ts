@@ -76,6 +76,11 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
             filesReviewed: 0,
             verdict: 'failed',
             severityDistribution: {},
+            // concurrencyLevel is not available in the workflow context (no DB access at this level)
+            concurrencyLevel: 'unknown',
+            prTotalLinesChanged: 0,
+            // attempt is 1-indexed; subtract 1 so the first run is retryCount=0
+            retryCount: Math.max(0, attempt - 1),
           });
         });
         throw error;

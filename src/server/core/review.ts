@@ -1214,20 +1214,28 @@ async function reviewAndPersistFile(
  * Assemble and fire the anonymous per-review telemetry event. The shared aggregate fields
  * (line/token counts, models, file extensions, duration) are computed once here; the three fields
  * that differ between the success and all-failed paths are passed as `overrides`. Never throws.
+ *
+ * Token and model data are aggregated from `done`-status reviews only, so that failed or
+ * inherited reviews with null token counts don't deflate the reported totals.
  */
 async function sendReviewTelemetry(
   env: AppBindings,
   job: PersistedReviewJob,
   files: Array<{ path: string; lineCount: number }>,
-  reviews: Array<{ input_tokens: number | null; output_tokens: number | null; model_used: string }>,
+  reviews: Array<{ file_status: string; input_tokens: number | null; output_tokens: number | null; model_used: string }>,
   overrides: { findingsReported: number; verdict: string; severityDistribution: Record<string, number> },
+  meta: { concurrencyLevel: string; retryCount: number },
 ) {
   try {
+    // Only aggregate token/model data from successfully completed file reviews. Failed or
+    // inherited reviews with null token counts would silently deflate the reported totals.
+    const doneReviews = reviews.filter((r) => r.file_status === 'done');
+
     await sendTelemetryEvent(env, {
       linesReviewed: files.reduce((sum, file) => sum + file.lineCount, 0),
-      inputTokens: reviews.reduce((sum, r) => sum + (r.input_tokens ?? 0), 0),
-      outputTokens: reviews.reduce((sum, r) => sum + (r.output_tokens ?? 0), 0),
-      modelsUsed: Array.from(new Set(reviews.map((r) => r.model_used).filter(Boolean))),
+      inputTokens: doneReviews.reduce((sum, r) => sum + (r.input_tokens ?? 0), 0),
+      outputTokens: doneReviews.reduce((sum, r) => sum + (r.output_tokens ?? 0), 0),
+      modelsUsed: Array.from(new Set(doneReviews.map((r) => r.model_used).filter(Boolean))),
       fileExtensions: Array.from(new Set(files.map((f) => {
         const parts = f.path.split('.');
         return parts.length > 1 ? parts.pop() || '' : '';
@@ -1235,6 +1243,9 @@ async function sendReviewTelemetry(
       triggerType: job.trigger,
       reviewDurationMs: Math.max(0, Date.now() - new Date(job.createdAt).getTime()),
       filesReviewed: files.length,
+      concurrencyLevel: meta.concurrencyLevel,
+      prTotalLinesChanged: files.reduce((sum, file) => sum + file.lineCount, 0),
+      retryCount: meta.retryCount,
       ...overrides,
     });
   } catch (e) {
@@ -1299,14 +1310,24 @@ async function runFinalizePhase(
     verdict: review.file_status === 'failed' ? 'failed' : (review.verdict ?? 'comment'),
   }));
 
+  const reviewSettings = await getReviewSettings(env);
+  const { concurrencyLevel, maxComments: globalMaxComments } = reviewSettings;
+  const effectiveMaxComments = Math.min(config.review.max_comments, globalMaxComments);
+  // retryCount: how many times this job has been retried (0 = first run, 1 = first retry, etc.)
+  // We store one level of retryOfJobId; deeper chains would need a dedicated column on jobs.
+  const retryCount = job.retryOfJobId ? 1 : 0;
+
   if (fileSummaries.length > 0 && fileSummaries.every((file) => file.verdict === 'failed')) {
     await updateJobStep(env, job.id, 'Generating Summary', { status: 'failed', error: 'All files failed to review' });
 
-    await sendReviewTelemetry(env, job, files, reviews, {
-      findingsReported: 0,
-      verdict: 'failed',
-      severityDistribution: {},
-    });
+    await sendReviewTelemetry(
+      env,
+      job,
+      files,
+      reviews,
+      { findingsReported: 0, verdict: 'failed', severityDistribution: {} },
+      { concurrencyLevel, retryCount },
+    );
 
     throw new Error('All files failed to review');
   }
@@ -1315,8 +1336,6 @@ async function runFinalizePhase(
   const failedFileCount = fileSummaries.filter((file) => file.verdict === 'failed').length;
   const severityRanks: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit: 4 };
   const minRank = severityRanks[config.review.min_severity] ?? 4;
-  const { maxComments: globalMaxComments } = await getReviewSettings(env);
-  const effectiveMaxComments = Math.min(config.review.max_comments, globalMaxComments);
 
   let finalComments = reviewedComments.filter(c => (severityRanks[c.severity] ?? 4) <= minRank);
   finalComments.sort((a, b) => (severityRanks[a.severity] ?? 4) - (severityRanks[b.severity] ?? 4));
@@ -1436,11 +1455,14 @@ async function runFinalizePhase(
     logger.warn(`Post-review labels/check-run update failed for job ${job.id}; review is posted and job is completed, so leaving it best-effort`, error instanceof Error ? error : new Error(String(error)));
   }
 
-  await sendReviewTelemetry(env, job, files, reviews, {
-    findingsReported: finalComments.length,
-    verdict: verdictSummary.verdict,
-    severityDistribution,
-  });
+  await sendReviewTelemetry(
+    env,
+    job,
+    files,
+    reviews,
+    { findingsReported: finalComments.length, verdict: verdictSummary.verdict, severityDistribution },
+    { concurrencyLevel, retryCount },
+  );
 }
 
 async function heartbeatAndCheckSuperseded(env: AppBindings, jobId: string, leaseOwner: string) {
