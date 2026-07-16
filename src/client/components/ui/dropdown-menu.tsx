@@ -251,7 +251,7 @@ export function DropdownMenuContent({
           transition={transition}
           style={{ ...style, transformOrigin: `${originX} ${originY}` }}
           className={cn(
-            'z-50 min-w-[8rem] overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 text-zinc-900 shadow-sm shadow-black/[0.02] dark:border-border dark:bg-popover dark:text-popover-foreground dark:shadow-black/50',
+            'z-50 min-w-[8rem] overflow-hidden rounded-lg border border-ui-line bg-ui-base p-1 text-ui-default shadow-lg shadow-black/[0.04] dark:shadow-black/50',
             className,
           )}
         >
@@ -283,9 +283,8 @@ export function DropdownMenuItem({ asChild, className, onClick, children }: Drop
         ctx.setOpen(false);
       }}
       className={cn(
-        'relative flex w-full cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition-colors',
-        'hover:bg-zinc-200 hover:text-zinc-900 focus:bg-zinc-200 focus:text-zinc-900',
-        'dark:hover:bg-primary/[0.12] dark:hover:text-foreground dark:focus:bg-primary/[0.12] dark:focus:text-foreground',
+        'relative flex w-full cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm text-ui-default outline-none transition-colors',
+        'hover:bg-ui-fill hover:text-ui-strong focus:bg-ui-fill focus:text-ui-strong',
         className,
       )}
     >

@@ -501,13 +501,12 @@ export function ReposPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={handleSync}
               disabled={syncing}
-              className="gap-2"
+              icon={<RefreshCw size={13} className={cn(syncing && 'animate-spin')} />}
             >
-              <RefreshCw size={13} className={cn(syncing && 'animate-spin')} />
               Sync Repositories
             </Button>
             <Button asChild size="sm" className="gap-2">

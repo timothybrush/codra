@@ -59,13 +59,12 @@ export function JobsPage() {
         actions={
           <div className="flex gap-2">
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => load(true)}
               disabled={refreshing}
-              className="gap-2"
+              icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
             >
-              <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
               Refresh
             </Button>
           </div>

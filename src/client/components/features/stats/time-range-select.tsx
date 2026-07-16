@@ -29,7 +29,7 @@ export function TimeRangeSelect({ value, onValueChange, className, triggerStyle 
         value: range.value.toString(),
       }))}
       leadingIcon={<Clock className="h-3.5 w-3.5" />}
-      triggerClassName={cn('w-44', className)}
+      triggerClassName={cn('h-8 w-44 text-xs', className)}
       triggerStyle={triggerStyle}
     />
   );

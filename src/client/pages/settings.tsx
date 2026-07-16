@@ -23,6 +23,8 @@ import {
   X,
   ExternalLink,
 } from 'lucide-react';
+import { LayerCard } from '@client/components/ui/layer-card';
+import { Text } from '@client/components/ui/text';
 import { Badge } from '@client/components/ui/badge';
 import type { LlmApiFormat, LlmProvider, ModelConfig, RepoConfig, ReviewSettings } from '@shared/schema';
 import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, type ReviewConcurrencyLevel } from '@shared/schema';
@@ -1005,52 +1007,53 @@ export function SettingsPage() {
         title="About"
         description="Version, license, and links for this Codra instance"
       >
-        <div className="divide-y divide-border/50">
+        {/* LayerCards: Version/License in one, the links grid in its own. */}
+        <div className="space-y-3 p-5">
 
-          {/* Version row */}
-          <div className="relative flex items-center gap-4 overflow-hidden px-5 py-4">
-            <div className="chart-card-inner opacity-60" />
-            <div className="relative z-10 min-w-0 flex-1">
-              <p className="text-sm font-semibold text-foreground">Version</p>
+          {/* Version + License */}
+          <LayerCard className="divide-y divide-ui-line rounded-lg">
+            <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+              <Text variant="body" size="sm" bold as="span">Version</Text>
+              <Badge
+                variant="outline"
+                className="border-ui-brand/30 bg-ui-brand/10 font-mono text-ui-brand"
+              >
+                v{pkg.version}
+              </Badge>
             </div>
-            <Badge variant="default" className="relative z-10 px-3 py-1 text-sm tracking-tight">
-              v{pkg.version}
-            </Badge>
-          </div>
-
-          {/* License row */}
-          <div className="flex items-center gap-4 px-5 py-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-foreground">License</p>
+            <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+              <Text variant="body" size="sm" bold as="span">License</Text>
+              <Badge variant="outline">{pkg.license}</Badge>
             </div>
-            <Badge variant="outline">{pkg.license}</Badge>
-          </div>
+          </LayerCard>
 
-        </div>
+          {/* Links — original 3-column grid, in its own card */}
+          <LayerCard className="rounded-lg">
+            <div className="grid grid-cols-1 divide-y divide-ui-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              {[
+                { href: `${pkg.repository.url.replace(/\.git$/, '')}/releases/`, label: 'Releases', sub: 'Version history & notes' },
+                { href: pkg.homepage, label: 'Homepage', sub: 'codra.run' },
+                { href: pkg.bugs.url, label: 'Report an issue', sub: 'GitHub issue tracker' },
+              ].map(({ href, label, sub }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group flex flex-col gap-2.5 px-4 py-4 transition-colors hover:bg-primary/[0.04]"
+                >
+                  <span>
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground group-hover:text-primary">
+                      {label}
+                      <ExternalLink size={11} className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-primary" />
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{sub}</span>
+                  </span>
+                </a>
+              ))}
+            </div>
+          </LayerCard>
 
-        {/* Links */}
-        <div className="grid grid-cols-1 divide-y divide-border/50 border-t border-border/50 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          {[
-            { href: `${pkg.repository.url.replace(/\.git$/, '')}/releases/`, label: 'Releases', sub: 'Version history & notes' },
-            { href: pkg.homepage, label: 'Homepage', sub: 'codra.run' },
-            { href: pkg.bugs.url, label: 'Report an issue', sub: 'GitHub issue tracker' },
-          ].map(({ href, label, sub }) => (
-            <a
-              key={label}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex flex-col gap-2.5 px-5 py-4 transition-colors hover:bg-primary/[0.04] sm:px-6"
-            >
-              <span>
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground group-hover:text-primary">
-                  {label}
-                  <ExternalLink size={11} className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-primary" />
-                </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{sub}</span>
-              </span>
-            </a>
-          ))}
         </div>
       </SectionCard>
     </section>

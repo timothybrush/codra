@@ -10,16 +10,25 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { TimeRangeSelect } from '@client/components/features/stats/time-range-select';
+import {
+  Activity,
+  Boxes,
+  Coins,
+  FolderGit2,
+  ShieldCheck,
+} from 'lucide-react';
+import { LayerCard } from '@client/components/ui/layer-card';
+import { Text } from '@client/components/ui/text';
+import { Meter } from '@client/components/ui/meter';
+import { Badge } from '@client/components/ui/badge';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';
 import { PageHeader } from '@client/components/layout/page-header';
 import { Skeleton } from '@client/components/shared/skeleton';
-import { Alert } from '@client/components/ui/alert';
-import { Button } from '@client/components/ui/button';
+import { LoadError } from '@client/components/shared/load-error';
 import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
 import { usePolling } from '@client/hooks/use-polling';
 import { api } from '@client/lib/api';
-import { fmtNumber } from '@client/lib/utils';
+import { cn, fmtNumber } from '@client/lib/utils';
 import type { StatsPayload } from '@shared/schema';
 
 const CHART = {
@@ -35,6 +44,17 @@ const CHART = {
   quietDark: '#64748b',
 };
 
+// Badge variant per job status, echoing the reference's colored action pills.
+type BadgeTone = 'success' | 'info' | 'neutral' | 'danger' | 'warning';
+const STATUS_TONE: Record<string, BadgeTone> = {
+  done: 'success',
+  running: 'info',
+  queued: 'neutral',
+  failed: 'danger',
+  superseded: 'neutral',
+  cancelled: 'warning',
+};
+
 function formatDay(value: string) {
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
@@ -45,11 +65,6 @@ function formatCompact(value: number) {
   return value >= 1000 ? fmtNumber(value) : value.toLocaleString();
 }
 
-function percent(numerator: number, denominator: number) {
-  if (!denominator) return 0;
-  return Math.round((numerator / denominator) * 100);
-}
-
 function modelName(model: string) {
   return model.split('/').pop()?.replace(/-/g, ' ') ?? model;
 }
@@ -58,9 +73,9 @@ function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2.5 text-xs shadow-lg">
+    <div className="rounded-md bg-ui-base px-3 py-2.5 text-xs shadow-lg ring ring-ui-line">
       {label && (
-        <p className="mb-2 font-semibold text-foreground">
+        <p className="mb-2 font-semibold text-ui-strong">
           {typeof label === 'string' && label.includes('-') ? formatDay(label) : label}
         </p>
       )}
@@ -71,8 +86,8 @@ function ChartTooltip({ active, payload, label }: any) {
               className="h-2 w-2 shrink-0 rounded-full"
               style={{ backgroundColor: item.color }}
             />
-            <span className="flex-1 capitalize text-muted-foreground">{item.name}</span>
-            <span className="font-semibold tabular-nums text-foreground">
+            <span className="flex-1 capitalize text-ui-subtle">{item.name}</span>
+            <span className="font-semibold tabular-nums text-ui-default">
               {typeof item.value === 'number' ? formatCompact(item.value) : item.value}
             </span>
           </div>
@@ -82,30 +97,37 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-function GraphSectionTitle() {
-  return <div className="pt-2" aria-hidden="true" />;
-}
-
 function GraphShell({
   title,
+  icon,
   children,
   className = '',
 }: {
   title: string;
+  icon?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <article className={`flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[var(--shadow-md)] ${className}`}>
-      <div className="px-4 pt-4 sm:px-5 sm:pt-5">
-        <h3 className="text-sm font-bold text-foreground sm:text-base">{title}</h3>
+    <LayerCard className={cn('flex flex-col', className)}>
+      <div className="flex items-center gap-2 px-4 pt-4 sm:px-5 sm:pt-5">
+        {icon && <span className="text-ui-subtle">{icon}</span>}
+        <Text as="h3" variant="body" bold>
+          {title}
+        </Text>
       </div>
       <div className="flex flex-1 flex-col">{children}</div>
-    </article>
+    </LayerCard>
   );
 }
 
-function MetricsGrid({ stats, isDark }: { stats: StatsPayload; isDark: boolean }) {
+function MetricsGrid({
+  stats,
+  isDark,
+}: {
+  stats: StatsPayload;
+  isDark: boolean;
+}) {
   const color = isDark ? CHART.primaryDark : CHART.primary;
   const commentsColor = isDark ? CHART.commentsDark : CHART.comments;
   const inputColor = isDark ? CHART.commentsDark : CHART.comments;
@@ -148,172 +170,166 @@ function MetricsGrid({ stats, isDark }: { stats: StatsPayload; isDark: boolean }
   const statusTotal = Math.max(stats.statuses.reduce((sum, s) => sum + s.count, 0), 1);
 
   return (
-    <div className="flex flex-col gap-5 sm:gap-6">
-      <GraphSectionTitle />
-
+    <div className="flex flex-col gap-4 sm:gap-6">
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-        <GraphShell title="Review flow">
-          <div className="h-64 px-2 pb-4 pt-4 sm:h-80 sm:px-3 sm:pb-5">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-              <AreaChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
-                <defs>
-                  <linearGradient id="reviewFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={color} stopOpacity={0.28} />
-                    <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="commentFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={commentsColor} stopOpacity={0.2} />
-                    <stop offset="100%" stopColor={commentsColor} stopOpacity={0.01} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-                <XAxis {...axisProps} {...xAxisProps} />
-                <YAxis {...axisProps} width={34} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: color, strokeDasharray: '4 4' }} />
-                <Area
-                  type="monotone"
-                  dataKey="jobs"
-                  name="reviews"
-                  stroke={color}
-                  strokeWidth={2.5}
-                  fill="url(#reviewFill)"
-                  dot={false}
-                  activeDot={{ r: 4, fill: color, stroke: 'var(--card)', strokeWidth: 2 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="comments"
-                  name="comments"
-                  stroke={commentsColor}
-                  strokeWidth={2}
-                  fill="url(#commentFill)"
-                  dot={false}
-                  activeDot={{ r: 4, fill: commentsColor, stroke: 'var(--card)', strokeWidth: 2 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </GraphShell>
+          <GraphShell title="Review flow" icon={<Activity size={14} strokeWidth={2} />}>
+            <div className="h-64 px-2 pb-4 pt-4 sm:h-80 sm:px-3 sm:pb-5">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <AreaChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
+                  <defs>
+                    <linearGradient id="reviewFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="commentFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={commentsColor} stopOpacity={0.2} />
+                      <stop offset="100%" stopColor={commentsColor} stopOpacity={0.01} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                  <XAxis {...axisProps} {...xAxisProps} />
+                  <YAxis {...axisProps} width={34} allowDecimals={false} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: color, strokeDasharray: '4 4' }} />
+                  <Area
+                    type="monotone"
+                    dataKey="jobs"
+                    name="reviews"
+                    stroke={color}
+                    strokeWidth={2.5}
+                    fill="url(#reviewFill)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: color, stroke: 'var(--card)', strokeWidth: 2 }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="comments"
+                    name="comments"
+                    stroke={commentsColor}
+                    strokeWidth={2}
+                    fill="url(#commentFill)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: commentsColor, stroke: 'var(--card)', strokeWidth: 2 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </GraphShell>
 
-        <GraphShell title="Input vs output tokens">
-          <div className="h-64 px-2 pb-4 pt-4 sm:h-80 sm:px-3 sm:pb-5">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-              <BarChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
-                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-                <XAxis {...axisProps} {...xAxisProps} />
-                <YAxis {...axisProps} width={46} tickFormatter={formatCompact} />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: cursorColor }} />
-                <Bar dataKey="inputTokens" name="input" fill={inputColor} radius={[3, 3, 0, 0]} />
-                <Bar dataKey="outputTokens" name="output" fill={outputColor} radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </GraphShell>
-      </div>
+          <GraphShell title="Input vs output tokens" icon={<Coins size={14} strokeWidth={2} />}>
+            <div className="h-64 px-2 pb-4 pt-4 sm:h-80 sm:px-3 sm:pb-5">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
+                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                  <XAxis {...axisProps} {...xAxisProps} />
+                  <YAxis {...axisProps} width={46} tickFormatter={formatCompact} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: cursorColor }} />
+                  <Bar dataKey="inputTokens" name="input" fill={inputColor} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="outputTokens" name="output" fill={outputColor} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </GraphShell>
+        </div>
 
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        <GraphShell title="Job health">
-          <div className="flex flex-col space-y-5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-            <div className="flex h-3.5 overflow-hidden rounded-full bg-secondary">
-              {stats.statuses.map((s) => (
-                <div
-                  key={s.status}
-                  style={{ width: `${(s.count / statusTotal) * 100}%`, backgroundColor: STATUS_COLOR[s.status] ?? CHART.quiet }}
+          <GraphShell title="Job health" icon={<ShieldCheck size={14} strokeWidth={2} />}>
+            <div className="flex flex-col space-y-5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+              <div className="flex h-3.5 overflow-hidden rounded-full bg-ui-fill">
+                {stats.statuses.map((s) => (
+                  <div
+                    key={s.status}
+                    style={{ width: `${(s.count / statusTotal) * 100}%`, backgroundColor: STATUS_COLOR[s.status] ?? CHART.quiet }}
+                  />
+                ))}
+              </div>
+              <div className="space-y-3">
+                {stats.statuses.map((s) => (
+                  <div key={s.status} className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_COLOR[s.status] ?? CHART.quiet }} />
+                      <Text variant="secondary" size="sm" className="capitalize">
+                        {s.status}
+                      </Text>
+                    </div>
+                    <Badge variant={STATUS_TONE[s.status] ?? 'neutral'}>
+                      {s.count}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </GraphShell>
+
+          <GraphShell title="Top repositories" icon={<FolderGit2 size={14} strokeWidth={2} />}>
+            <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+              {stats.topRepos.slice(0, 8).map((repo) => (
+                <Meter
+                  key={`${repo.owner}/${repo.repo}`}
+                  label={`${repo.owner}/${repo.repo}`}
+                  value={repo.jobs}
+                  max={repoMax}
+                  customValue={repo.jobs.toLocaleString()}
                 />
               ))}
             </div>
-            <div className="space-y-3.5">
-              {stats.statuses.map((s) => (
-                <div key={s.status} className="flex items-center justify-between gap-3 text-sm">
-                  <div className="flex items-center gap-2.5">
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_COLOR[s.status] ?? CHART.quiet }} />
-                    <span className="capitalize font-medium text-muted-foreground">{s.status}</span>
-                  </div>
-                  <span className="font-bold tabular-nums text-foreground">{s.count}</span>
-                </div>
+          </GraphShell>
+
+          <GraphShell title="Model calls" icon={<Boxes size={14} strokeWidth={2} />}>
+            <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+              {stats.models.slice(0, 8).map((model) => (
+                <Meter
+                  key={model.modelUsed}
+                  label={modelName(model.modelUsed)}
+                  value={model.calls}
+                  max={modelMax}
+                  customValue={model.calls.toLocaleString()}
+                  indicatorClassName="meter-indicator-info"
+                />
               ))}
             </div>
-          </div>
-        </GraphShell>
-
-        <GraphShell title="Repository bars">
-          <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-            {stats.topRepos.slice(0, 8).map((repo) => (
-              <div key={`${repo.owner}/${repo.repo}`} className="grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="truncate font-semibold text-foreground">{repo.owner}/{repo.repo}</span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${percent(repo.jobs, repoMax)}%` }} />
-                  </div>
-                </div>
-                <span className="text-right text-xs font-bold tabular-nums text-foreground">{repo.jobs}</span>
-              </div>
-            ))}
-          </div>
-        </GraphShell>
-
-        <GraphShell title="Model calls">
-          <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-            {stats.models.slice(0, 8).map((model) => (
-              <div key={model.modelUsed} className="grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="truncate font-semibold text-foreground">{modelName(model.modelUsed)}</span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
-                    <div className="h-full rounded-full bg-info" style={{ width: `${percent(model.calls, modelMax)}%` }} />
-                  </div>
-                </div>
-                <span className="text-right text-xs font-bold tabular-nums text-foreground">{model.calls}</span>
-              </div>
-            ))}
-          </div>
-        </GraphShell>
+          </GraphShell>
+        </div>
       </div>
-    </div>
   );
 }
 
 function GraphCardSkeleton({ className = '' }: { className?: string }) {
   return (
-    <article className={`overflow-hidden rounded-lg border border-border bg-card shadow-[var(--shadow-md)] ${className}`}>
+    <LayerCard className={cn('flex flex-col', className)}>
       <div className="px-4 pt-4 sm:px-5 sm:pt-5">
         <Skeleton height={16} width={140} />
       </div>
       <div className="h-64 px-4 pb-4 pt-4 sm:h-80 sm:px-5 sm:pb-5">
         <Skeleton height="100%" width="100%" borderRadius={6} />
       </div>
-    </article>
+    </LayerCard>
   );
 }
 
 function GraphBarCardSkeleton({ className = '' }: { className?: string }) {
   return (
-    <article className={`overflow-hidden rounded-lg border border-border bg-card shadow-[var(--shadow-md)] ${className}`}>
+    <LayerCard className={cn('flex flex-col', className)}>
       <div className="px-4 pt-4 sm:px-5 sm:pt-5">
         <Skeleton height={16} width={140} />
       </div>
       <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3">
-            <div className="space-y-2">
-              <Skeleton height={10} width={`${70 + (i % 3) * 10}%`} />
-              <Skeleton height={8} width={`${40 + ((i * 17) % 50)}%`} />
+          <div key={i} className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-4">
+              <Skeleton height={10} width={`${45 + (i % 3) * 12}%`} />
+              <Skeleton height={12} width={28} />
             </div>
-            <Skeleton height={12} width={28} />
+            <Skeleton height={8} width="100%" borderRadius={999} />
           </div>
         ))}
       </div>
-    </article>
+    </LayerCard>
   );
 }
 
 function MetricsGridSkeleton() {
   return (
-    <div className="flex flex-col gap-5 sm:gap-6">
-      <div className="pt-2" aria-hidden="true" />
+    <div className="flex flex-col gap-4 sm:gap-6">
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
         <GraphCardSkeleton />
         <GraphCardSkeleton />
@@ -367,7 +383,14 @@ export function StatsPage() {
         }
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {error && (
+        <LoadError
+          title="Couldn't load stats"
+          detail={error}
+          onRetry={() => load(true)}
+          retrying={refreshing}
+        />
+      )}
 
       {stats ? (
         <MetricsGrid stats={stats} isDark={isDark} />

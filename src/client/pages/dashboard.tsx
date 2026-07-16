@@ -12,7 +12,7 @@ import { Button } from '@client/components/ui/button';
 import { PageHeader } from '@client/components/layout/page-header';
 import { OverviewStats } from '@client/components/features/stats/overview-stats';
 import { usePolling } from '@client/hooks/use-polling';
-import { Alert } from '@client/components/ui/alert';
+import { LoadError } from '@client/components/shared/load-error';
 
 export function DashboardPage() {
   const [stats, setStats] = useState<StatsPayload | null>(null);
@@ -21,7 +21,7 @@ export function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(14);
 
   const load = async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -60,9 +60,16 @@ export function DashboardPage() {
         }
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {error && (
+        <LoadError
+          title="Couldn't load dashboard data"
+          detail={error}
+          onRetry={() => load(true)}
+          retrying={refreshing}
+        />
+      )}
 
-      <OverviewStats stats={stats} days={days} />
+      <OverviewStats stats={stats} />
 
       {/* ── Activity Stream ── */}
       <div className="flex flex-col gap-0">

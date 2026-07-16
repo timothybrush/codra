@@ -203,7 +203,7 @@ export function Select({
 
   // Gooey: the edge facing the panel snaps flat (panel attached) then rounds
   // back once the panel pulls away — the two pinch apart.
-  const kf = open ? [0, 0, 12] : [12, 0, 12];
+  const kf = open ? [0, 0, 7] : [7, 0, 7];
   const kfT: Transition = reduce
     ? { duration: 0 }
     : open
@@ -212,7 +212,7 @@ export function Select({
   const flatT: Transition = { duration: 0 };
 
   const nearGap = open ? 8 : 0;
-  const nearRadius = open ? 12 : 0;
+  const nearRadius = open ? 7 : 0;
   const gapT: Transition = open
     ? { type: 'spring', duration: 0.6, bounce: 0.5, delay: 0.12 }
     : { type: 'spring', duration: 0.3, bounce: 0.1 };
@@ -241,10 +241,10 @@ export function Select({
           onKeyDown={onTriggerKeyDown}
           initial={false}
           animate={{
-            borderTopLeftRadius: isTop ? kf : 12,
-            borderTopRightRadius: isTop ? kf : 12,
-            borderBottomLeftRadius: isTop ? 12 : kf,
-            borderBottomRightRadius: isTop ? 12 : kf,
+            borderTopLeftRadius: isTop ? kf : 7,
+            borderTopRightRadius: isTop ? kf : 7,
+            borderBottomLeftRadius: isTop ? 7 : kf,
+            borderBottomRightRadius: isTop ? 7 : kf,
           }}
           transition={{
             borderTopLeftRadius: isTop ? kfT : flatT,
@@ -254,10 +254,10 @@ export function Select({
           }}
           style={triggerStyle}
           className={cn(
-            'relative z-10 flex h-9 w-full items-center justify-between gap-2 border border-border px-3 py-2 text-sm font-normal text-foreground outline-none transition-colors',
-            variant === 'page' ? 'bg-card' : 'bg-muted/50',
-            'hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            !selectedOption && 'text-muted-foreground',
+            'relative z-10 flex h-9 w-full items-center justify-between gap-2 border border-ui-line px-3 py-2 text-sm font-normal text-ui-default outline-none transition-colors',
+            variant === 'page' ? 'bg-ui-base' : 'bg-ui-fill/50',
+            'hover:bg-ui-fill/70 focus-visible:ring-2 focus-visible:ring-ui-brand/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+            !selectedOption && 'text-ui-subtle',
             triggerClassName,
           )}
         >
@@ -271,7 +271,7 @@ export function Select({
             aria-hidden
             animate={{ rotate: open ? 180 : 0 }}
             transition={reduce ? { duration: 0 } : CHEVRON_TRANSITION}
-            className="shrink-0 text-muted-foreground"
+            className="shrink-0 text-ui-subtle"
           >
             <ChevronDown className="h-4 w-4" />
           </motion.span>
@@ -299,10 +299,10 @@ export function Select({
                   marginTop: isTop ? 0 : nearGap,
                   marginBottom: isTop ? nearGap : 0,
                   // near corners go flat->round; far corners stay rounded
-                  borderTopLeftRadius: isTop ? 12 : nearRadius,
-                  borderTopRightRadius: isTop ? 12 : nearRadius,
-                  borderBottomLeftRadius: isTop ? nearRadius : 12,
-                  borderBottomRightRadius: isTop ? nearRadius : 12,
+                  borderTopLeftRadius: isTop ? 7 : nearRadius,
+                  borderTopRightRadius: isTop ? 7 : nearRadius,
+                  borderBottomLeftRadius: isTop ? nearRadius : 7,
+                  borderBottomRightRadius: isTop ? nearRadius : 7,
                 }
           }
           transition={
@@ -333,7 +333,7 @@ export function Select({
           }}
           // flush against the trigger, then separates into its own rounded pill;
           // sits above or below depending on available space
-          className="z-50 border border-border bg-popover shadow-lg shadow-black/[0.03] dark:shadow-black/40"
+          className="z-50 border border-ui-line bg-ui-base shadow-lg shadow-black/[0.04] dark:shadow-black/40"
         >
           <motion.ul
             ref={innerRef}
@@ -362,11 +362,11 @@ export function Select({
                       setOpen(false);
                     }}
                     className={cn(
-                      'flex w-full items-center justify-between gap-2 whitespace-normal break-words rounded-lg px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
+                      'flex w-full items-center justify-between gap-2 whitespace-normal break-words rounded-md px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
                       selected
-                        ? 'bg-primary/10 font-medium text-primary dark:bg-primary/[0.12] dark:text-primary'
-                        : 'text-foreground/90 hover:bg-muted hover:text-foreground focus-visible:bg-muted',
-                      highlighted && !selected && 'bg-muted text-foreground',
+                        ? 'bg-ui-brand/10 font-medium text-ui-brand'
+                        : 'text-ui-default hover:bg-ui-fill hover:text-ui-strong focus-visible:bg-ui-fill',
+                      highlighted && !selected && 'bg-ui-fill text-ui-strong',
                     )}
                   >
                     <span className="min-w-0">{option.label}</span>

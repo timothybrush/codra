@@ -1,10 +1,36 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 
 @import "tailwindcss";
 
 /* Make `dark:` utilities follow the app's `.dark` class (theme toggle)
    instead of the OS `prefers-color-scheme` default. */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────
+   Surface palette (ui-* tokens).
+   The app's neutral surface scale, defined locally so there's no runtime
+   design-system dependency. Raw values live in :root/.dark (below); the
+   @theme inline block maps them to Tailwind so `bg/text/border/ring/
+   divide-ui-*` utilities generate and flip with the `.dark` class. Brand
+   tracks Codra's lime `--primary`. */
+:root {
+  --ui-base:    #ffffff;
+  --ui-canvas:  oklch(98.75% 0 0);
+  --ui-line:    oklch(14.5% 0 0 / 0.1);
+  --ui-fill:    oklch(92.2% 0 0);
+  --ui-subtle:  oklch(55.6% 0 0);
+  --ui-default: oklch(21% 0 0);
+  --ui-strong:  oklch(14.5% 0 0);
+}
+.dark {
+  --ui-base:    oklch(17% 0 0);
+  --ui-canvas:  oklch(10% 0 0);
+  --ui-line:    oklch(32% 0 0);
+  --ui-fill:    oklch(26.9% 0 0);
+  --ui-subtle:  oklch(70.8% 0 0);
+  --ui-default: oklch(97% 0 0);
+  --ui-strong:  oklch(98.5% 0 0);
+}
 
 /* ─────────────────────────────────────────────────────
    Easing tokens
@@ -30,6 +56,9 @@
   /* Signature lime - darkened in light mode for AA accessibility on white */
   --primary:             oklch(64%   0.24  115);
   --primary-foreground:  oklch(100%  0     0);   /* White text on the deeper green */
+  /* Filled primary buttons: one bright lime in both themes, with dark text on
+     top for contrast. Not theme-dependent, so defined once here. */
+  --btn-primary-bg:      #CCE800;
 
   /* Secondary / muted - Zinc */
   --secondary:           oklch(96.3% 0.003 286.3);
@@ -141,6 +170,18 @@
   --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
+  /* Surface palette → Tailwind utilities. Reference the raw --ui-* vars
+     (defined per-theme in :root/.dark) so the utilities flip with `.dark`.
+     Brand tracks Codra's lime `--primary`. */
+  --color-ui-base:    var(--ui-base);
+  --color-ui-canvas:  var(--ui-canvas);
+  --color-ui-line:    var(--ui-line);
+  --color-ui-fill:    var(--ui-fill);
+  --color-ui-subtle:  var(--ui-subtle);
+  --color-ui-default: var(--ui-default);
+  --color-ui-strong:  var(--ui-strong);
+  --color-ui-brand:   var(--primary);
+
   --color-background:            var(--background);
   --color-foreground:            var(--foreground);
   --color-card:                  var(--card);
@@ -177,11 +218,14 @@
   --color-info-bg:        var(--info-bg);
   --color-info-border:    var(--info-border);
 
-  --radius-sm:  0.25rem;
-  --radius-md:  0.5rem;
-  --radius-lg:  0.75rem;
-  --radius-xl:  1.125rem;
-  --radius-2xl: 2rem;
+  /* Common radius scale — one system across the app. Surfaces (rounded-lg /
+     rounded-xl / `.surface`) match the dashboard stat cards; controls
+     (rounded-md: inputs, buttons, dropdown items) sit a touch tighter. */
+  --radius-sm:  0.3125rem; /* 5px */
+  --radius-md:  0.4375rem; /* 7px  — controls */
+  --radius-lg:  0.6875rem; /* 11px — cards, panels, dropdown menus */
+  --radius-xl:  0.6875rem; /* 11px — large surfaces (`.surface`) */
+  --radius-2xl: 0.875rem;  /* 14px */
 
   /* Fluid Typography Scale (Ratio: 1.25) */
   --text-xs:   0.75rem;
@@ -545,6 +589,27 @@
   @apply animate-[shimmer_1.8s_linear_infinite] rounded-sm;
 }
 
+/* Unlayered `.skeleton` shimmer, kept at this specificity so it can't be
+   beaten by any later utility. */
+.skeleton {
+  background:
+    linear-gradient(
+      90deg,
+      var(--muted) 25%,
+      color-mix(in oklch, var(--muted) 50%, var(--card)) 50%,
+      var(--muted) 75%
+    ) !important;
+  background-size: 200% 100% !important;
+  animation: shimmer 1.8s linear infinite !important;
+}
+
+/* Recolour a <Meter> indicator to the info/blue token (model-call bars),
+   overriding the default lime brand fill. */
+.meter-indicator-info {
+  background-image: none !important;
+  background-color: var(--info) !important;
+}
+
 @utility code-block {
   @apply m-0 whitespace-pre-wrap break-words px-[1.125rem] py-4 rounded-md font-mono text-[0.775rem] leading-[1.7] overflow-auto tracking-[0.01em];
   background-color: var(--code-bg);
@@ -849,6 +914,17 @@
 
 @utility stat-number {
   @apply text-2xl md:text-3xl lg:text-[2.25rem] font-bold tracking-[-0.04em] leading-none text-foreground tabular-nums;
+}
+
+/* Fonts for the KPI-card surface. Inter for the sans, Geist Mono for the
+   numerals — scoped here because the global @theme sets --font-sans /
+   --font-mono to the app's default families. */
+.ui-font-sans {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+.ui-font-mono {
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-feature-settings: 'tnum' 1;
 }
 
 @utility stat-label {

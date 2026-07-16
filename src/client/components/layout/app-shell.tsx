@@ -454,12 +454,12 @@ export function AppShell() {
                   title={`${accountName} account menu`}
                   className={cn(
                     'dashboard-sidebar-action',
-                    'group relative flex w-full items-center gap-3 rounded-xl p-2 text-left',
+                    'group relative flex w-full items-center gap-3 rounded-md p-2 text-left',
                     'bg-transparent',
                     'text-black dark:text-white',
                     'transition-[background-color,border-color,box-shadow,transform] duration-200 ease-[var(--ease-out-quart)]',
                     'hover:border-primary/35 hover:bg-secondary/75 hover:shadow-[0_10px_22px_-18px_var(--primary)]',
-                    sidebarCollapsed && 'lg:h-[2.375rem] lg:w-[2.375rem] lg:justify-center lg:rounded-lg lg:border-dashed lg:p-0',
+                    sidebarCollapsed && 'lg:h-8 lg:w-8 lg:justify-center lg:rounded-md lg:border-dashed lg:p-0',
                   )}
                 >
                   <span className="relative shrink-0">

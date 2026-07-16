@@ -47,6 +47,8 @@ export function applyTheme(theme: Theme, options: { pauseTransitions?: boolean }
   if (options.pauseTransitions) pauseThemeTransitions(root);
   root.classList.toggle('dark', theme === 'dark');
   root.setAttribute('data-theme', theme);
+  // Mirror the theme onto `data-mode` too, for any CSS keyed off it.
+  root.setAttribute('data-mode', theme);
   try {
     localStorage.setItem('codra-theme', theme);
   } catch {

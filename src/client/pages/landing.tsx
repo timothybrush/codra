@@ -1,4 +1,5 @@
-import { Sun, Moon, ArrowRight, ExternalLink } from 'lucide-react';
+import { Sun, Moon, ExternalLink } from 'lucide-react';
+import { Button, LinkButton } from '@client/components/ui/button';
 import { useTheme } from '@client/lib/theme';
 import { GithubMark } from '@client/components/shared/github-mark';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
@@ -19,14 +20,27 @@ const FEATURES = [
   },
 ];
 
+/** Faint dotted-grid texture, faded out toward the bottom — the "control panel" backdrop. */
+const dotGrid = {
+  backgroundImage:
+    'radial-gradient(circle, color-mix(in oklch, var(--ui-line) 75%, transparent) 1px, transparent 1px)',
+  backgroundSize: '22px 22px',
+  maskImage: 'radial-gradient(ellipse 90% 80% at 30% 0%, black, transparent 80%)',
+  WebkitMaskImage: 'radial-gradient(ellipse 90% 80% at 30% 0%, black, transparent 80%)',
+};
+
+function DotGrid() {
+  return <div aria-hidden className="pointer-events-none absolute inset-0" style={dotGrid} />;
+}
+
 export function LandingPage() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className="flex min-h-svh flex-col bg-background text-foreground">
+    <div className="flex min-h-svh flex-col bg-ui-canvas text-ui-default">
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-40 border-b border-border bg-card">
+      <header className="sticky top-0 z-40 border-b border-ui-line bg-ui-base">
         <div className="flex h-14 w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <img
             src={theme === 'dark' ? codraDark : codraLight}
@@ -34,86 +48,94 @@ export function LandingPage() {
             alt="Codra"
           />
           <div className="flex items-center gap-2 sm:gap-3">
-            <a
+            <LinkButton
+              variant="secondary"
+              size="sm"
+              shape="square"
               href="https://github.com/devarshishimpi/codra"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-secondary dark:border-white/10 dark:bg-white/[0.06] dark:shadow-[0_1px_2px_oklch(0%_0_0/0.4),inset_0_1px_0_oklch(100%_0_0/0.06)] dark:hover:bg-white/[0.1] sm:flex"
+              external
               aria-label="Codra on GitHub"
+              className="hidden sm:flex"
             >
               <GithubMark size={14} />
-            </a>
-            <button
+            </LinkButton>
+            <Button
+              variant="secondary"
+              size="sm"
+              shape="square"
               onClick={toggleTheme}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-secondary dark:border-white/10 dark:bg-white/[0.06] dark:shadow-[0_1px_2px_oklch(0%_0_0/0.4),inset_0_1px_0_oklch(100%_0_0/0.06)] dark:hover:bg-white/[0.1]"
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
-            <a
+            </Button>
+            <LinkButton
+              variant="primary"
+              size="sm"
               href="/auth/github"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3.5 text-xs font-semibold text-background transition-all hover:bg-foreground/90 active:scale-[0.98] sm:px-4"
             >
               Sign in
-              <ArrowRight size={12} />
-            </a>
+            </LinkButton>
           </div>
         </div>
       </header>
 
       {/* ── Body ── */}
-      <main className="grid flex-1 grid-cols-1 lg:grid-cols-[1fr_400px]">
+      <main className="grid flex-1 grid-cols-1 lg:grid-cols-[1fr_440px]">
 
         {/* Left — Hero */}
-        <div className="flex flex-col justify-between border-b border-border bg-card px-8 py-12 sm:px-14 sm:py-16 lg:border-b-0 lg:border-r">
+        <div className="relative flex flex-col justify-between overflow-hidden border-b border-ui-line bg-ui-base px-8 py-14 sm:px-14 sm:py-20 lg:border-b-0 lg:border-r">
+          <DotGrid />
 
-          <div className="max-w-xl space-y-7">
-            <h1 className="font-mono text-4xl font-bold uppercase leading-[1.06] tracking-tight sm:text-5xl">
+          <div className="relative max-w-xl space-y-8">
+            <h1 className="font-display text-[2.75rem] font-semibold leading-[1.04] tracking-tight text-ui-strong sm:text-6xl">
               AI code review<br />
               on every PR.
             </h1>
 
-            <p className="max-w-md text-[0.95rem] leading-relaxed text-muted-foreground">
+            <p className="max-w-md text-[0.95rem] leading-relaxed text-ui-subtle">
               Codra reviews pull requests automatically, checking for bugs,
               security issues, and code patterns specific to your repository.
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
-              <a
+              <LinkButton
+                variant="primary"
+                size="base"
                 href="/auth/github"
-                className="inline-flex h-11 items-center gap-2.5 rounded-lg bg-foreground px-5 text-sm font-semibold text-background shadow-md transition-all hover:bg-foreground/90 active:scale-[0.98]"
+                icon={<GithubMark size={15} />}
+                className="!rounded-sm"
               >
-                <GithubMark size={16} />
                 Get started with GitHub
-                <ArrowRight size={15} />
-              </a>
-              <a
+              </LinkButton>
+              <LinkButton
+                variant="secondary"
+                size="base"
                 href="https://github.com/devarshishimpi/codra#readme"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-border bg-card px-5 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary dark:border-white/10 dark:bg-white/[0.06] dark:shadow-[0_1px_2px_oklch(0%_0_0/0.4),inset_0_1px_0_oklch(100%_0_0/0.06)] dark:hover:bg-white/[0.1]"
+                external
+                className="!rounded-sm"
               >
                 Read the docs
-              </a>
+              </LinkButton>
             </div>
           </div>
 
           {/* Footer links */}
-          <div className="mt-12 flex items-center gap-5 border-t border-border pt-14 text-xs text-muted-foreground">
+          <div className="relative mt-16 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-ui-line pt-8 font-mono text-[0.7rem] uppercase tracking-[0.12em] text-ui-subtle">
             <a
               href="https://codra.run"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-ui-brand"
             >
               <ExternalLink size={11} />
               codra.run
             </a>
+            <span className="text-ui-line">/</span>
             <a
               href="https://github.com/devarshishimpi/codra"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-ui-brand"
             >
               <ExternalLink size={11} />
               GitHub
@@ -122,21 +144,36 @@ export function LandingPage() {
         </div>
 
         {/* Right — Features */}
-        <div className="flex flex-col justify-center gap-6 border-t border-border px-8 py-12 sm:px-12 sm:py-16 lg:border-t-0">
-          <p className="text-[0.7rem] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            What it does
-          </p>
+        <div className="relative flex flex-col justify-center gap-5 overflow-hidden border-t border-ui-line bg-ui-canvas px-8 py-14 sm:px-12 sm:py-20 lg:border-t-0">
+          <DotGrid />
 
-          <div className="space-y-7">
+          {/* Section label with rule */}
+          <div className="relative flex items-center gap-3">
+            <span className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-ui-subtle">
+              What it does
+            </span>
+            <span className="h-px flex-1 bg-ui-line" />
+          </div>
+
+          <div className="relative flex flex-col gap-3">
             {FEATURES.map((item, i) => (
-              <div key={item.title} className="flex gap-4">
-                <span className="mt-[3px] flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[0.65rem] font-bold text-primary">
-                  {i + 1}
-                </span>
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-foreground">{item.title}</h3>
-                  <p className="text-sm leading-relaxed text-foreground/65 dark:text-muted-foreground">{item.desc}</p>
+              <div
+                key={item.title}
+                className="group relative overflow-hidden rounded-xl border border-ui-line bg-ui-base p-4 transition-colors duration-200 hover:border-ui-brand/40"
+              >
+                {/* Left accent bar on hover */}
+                <span className="absolute inset-y-0 left-0 w-[2px] scale-y-0 bg-ui-brand transition-transform duration-200 group-hover:scale-y-100" />
+
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-[0.72rem] font-semibold tabular-nums text-ui-brand">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <h3 className="text-sm font-semibold text-ui-strong">{item.title}</h3>
                 </div>
+
+                <p className="mt-2 pl-[calc(0.72rem+0.75rem)] text-[0.82rem] leading-relaxed text-ui-subtle">
+                  {item.desc}
+                </p>
               </div>
             ))}
           </div>

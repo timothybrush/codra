@@ -1,21 +1,34 @@
 import * as React from 'react';
 import { cn } from '@client/lib/utils';
 
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
+type InputSize = 'xs' | 'sm' | 'base' | 'lg';
 
-const Input = React.forwardRef<HTMLInputElement, InputProps>(({ className, type, ...props }, ref) => {
-  return (
+const SIZE_CLASS: Record<InputSize, string> = {
+  xs: 'h-6 rounded-md px-1.5 text-xs',
+  sm: 'h-8 rounded-md px-2 text-xs',
+  base: 'h-9 rounded-md px-3 text-sm',
+  lg: 'h-10 rounded-md px-4 text-base',
+};
+
+// Omit the native numeric `size` attribute so our string-union size wins.
+export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
+  size?: InputSize;
+}
+
+/** Text input surface for the app's design system. */
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, size = 'base', ...props }, ref) => (
     <input
-      type={type}
+      ref={ref}
       className={cn(
-        'flex h-9 w-full rounded-md border border-zinc-200 bg-white px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:border-input dark:bg-card/60',
+        'w-full border border-ui-line bg-ui-base text-ui-default transition-colors placeholder:text-ui-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40 disabled:cursor-not-allowed disabled:opacity-50',
+        SIZE_CLASS[size],
         className,
       )}
-      ref={ref}
       {...props}
     />
-  );
-});
+  ),
+);
 Input.displayName = 'Input';
 
 export { Input };

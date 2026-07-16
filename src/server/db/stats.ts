@@ -27,7 +27,9 @@ export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30) 
           COALESCE(SUM(total_output_tokens), 0)::int AS output_tokens,
           COALESCE(SUM(comment_count), 0)::int AS comments
         FROM jobs
+        WHERE created_at >= now() - ($1::int * interval '1 day')
       `,
+      [clampedDays],
     ),
     queryRows<{ day: string; jobs: number; input_tokens: number; output_tokens: number; comments: number }>(
       env,
