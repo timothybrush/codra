@@ -1,4 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
+import { LoadError } from '@client/components/shared/load-error';
 import {
   ChevronLeft, FileCode2, Clock, Cpu, Hash,
   AlertCircle, CheckCircle2, SkipForward, Hourglass,
@@ -183,7 +184,7 @@ export function JobLogsPage() {
         )}
       </div>
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {error && <LoadError title="Something went wrong" detail={error} />}
 
       {/* File list */}
       {job.files.length === 0 ? (

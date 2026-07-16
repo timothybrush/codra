@@ -71,24 +71,25 @@ export function DashboardPage() {
 
       <OverviewStats stats={stats} />
 
-      {/* ── Activity Stream ── */}
-      <div className="flex flex-col gap-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-sm font-semibold text-foreground">Recent reviews</h2>
+      {/* ── Activity Stream: header + table + footer in one panel ── */}
+      <div className="ui-panel min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-2 border-b border-ui-line px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <GitPullRequest size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+            <h2 className="truncate text-[13px] font-medium text-ui-default">Recent reviews</h2>
           </div>
           <Link to="/jobs">
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              className="h-7 gap-1.5 text-xs text-ui-subtle hover:text-ui-default"
             >
               View all <ArrowRight size={13} />
             </Button>
           </Link>
         </div>
 
-        <div className="surface min-w-0 overflow-hidden">
+        <div className="min-w-0">
           {(loading || recentJobs.length > 0) && (
             <JobsTable jobs={recentJobs} loading={loading} />
           )}
@@ -111,8 +112,8 @@ export function DashboardPage() {
           )}
 
           {!loading && recentJobs.length > 0 && (
-            <div className="px-5 py-2.5 bg-muted/20 border-t border-border/50">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/40 text-center">
+            <div className="ui-well border-t border-ui-line px-4 py-2.5">
+              <p className="ui-font-mono text-[11px] text-ui-subtle">
                 {recentJobs.length} review jobs · refreshes every 15s
               </p>
             </div>

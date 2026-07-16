@@ -3,8 +3,9 @@ import { api } from '@client/lib/api';
 import { JobsTable } from '@client/components/shared/jobs-table';
 import { EmptyState } from '@client/components/shared/empty-state';
 import { Button } from '@client/components/ui/button';
+import { Input } from '@client/components/ui/input';
 import { Select } from '@client/components/ui/select';
-import { Alert } from '@client/components/ui/alert';
+import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { usePolling } from '@client/hooks/use-polling';
 import { GitPullRequest, ChevronLeft, ChevronRight, RefreshCw, AlertTriangle, RotateCcw, Trash2, Info, Search } from 'lucide-react';
@@ -71,67 +72,69 @@ export function JobsPage() {
         }
       />
 
-      {/* ── Search bar ─── */}
-      <div className="surface p-4 flex flex-col sm:flex-row gap-4">
-        {/* Search Input */}
-        <div className="flex flex-col gap-1.5 flex-1">
-          <label htmlFor="pr-search" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-            Search
-          </label>
-          <input
-            type="text"
-            id="pr-search"
-            placeholder="Title or #number..."
-            value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
-            className="h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-
-        {/* Status Dropdown */}
-        <div className="w-full sm:w-48">
-          <Select
-            label="Status"
-            value={filters.status}
-            onValueChange={(v) => setFilters((f) => ({ ...f, status: v, page: 1 }))}
-            placeholder="All statuses"
-            options={[
-              { value: '', label: 'All statuses' },
-              { value: 'queued', label: 'Queued' },
-              { value: 'running', label: 'Running' },
-              { value: 'done', label: 'Done' },
-              { value: 'failed', label: 'Failed' },
-              { value: 'superseded', label: 'Superseded' },
-              { value: 'cancelled', label: 'Cancelled' }
-            ]}
-            triggerClassName="bg-transparent"
-          />
-        </div>
-
-        {/* Verdict Dropdown */}
-        <div className="w-full sm:w-48">
-          <Select
-            label="Verdict"
-            value={filters.verdict}
-            onValueChange={(v) => setFilters((f) => ({ ...f, verdict: v, page: 1 }))}
-            placeholder="All verdicts"
-            options={[
-              { value: '', label: 'All verdicts' },
-              { value: 'approve', label: 'Approve' },
-              { value: 'comment', label: 'Comment' }
-            ]}
-            triggerClassName="bg-transparent"
-          />
-        </div>
-      </div>
-
-
       {error && (
-        <Alert variant="destructive">{error}</Alert>
+        <LoadError
+          title="Couldn't load jobs"
+          detail={error}
+          onRetry={() => load(true)}
+          retrying={refreshing}
+        />
       )}
 
-      {/* ── Table ─────────────────────────────────── */}
-      <div className="surface min-w-0 overflow-hidden">
+      {/* ── Table card: toolbar + table + pagination in one panel ─── */}
+      <div className="ui-panel min-w-0 overflow-hidden">
+        {/* Filter toolbar */}
+        <div className="flex flex-col gap-2 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={13}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ui-subtle"
+            />
+            <Input
+              type="text"
+              id="pr-search"
+              size="sm"
+              placeholder="Title or #number..."
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
+              className="pl-8"
+              aria-label="Search jobs by title or number"
+            />
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="w-full sm:w-40">
+              <Select
+                value={filters.status}
+                onValueChange={(v) => setFilters((f) => ({ ...f, status: v, page: 1 }))}
+                placeholder="All statuses"
+                options={[
+                  { value: '', label: 'All statuses' },
+                  { value: 'queued', label: 'Queued' },
+                  { value: 'running', label: 'Running' },
+                  { value: 'done', label: 'Done' },
+                  { value: 'failed', label: 'Failed' },
+                  { value: 'superseded', label: 'Superseded' },
+                  { value: 'cancelled', label: 'Cancelled' }
+                ]}
+                triggerClassName="h-8 text-xs"
+              />
+            </div>
+            <div className="w-full sm:w-40">
+              <Select
+                value={filters.verdict}
+                onValueChange={(v) => setFilters((f) => ({ ...f, verdict: v, page: 1 }))}
+                placeholder="All verdicts"
+                options={[
+                  { value: '', label: 'All verdicts' },
+                  { value: 'approve', label: 'Approve' },
+                  { value: 'comment', label: 'Comment' }
+                ]}
+                triggerClassName="h-8 text-xs"
+              />
+            </div>
+          </div>
+        </div>
+
         <JobsTable jobs={jobs} loading={loading} />
 
         {!loading && jobs.length === 0 && (
@@ -152,10 +155,10 @@ export function JobsPage() {
         )}
 
         {/* ── Pagination footer (Beetle-style) ─── */}
-        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+        <div className="ui-well flex items-center justify-between gap-3 border-t border-ui-line px-4 py-2.5">
           {/* Items per page */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Items per page:</span>
+            <span className="text-xs text-ui-subtle">Items per page:</span>
             <Select
               value={String(itemsPerPage)}
               onValueChange={(v) => {
@@ -180,7 +183,7 @@ export function JobsPage() {
             >
               <ChevronLeft size={14} />
             </Button>
-            <span className="text-xs text-muted-foreground">
+            <span className="ui-font-mono text-xs tabular-nums text-ui-subtle">
               Page {filters.page} of {Math.max(totalPages, 1)}
             </span>
             <Button

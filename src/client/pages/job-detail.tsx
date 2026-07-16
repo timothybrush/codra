@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom';
+import { LoadError } from '@client/components/shared/load-error';
 import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobHeader } from '@client/components/features/job-detail/job-header';
 import { JobProgress } from '@client/components/features/job-detail/job-progress';
@@ -37,9 +38,7 @@ export function JobDetailPage() {
         onDelete={handleDelete}
       />
 
-      {error && (
-        <Alert variant="destructive">{error}</Alert>
-      )}
+      {error && <LoadError title="Something went wrong" detail={error} />}
 
       <JobProgress job={job} />
 

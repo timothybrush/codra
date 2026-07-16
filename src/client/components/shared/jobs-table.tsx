@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom';
 import {
   ArrowUpRight,
   FileText,
-  GitPullRequestArrow,
   Zap,
 } from 'lucide-react';
 import { StatusBadge } from '@client/components/ui/badge';
@@ -38,7 +37,7 @@ const DEFAULT_COLUMNS: Column[] = [
 ];
 
 const thCls =
-  'px-4 py-3 text-left text-xs font-semibold text-muted-foreground/70 select-none';
+  'border-b border-ui-line px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle select-none';
 
 const COLUMN_CLASSES: Record<Column, string> = {
   repo: 'w-[190px] max-w-[190px]',
@@ -119,12 +118,12 @@ function NumericMetric({
   return (
     <span
       className={cn(
-        'inline-flex min-w-0 items-center justify-end gap-1.5 font-mono text-xs tabular-nums',
-        strong ? 'text-foreground' : 'text-muted-foreground',
+        'ui-font-mono inline-flex min-w-0 items-center justify-end gap-1.5 text-xs tabular-nums',
+        strong ? 'text-ui-default' : 'text-ui-subtle',
       )}
       title={label}
     >
-      <Icon size={12} className="text-muted-foreground/60" />
+      <Icon size={12} className="text-ui-subtle" />
       {value}
     </span>
   );
@@ -137,21 +136,21 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
   return (
     <Link
       to={`/jobs/${job.id}`}
-      className="group block border-b border-border/60 px-4 py-4 transition-colors last:border-b-0 hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="group block border-b border-ui-line px-4 py-4 transition-colors last:border-b-0 hover:bg-ui-fill/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40 focus-visible:ring-offset-2"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {show('repo') && (
-            <p className="truncate text-xs font-semibold text-muted-foreground">
+            <p className="truncate text-xs font-semibold text-ui-subtle">
               {job.owner}/{job.repo}
             </p>
           )}
           {show('pr') && (
             <div className="mt-1 flex min-w-0 items-start gap-2">
-              <span className="mt-0.5 shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] font-semibold text-muted-foreground">
+              <span className="mt-0.5 shrink-0 ui-font-mono rounded bg-ui-fill px-1.5 py-0.5 text-[11px] font-semibold text-ui-subtle">
                 #{job.prNumber}
               </span>
-              <p className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">
+              <p className="line-clamp-2 text-sm font-semibold leading-5 text-ui-strong">
                 {job.prTitle ?? 'Untitled PR'}
               </p>
             </div>
@@ -160,7 +159,7 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
         {show('action') && (
           <ArrowUpRight
             size={15}
-            className="mt-0.5 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary"
+            className="mt-0.5 shrink-0 text-ui-subtle transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ui-brand"
           />
         )}
       </div>
@@ -171,11 +170,11 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
           (job.verdict ? (
             <StatusBadge label={job.verdict} />
           ) : (
-            <span className="text-xs text-muted-foreground/50">No verdict</span>
+            <span className="text-xs text-ui-subtle">No verdict</span>
           ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ui-subtle">
         {show('files') && (
           <div className="flex items-center gap-1.5">
             <FileText size={13} />
@@ -199,14 +198,13 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
 export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
   const cols: Column[] = columns ?? DEFAULT_COLUMNS;
   const tableMinWidth = cols.length > 7 ? 'min-w-[980px]' : 'min-w-[720px]';
-  const itemBgClass = 'bg-background';
 
   return (
     <div className="min-w-0 max-w-full overflow-hidden">
       <div className="sm:hidden">
         {loading && jobs.length === 0
           ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="border-b border-border/60 px-4 py-4 last:border-b-0">
+              <div key={i} className="border-b border-ui-line px-4 py-4 last:border-b-0">
                 <Skeleton width="42%" height={12} />
                 <div className="mt-2 flex items-center gap-2">
                   <Skeleton width={42} height={22} />
@@ -228,7 +226,7 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
       <div className="hidden max-w-full overflow-x-auto sm:block">
         <table className={cn('w-full border-separate border-spacing-0 text-sm', tableMinWidth)}>
           <thead>
-            <tr className="border-b border-border/60 bg-muted/30">
+            <tr className="ui-well">
               {cols.map((col) => (
                 <th
                   key={col}
@@ -244,14 +242,14 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
               ))}
             </tr>
           </thead>
-          <tbody className="bg-card">
+          <tbody>
             {loading && jobs.length === 0
               ? Array.from({ length: 7 }).map((_, i) => (
                   <tr key={i}>
                     {cols.map((col) => (
                       <td
                         key={col}
-                        className={cn('border-t border-border/50 px-4 py-5', COLUMN_CLASSES[col])}
+                        className={cn('border-t border-ui-line px-4 py-3.5', COLUMN_CLASSES[col])}
                       >
                         <Skeleton width={SKELETON_WIDTHS[col]} />
                       </td>
@@ -261,104 +259,60 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
               : jobs.map((job) => {
                   const tokenTotal = job.totalInputTokens + job.totalOutputTokens;
 
+                  // Flat single-line rows (Cloudflare-dashboard table style):
+                  // mono data columns, pills for status, no avatars or icons.
                   return (
                     <tr
                       key={job.id}
-                      className="group relative cursor-default transition-colors hover:bg-zinc-50 dark:hover:bg-secondary/45"
+                      className="group relative transition-colors hover:bg-ui-fill/40"
                     >
                       {cols.includes('repo') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 align-middle',
-                            COLUMN_CLASSES.repo,
-                          )}
-                        >
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-xs font-bold text-primary shadow-sm", itemBgClass)}>
-                              {job.repo.slice(0, 2).toUpperCase()}
-                            </span>
-                            <div className="min-w-0">
-                              <Link
-                                to={`/jobs/${job.id}`}
-                                className="block truncate text-sm font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
-                              >
-                                {job.repo}
-                              </Link>
-                              <p className="truncate text-[11px] font-medium text-muted-foreground">
-                                {job.owner}
-                              </p>
-                            </div>
-                          </div>
+                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.repo)}>
+                          <Link
+                            to={`/jobs/${job.id}`}
+                            className="ui-font-mono block truncate text-xs text-ui-default hover:text-ui-brand"
+                            title={`${job.owner}/${job.repo}`}
+                          >
+                            {job.owner}/{job.repo}
+                          </Link>
                         </td>
                       )}
 
                       {cols.includes('pr') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 align-middle overflow-hidden',
-                            COLUMN_CLASSES.pr,
-                          )}
-                        >
-                          <div className="flex min-w-0 items-start gap-2">
-                            <GitPullRequestArrow
-                              size={15}
-                              className="mt-0.5 shrink-0 text-muted-foreground/70"
-                            />
-                            <div className="min-w-0 overflow-hidden">
-                              <div className="flex min-w-0 items-baseline gap-1.5">
-                                <span className="shrink-0 font-mono text-[11px] font-semibold text-muted-foreground">
-                                  #{job.prNumber}
-                                </span>
-                                <Link
-                                  to={`/jobs/${job.id}`}
-                                  className="truncate block text-sm font-medium text-foreground underline-offset-2 group-hover:text-primary group-hover:underline"
-                                >
-                                  {job.prTitle ?? 'Untitled PR'}
-                                </Link>
-                              </div>
-                              {job.prAuthor && (
-                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                  opened by {job.prAuthor}
-                                </p>
-                              )}
-                            </div>
+                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle overflow-hidden', COLUMN_CLASSES.pr)}>
+                          <div className="flex min-w-0 items-baseline gap-2">
+                            <span className="ui-font-mono shrink-0 text-[11px] text-ui-subtle">
+                              #{job.prNumber}
+                            </span>
+                            <Link
+                              to={`/jobs/${job.id}`}
+                              className="block truncate text-sm text-ui-default group-hover:text-ui-strong"
+                              title={job.prAuthor ? `opened by ${job.prAuthor}` : undefined}
+                            >
+                              {job.prTitle ?? 'Untitled PR'}
+                            </Link>
                           </div>
                         </td>
                       )}
 
                       {cols.includes('status') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 align-middle',
-                            COLUMN_CLASSES.status,
-                          )}
-                        >
+                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.status)}>
                           <StatusBadge label={job.status} job={job} />
                         </td>
                       )}
 
                       {cols.includes('verdict') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 align-middle',
-                            COLUMN_CLASSES.verdict,
-                          )}
-                        >
+                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.verdict)}>
                           {job.verdict ? (
                             <StatusBadge label={job.verdict} />
                           ) : (
-                            <span className="text-muted-foreground/40">-</span>
+                            <span className="text-ui-subtle">-</span>
                           )}
                         </td>
                       )}
 
                       {cols.includes('files') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 text-right align-middle',
-                            COLUMN_CLASSES.files,
-                          )}
-                        >
+                        <td className={cn('border-t border-ui-line px-4 py-3 text-right align-middle', COLUMN_CLASSES.files)}>
                           <NumericMetric
                             icon={FileText}
                             value={job.fileCount.toLocaleString()}
@@ -368,12 +322,7 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
                       )}
 
                       {cols.includes('tokens') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 text-right align-middle',
-                            COLUMN_CLASSES.tokens,
-                          )}
-                        >
+                        <td className={cn('border-t border-ui-line px-4 py-3 text-right align-middle', COLUMN_CLASSES.tokens)}>
                           <NumericMetric
                             icon={Zap}
                             value={fmtNumber(tokenTotal)}
@@ -383,33 +332,21 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
                       )}
 
                       {cols.includes('created') && (
-                        <td
-                          className={cn(
-                            'whitespace-nowrap border-t border-border/50 px-4 py-4 align-middle',
-                            COLUMN_CLASSES.created,
-                          )}
-                        >
-                          <div className="flex items-center gap-2 text-sm font-medium text-foreground/80">
-                            <div>
-                              <p>{formatDate(job.createdAt)}</p>
-                              <p className="text-[11px] font-normal text-muted-foreground">
-                                {formatRelativeDate(job.createdAt)}
-                              </p>
-                            </div>
-                          </div>
+                        <td className={cn('whitespace-nowrap border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.created)}>
+                          <span
+                            className="ui-font-mono text-xs tabular-nums text-ui-subtle"
+                            title={formatRelativeDate(job.createdAt)}
+                          >
+                            {formatDate(job.createdAt)}
+                          </span>
                         </td>
                       )}
 
                       {cols.includes('action') && (
-                        <td
-                          className={cn(
-                            'border-t border-border/50 px-4 py-4 text-center align-middle',
-                            COLUMN_CLASSES.action,
-                          )}
-                        >
+                        <td className={cn('border-t border-ui-line px-4 py-3 text-center align-middle', COLUMN_CLASSES.action)}>
                           <Link
                             to={`/jobs/${job.id}`}
-                            className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:text-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", itemBgClass)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill hover:text-ui-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40"
                             aria-label={`Open job for ${job.owner}/${job.repo} pull request ${job.prNumber}`}
                           >
                             <ArrowUpRight size={14} />

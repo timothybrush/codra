@@ -4,19 +4,21 @@ import { cn } from '@client/lib/utils';
 import type { JobSummary } from '@shared/schema';
 import { LiveReviewStepper } from '@client/components/features/reviews/live-review-stepper';
 
+// Borderless tinted pills (Cloudflare-dashboard style): translucent colored
+// fill + saturated text of the same hue.
 const badgeVariants = cva(
-  'inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold border tracking-wide transition-colors',
+  'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
   {
     variants: {
       variant: {
-        default:   'bg-primary/10 text-primary border-primary/25',
-        secondary: 'bg-secondary text-secondary-foreground border-border/50',
-        neutral:   'bg-secondary text-secondary-foreground border-border/50',
-        info:      'bg-info-bg text-info border-info-border',
-        success:   'bg-success-bg text-success border-success-border',
-        warning:   'badge-warning',
-        danger:    'bg-danger-bg text-danger border-danger-border',
-        outline:   'text-foreground border-border bg-transparent',
+        default:   'bg-primary/15 text-primary',
+        secondary: 'bg-ui-fill/70 text-ui-subtle',
+        neutral:   'bg-ui-fill/70 text-ui-subtle',
+        info:      'bg-info/15 text-info',
+        success:   'bg-success/15 text-success',
+        warning:   'bg-warning/15 text-warning',
+        danger:    'bg-danger/15 text-danger',
+        outline:   'text-ui-default ring-1 ring-inset ring-ui-line bg-transparent',
       },
     },
     defaultVariants: { variant: 'default' },

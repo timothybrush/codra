@@ -617,18 +617,6 @@
   border: 1px solid var(--code-border);
 }
 
-@utility badge-warning {
-  background-color: var(--warning-bg);
-  color: var(--warning);
-  border-color: var(--warning-border);
-
-  .dark & {
-    background-color: var(--warning-bg);
-    color: var(--warning);
-    border-color: var(--warning-border);
-  }
-}
-
 @utility severity-tag {
   @apply text-[0.64rem] px-[5.5px] py-[1.5px] rounded-[3px] uppercase font-bold tracking-[0.07em] border border-transparent;
 
@@ -925,6 +913,27 @@
 .ui-font-mono {
   font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-feature-settings: 'tnum' 1;
+}
+
+/* Shared panel chrome matching the dashboard stat cards: white/black surface,
+   ui-line border (deeper in dark), Inter, 11px radius. Use for table cards and
+   section panels so everything reads as one system. `.ui-well` is the matching
+   recessed strip (table header rows, footers) — the stat cards' inner panel. */
+.ui-panel {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-line);
+  background: #ffffff;
+}
+.dark .ui-panel {
+  background: #000000;
+  border-color: oklch(0.27 0 0);
+}
+.ui-well {
+  background: oklch(96.5% 0 0);
+}
+.dark .ui-well {
+  background: oklch(19% 0 0);
 }
 
 @utility stat-label {

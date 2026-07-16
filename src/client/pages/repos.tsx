@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import { Dialog } from '@base-ui/react/dialog';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { EmptyState } from '@client/components/shared/empty-state';
-import { Button } from '@client/components/ui/button';
+import { Button, LinkButton } from '@client/components/ui/button';
+import { Badge } from '@client/components/ui/badge';
 import { Alert } from '@client/components/ui/alert';
+import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { Switch } from '@client/components/ui/switch';
 import {
@@ -135,57 +137,37 @@ function RepoRow({
   const custom = hasMeaningfulCustomStrategy(repo, globalConfig);
   const lastActivity = formatLastActivity(repo.lastJobCreatedAt);
 
+  // Flat list row (Cloudflare-dashboard style): mono repo name, tint badges,
+  // plain switch + edit on the right, no per-row card chrome.
   return (
-    <article className="surface surface-static-shadow min-w-0 px-3 py-3 sm:px-4">
-      <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(180px,1.1fr)_minmax(220px,1.4fr)_auto] lg:items-center">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className={cn(
-              'h-2.5 w-2.5 shrink-0 rounded-full',
-              repo.enabled ? 'bg-success' : 'bg-muted-foreground/35',
-            )}
-          />
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">
+    <div className="min-w-0 px-4 py-3 transition-colors hover:bg-ui-fill/30 sm:px-5">
+      <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(200px,1.1fr)_minmax(220px,1.4fr)_auto] lg:items-center">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="ui-font-mono truncate text-[13px] text-ui-default">
               {repo.owner}/{repo.repo}
             </h2>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span
-                className={cn(
-                  'rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-                  repo.enabled
-                    ? 'border-success-border bg-success-bg text-success'
-                    : 'border-border bg-muted/40 text-muted-foreground',
-                )}
-              >
-                {repo.enabled ? 'Enabled' : 'Paused'}
-              </span>
-              <span
-                className={cn(
-                  'rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-                  custom
-                    ? 'border-primary/25 bg-primary/10 text-primary'
-                    : 'border-border bg-secondary text-secondary-foreground',
-                )}
-              >
-                {custom ? 'Custom strategy' : 'Global strategy'}
-              </span>
-              {lastActivity && (
-                <span className="text-[11px] text-muted-foreground">
-                  Last {lastActivity}
-                </span>
-              )}
-            </div>
+            <Badge variant={repo.enabled ? 'success' : 'neutral'} className="shrink-0">
+              {repo.enabled ? 'Enabled' : 'Paused'}
+            </Badge>
+            <Badge variant={custom ? 'default' : 'neutral'} className="hidden shrink-0 sm:inline-flex">
+              {custom ? 'Custom strategy' : 'Global strategy'}
+            </Badge>
           </div>
+          {lastActivity && (
+            <p className="ui-font-mono mt-1 text-[11px] text-ui-subtle">
+              Last activity {lastActivity}
+            </p>
+          )}
         </div>
 
-        <p className="min-w-0 truncate text-xs text-muted-foreground lg:px-2">
+        <p className="min-w-0 truncate text-xs text-ui-subtle lg:px-2">
           {describeModelRoute(route, modelOptions)}
         </p>
 
-        <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
-          <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2.5 py-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 lg:justify-end">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               Reviews
             </span>
             <Switch
@@ -196,17 +178,17 @@ function RepoRow({
             />
           </div>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => onEdit(repo)}
-            className="h-8 shrink-0 gap-1.5"
+            icon={<Settings2 size={13} />}
+            className="shrink-0"
           >
-            <Settings2 size={13} />
             Edit
           </Button>
         </div>
       </div>
-    </article>
+    </div>
   );
 }
 
@@ -308,21 +290,21 @@ function RepoModelModal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-background/75 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in data-[state=closed]:fade-out" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=closed]:zoom-out-95">
-          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-4 py-4 sm:px-6">
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-background/75 backdrop-blur-sm transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 flex max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-ui-line bg-card shadow-2xl transition-[opacity,transform] duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-ui-line px-4 py-4 sm:px-6">
             <div className="min-w-0">
-              <Dialog.Title className="text-base font-semibold text-foreground">
+              <Dialog.Title className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">
                 Edit model strategy
               </Dialog.Title>
-              <Dialog.Description className="mt-1 truncate text-sm text-muted-foreground">
+              <Dialog.Description className="mt-1 truncate text-sm text-ui-subtle">
                 {repo ? repoId(repo) : 'Repository routing'}
               </Dialog.Description>
             </div>
-            <Dialog.Close asChild>
-              <Button variant="ghost" size="icon" aria-label="Close modal" className="h-8 w-8 shrink-0">
-                <X size={15} />
-              </Button>
+            <Dialog.Close
+              render={<Button variant="ghost" size="icon" aria-label="Close modal" className="h-8 w-8 shrink-0" />}
+            >
+              <X size={15} />
             </Dialog.Close>
           </div>
 
@@ -337,27 +319,33 @@ function RepoModelModal({
             />
           </div>
 
-          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-border bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-ui-line bg-ui-fill/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <Button
               variant="ghost"
               onClick={handleReset}
               disabled={!repo || saving !== null || !hasStoredStrategy}
-              className="gap-2 text-muted-foreground hover:text-foreground"
+              loading={saving === 'reset'}
+              icon={<RotateCcw size={14} />}
+              className="text-ui-subtle hover:text-ui-default"
             >
-              {saving === 'reset' ? <RefreshCw size={14} className="animate-spin" /> : <RotateCcw size={14} />}
               Use global
             </Button>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Dialog.Close asChild>
-                <Button variant="outline" disabled={saving !== null}>Cancel</Button>
+              <Dialog.Close render={<Button variant="secondary" disabled={saving !== null} />}>
+                Cancel
               </Dialog.Close>
-              <Button onClick={handleApply} disabled={!dirty || saving !== null} className="gap-2">
-                {saving === 'apply' ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+              <Button
+                variant="primary"
+                onClick={handleApply}
+                disabled={!dirty || saving !== null}
+                loading={saving === 'apply'}
+                icon={<Save size={14} />}
+              >
                 Apply
               </Button>
             </div>
           </div>
-        </Dialog.Content>
+        </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
   );
@@ -485,7 +473,7 @@ export function ReposPage() {
         <PageHeader title="Repositories" />
         <div className="surface overflow-hidden">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="px-5 py-4 border-b border-border/50 last:border-0">
+            <div key={i} className="px-5 py-4 border-b border-ui-line/60 last:border-0">
               <Skeleton height={20} />
             </div>
           ))}
@@ -509,21 +497,27 @@ export function ReposPage() {
             >
               Sync Repositories
             </Button>
-            <Button asChild size="sm" className="gap-2">
-              <a
-                href="/api/repos/install"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ArrowUpRight size={13} />
-                Add Repositories
-              </a>
-            </Button>
+            <LinkButton
+              variant="primary"
+              size="sm"
+              href="/api/repos/install"
+              external
+              icon={<ArrowUpRight size={13} />}
+            >
+              Add Repositories
+            </LinkButton>
           </div>
         }
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {error && (
+        <LoadError
+          title="Couldn't load repositories"
+          detail={error}
+          onRetry={() => loadRepos()}
+          retrying={loading}
+        />
+      )}
 
       {repos.length === 0 ? (
         <EmptyState
@@ -540,7 +534,7 @@ export function ReposPage() {
           }}
         />
       ) : (
-        <div className="flex min-w-0 flex-col gap-2.5">
+        <div className="surface min-w-0 divide-y divide-ui-line/60 overflow-hidden">
           {repos.map(repo => {
             const id = repoId(repo);
             return (

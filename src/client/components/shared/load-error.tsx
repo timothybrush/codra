@@ -7,6 +7,8 @@ interface LoadErrorProps {
   title?: string;
   /** Raw error detail (e.g. "Failed to fetch"), shown as a mono chip. */
   detail?: string | null;
+  /** Guidance line under the title; defaults to connection-check copy. */
+  hint?: string;
   onRetry?: () => void;
   retrying?: boolean;
   className?: string;
@@ -17,7 +19,14 @@ interface LoadErrorProps {
  * detail chip, and a Retry action — instead of a bare toast/alert echoing
  * "Failed to fetch".
  */
-export function LoadError({ title = "Couldn't load data", detail, onRetry, retrying, className }: LoadErrorProps) {
+export function LoadError({
+  title = "Couldn't load data",
+  detail,
+  hint = 'Check your connection, then try again. If this keeps happening, the server may be unreachable.',
+  onRetry,
+  retrying,
+  className,
+}: LoadErrorProps) {
   return (
     <section
       role="alert"
@@ -34,7 +43,7 @@ export function LoadError({ title = "Couldn't load data", detail, onRetry, retry
           <div className="min-w-0">
             <h2 className="text-[13px] font-medium text-ui-default">{title}</h2>
             <p className="mt-0.5 text-xs leading-relaxed text-ui-subtle">
-              Check your connection, then try again. If this keeps happening, the server may be unreachable.
+              {hint}
             </p>
             {detail && (
               <code className="ui-font-mono mt-2 inline-block max-w-full truncate rounded-[5px] bg-[oklch(96.5%_0_0)] px-2 py-1 text-[11px] text-ui-subtle dark:bg-[oklch(19%_0_0)]">

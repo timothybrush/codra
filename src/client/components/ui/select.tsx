@@ -224,7 +224,7 @@ export function Select({
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       {label && (
-        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
           {label}
         </label>
       )}

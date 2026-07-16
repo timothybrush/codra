@@ -5,6 +5,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,9 +21,6 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { LayerCard } from '@client/components/ui/layer-card';
-import { Text } from '@client/components/ui/text';
-import { Meter } from '@client/components/ui/meter';
-import { Badge } from '@client/components/ui/badge';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';
 import { PageHeader } from '@client/components/layout/page-header';
 import { Skeleton } from '@client/components/shared/skeleton';
@@ -34,26 +34,24 @@ import type { StatsPayload } from '@shared/schema';
 const CHART = {
   primary: '#65a30d',
   primaryDark: '#e0fe56',
-  comments: '#0ea5e9',
-  commentsDark: '#38bdf8',
-  warning: '#d97706',
-  warningDark: '#fbbf24',
+  blue: '#3b82f6',
+  blueDark: '#3b82f6',
+  amber: '#d97706',
+  amberDark: '#f59e0b',
   danger: '#dc2626',
   dangerDark: '#f87171',
+  info: '#0ea5e9',
+  infoDark: '#38bdf8',
   quiet: '#94a3b8',
   quietDark: '#64748b',
 };
 
-// Badge variant per job status, echoing the reference's colored action pills.
-type BadgeTone = 'success' | 'info' | 'neutral' | 'danger' | 'warning';
-const STATUS_TONE: Record<string, BadgeTone> = {
-  done: 'success',
-  running: 'info',
-  queued: 'neutral',
-  failed: 'danger',
-  superseded: 'neutral',
-  cancelled: 'warning',
-};
+// Per-row accents for the segmented tick meters (reference: white / orange /
+// cyan / blue / purple rhythm).
+const TICK_COLORS_DARK = ['#e4e4e7', '#fb923c', '#22d3ee', '#3b82f6', '#a78bfa'];
+const TICK_COLORS_LIGHT = ['#3f3f46', '#ea580c', '#0891b2', '#2563eb', '#7c3aed'];
+
+const MONO_STACK = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 function formatDay(value: string) {
   const date = new Date(`${value}T00:00:00`);
@@ -84,7 +82,7 @@ function ChartTooltip({ active, payload, label }: any) {
           <div key={item.dataKey ?? item.name} className="flex min-w-32 items-center gap-2">
             <span
               className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: item.color }}
+              style={{ backgroundColor: item.color === 'url(#hatchGray)' ? 'currentColor' : item.color }}
             />
             <span className="flex-1 capitalize text-ui-subtle">{item.name}</span>
             <span className="font-semibold tabular-nums text-ui-default">
@@ -97,29 +95,153 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
+/* ── Card chrome ─────────────────────────────────────────────────────────── */
+
+/** Faint dot-grid texture behind chart content (reference dashboard look). */
+function CardDots() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 opacity-[0.35]"
+      style={{
+        backgroundImage: 'radial-gradient(circle, var(--ui-line) 1px, transparent 1px)',
+        backgroundSize: '18px 18px',
+      }}
+    />
+  );
+}
+
 function GraphShell({
   title,
   icon,
+  legend,
   children,
   className = '',
 }: {
   title: string;
   icon?: ReactNode;
+  legend?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <LayerCard className={cn('flex flex-col', className)}>
-      <div className="flex items-center gap-2 px-4 pt-4 sm:px-5 sm:pt-5">
-        {icon && <span className="text-ui-subtle">{icon}</span>}
-        <Text as="h3" variant="body" bold>
+    <LayerCard className={cn('relative flex flex-col overflow-hidden', className)}>
+      <CardDots />
+      <div className="relative flex items-center gap-2 px-4 pt-4 sm:px-5 sm:pt-5">
+        {icon && <span className="shrink-0 text-ui-subtle">{icon}</span>}
+        <h3 className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">
           {title}
-        </Text>
+        </h3>
       </div>
-      <div className="flex flex-1 flex-col">{children}</div>
+      {legend && (
+        <div className="relative flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 pt-3 sm:px-5">
+          {legend}
+        </div>
+      )}
+      <div className="relative flex flex-1 flex-col">{children}</div>
     </LayerCard>
   );
 }
+
+/** Legend chip: solid square, hatched square, or dashed-line swatch + label. */
+function LegendChip({
+  color,
+  hatched,
+  dashed,
+  label,
+}: {
+  color?: string;
+  hatched?: boolean;
+  dashed?: boolean;
+  label: string;
+}) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-ui-subtle">
+      {dashed ? (
+        <span
+          className="h-0 w-3.5 shrink-0 border-t-2 border-dashed"
+          style={{ borderColor: color }}
+        />
+      ) : (
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+          style={
+            hatched
+              ? {
+                  backgroundImage:
+                    'repeating-linear-gradient(45deg, var(--ui-subtle) 0 1.5px, transparent 1.5px 3.5px)',
+                  backgroundColor: 'color-mix(in oklch, var(--ui-fill) 60%, transparent)',
+                }
+              : { backgroundColor: color }
+          }
+        />
+      )}
+      {label}
+    </span>
+  );
+}
+
+/** SVG defs shared by the bar/area charts: diagonal hatch + soft fills. */
+function ChartDefs({ isDark }: { isDark: boolean }) {
+  const hatch = isDark ? 'rgba(228,228,231,0.5)' : 'rgba(63,63,70,0.4)';
+  const hatchBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+  return (
+    <defs>
+      <pattern id="hatchGray" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+        <rect width="5" height="5" fill={hatchBg} />
+        <line x1="0" y1="0" x2="0" y2="5" stroke={hatch} strokeWidth="1.4" />
+      </pattern>
+      <linearGradient id="blueBar" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#60a5fa" />
+        <stop offset="100%" stopColor="#2563eb" />
+      </linearGradient>
+      <linearGradient id="amberFill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor={isDark ? '#f59e0b' : '#d97706'} stopOpacity={0.16} />
+        <stop offset="100%" stopColor={isDark ? '#f59e0b' : '#d97706'} stopOpacity={0.02} />
+      </linearGradient>
+    </defs>
+  );
+}
+
+/** Segmented tick meter (reference "cost allocation" bars). */
+function TickMeter({
+  label,
+  value,
+  max,
+  color,
+  valueLabel,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  color: string;
+  valueLabel: string;
+}) {
+  const SEGMENTS = 26;
+  const filled = value > 0 ? Math.max(1, Math.round((value / Math.max(max, 1)) * SEGMENTS)) : 0;
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-28 shrink-0 truncate text-[13px] font-medium text-ui-default" title={label}>
+        {label}
+      </span>
+      <div className="flex h-4 flex-1 items-stretch gap-[2.5px]" aria-hidden>
+        {Array.from({ length: SEGMENTS }).map((_, i) => (
+          <span
+            key={i}
+            className="min-w-[2px] flex-1 rounded-[1px]"
+            style={{ backgroundColor: i < filled ? color : 'var(--ui-fill)' }}
+          />
+        ))}
+      </div>
+      <span className="ui-font-mono w-14 shrink-0 text-right text-xs tabular-nums text-ui-default">
+        {valueLabel}
+      </span>
+    </div>
+  );
+}
+
+/* ── Metrics grid ────────────────────────────────────────────────────────── */
 
 function MetricsGrid({
   stats,
@@ -128,26 +250,27 @@ function MetricsGrid({
   stats: StatsPayload;
   isDark: boolean;
 }) {
-  const color = isDark ? CHART.primaryDark : CHART.primary;
-  const commentsColor = isDark ? CHART.commentsDark : CHART.comments;
-  const inputColor = isDark ? CHART.commentsDark : CHART.comments;
-  const outputColor = isDark ? CHART.warningDark : CHART.warning;
+  const lime = isDark ? CHART.primaryDark : CHART.primary;
+  const amber = isDark ? CHART.amberDark : CHART.amber;
   const dangerColor = isDark ? CHART.dangerDark : CHART.danger;
+  const infoColor = isDark ? CHART.infoDark : CHART.info;
   const quietColor = isDark ? CHART.quietDark : CHART.quiet;
+  const dashColor = isDark ? 'rgba(228,228,231,0.75)' : 'rgba(63,63,70,0.65)';
+  const tickColors = isDark ? TICK_COLORS_DARK : TICK_COLORS_LIGHT;
   const repoMax = Math.max(...stats.topRepos.map((repo) => repo.jobs), 1);
   const modelMax = Math.max(...stats.models.map((model) => model.calls), 1);
 
   // Theme-aware chart chrome. CSS variables don't reliably resolve inside
   // Recharts SVG text, so use explicit colors keyed off the active theme.
-  const axisColor = isDark ? 'rgba(228,228,231,0.62)' : 'rgba(63,63,70,0.78)';
-  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+  const axisColor = isDark ? 'rgba(228,228,231,0.55)' : 'rgba(63,63,70,0.7)';
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
   const cursorColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
   const axisProps = {
-    fontSize: 11,
+    fontSize: 10,
     tickLine: false,
     tickMargin: 8,
     axisLine: false,
-    tick: { fontFamily: 'var(--font-sans)', fill: axisColor },
+    tick: { fontFamily: MONO_STACK, fill: axisColor },
   } as const;
   // Let Recharts thin the labels by available space (respecting minTickGap)
   // rather than a fixed stride keyed off the range — the trend array can have
@@ -160,8 +283,8 @@ function MetricsGrid({
   };
 
   const STATUS_COLOR: Record<string, string> = {
-    done: color,
-    running: commentsColor,
+    done: lime,
+    running: infoColor,
     queued: quietColor,
     failed: dangerColor,
     superseded: quietColor,
@@ -172,124 +295,160 @@ function MetricsGrid({
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-          <GraphShell title="Review flow" icon={<Activity size={14} strokeWidth={2} />}>
-            <div className="h-64 px-2 pb-4 pt-4 sm:h-80 sm:px-3 sm:pb-5">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <AreaChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
-                  <defs>
-                    <linearGradient id="reviewFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={color} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-                    </linearGradient>
-                    <linearGradient id="commentFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={commentsColor} stopOpacity={0.2} />
-                      <stop offset="100%" stopColor={commentsColor} stopOpacity={0.01} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-                  <XAxis {...axisProps} {...xAxisProps} />
-                  <YAxis {...axisProps} width={34} allowDecimals={false} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: color, strokeDasharray: '4 4' }} />
-                  <Area
-                    type="monotone"
-                    dataKey="jobs"
-                    name="reviews"
-                    stroke={color}
-                    strokeWidth={2.5}
-                    fill="url(#reviewFill)"
-                    dot={false}
-                    activeDot={{ r: 4, fill: color, stroke: 'var(--card)', strokeWidth: 2 }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="comments"
-                    name="comments"
-                    stroke={commentsColor}
-                    strokeWidth={2}
-                    fill="url(#commentFill)"
-                    dot={false}
-                    activeDot={{ r: 4, fill: commentsColor, stroke: 'var(--card)', strokeWidth: 2 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </GraphShell>
+        <GraphShell
+          title="Review Flow"
+          icon={<Activity size={14} strokeWidth={2} />}
+          legend={
+            <>
+              <LegendChip color={amber} label="Reviews" />
+              <LegendChip color={dashColor} dashed label="Comments" />
+            </>
+          }
+        >
+          <div className="h-64 px-2 pb-4 pt-3 sm:h-80 sm:px-3 sm:pb-5">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+              <AreaChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
+                <ChartDefs isDark={isDark} />
+                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis {...axisProps} {...xAxisProps} />
+                <YAxis {...axisProps} width={34} allowDecimals={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: amber, strokeDasharray: '4 4' }} />
+                <Area
+                  type="stepAfter"
+                  dataKey="jobs"
+                  name="reviews"
+                  stroke={amber}
+                  strokeWidth={2}
+                  fill="url(#amberFill)"
+                  dot={false}
+                  activeDot={{ r: 4, fill: amber, stroke: 'var(--card)', strokeWidth: 2 }}
+                />
+                <Area
+                  type="stepAfter"
+                  dataKey="comments"
+                  name="comments"
+                  stroke={dashColor}
+                  strokeWidth={1.5}
+                  strokeDasharray="5 4"
+                  fill="transparent"
+                  dot={false}
+                  activeDot={{ r: 4, fill: dashColor, stroke: 'var(--card)', strokeWidth: 2 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </GraphShell>
 
-          <GraphShell title="Input vs output tokens" icon={<Coins size={14} strokeWidth={2} />}>
-            <div className="h-64 px-2 pb-4 pt-4 sm:h-80 sm:px-3 sm:pb-5">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <BarChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
-                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-                  <XAxis {...axisProps} {...xAxisProps} />
-                  <YAxis {...axisProps} width={46} tickFormatter={formatCompact} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: cursorColor }} />
-                  <Bar dataKey="inputTokens" name="input" fill={inputColor} radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="outputTokens" name="output" fill={outputColor} radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </GraphShell>
-        </div>
+        <GraphShell
+          title="Token Volume"
+          icon={<Coins size={14} strokeWidth={2} />}
+          legend={
+            <>
+              <LegendChip color="#3b82f6" label="Output tokens" />
+              <LegendChip hatched label="Input tokens" />
+            </>
+          }
+        >
+          <div className="h-64 px-2 pb-4 pt-3 sm:h-80 sm:px-3 sm:pb-5">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+              <BarChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }} barCategoryGap="28%">
+                <ChartDefs isDark={isDark} />
+                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis {...axisProps} {...xAxisProps} />
+                <YAxis {...axisProps} width={46} tickFormatter={formatCompact} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: cursorColor }} />
+                <Bar dataKey="outputTokens" name="output" stackId="tokens" fill="url(#blueBar)" radius={[2, 2, 2, 2]} />
+                <Bar dataKey="inputTokens" name="input" stackId="tokens" fill="url(#hatchGray)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </GraphShell>
+      </div>
 
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          <GraphShell title="Job health" icon={<ShieldCheck size={14} strokeWidth={2} />}>
-            <div className="flex flex-col space-y-5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-              <div className="flex h-3.5 overflow-hidden rounded-full bg-ui-fill">
-                {stats.statuses.map((s) => (
-                  <div
-                    key={s.status}
-                    style={{ width: `${(s.count / statusTotal) * 100}%`, backgroundColor: STATUS_COLOR[s.status] ?? CHART.quiet }}
-                  />
-                ))}
-              </div>
-              <div className="space-y-3">
-                {stats.statuses.map((s) => (
-                  <div key={s.status} className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_COLOR[s.status] ?? CHART.quiet }} />
-                      <Text variant="secondary" size="sm" className="capitalize">
-                        {s.status}
-                      </Text>
-                    </div>
-                    <Badge variant={STATUS_TONE[s.status] ?? 'neutral'}>
-                      {s.count}
-                    </Badge>
-                  </div>
-                ))}
+        <GraphShell title="Job Health" icon={<ShieldCheck size={14} strokeWidth={2} />}>
+          <div className="flex flex-1 items-center gap-5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+            {/* Donut with centred total */}
+            <div className="relative h-36 w-36 shrink-0">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <PieChart>
+                  <Pie
+                    data={stats.statuses}
+                    dataKey="count"
+                    nameKey="status"
+                    innerRadius="72%"
+                    outerRadius="96%"
+                    paddingAngle={3}
+                    cornerRadius={4}
+                    strokeWidth={0}
+                    isAnimationActive
+                  >
+                    {stats.statuses.map((s) => (
+                      <Cell key={s.status} fill={STATUS_COLOR[s.status] ?? quietColor} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="ui-font-mono text-xl font-medium leading-none text-ui-strong">
+                  {formatCompact(statusTotal)}
+                </span>
+                <span className="mt-1 text-[10px] uppercase tracking-[0.14em] text-ui-subtle">Jobs</span>
               </div>
             </div>
-          </GraphShell>
 
-          <GraphShell title="Top repositories" icon={<FolderGit2 size={14} strokeWidth={2} />}>
-            <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-              {stats.topRepos.slice(0, 8).map((repo) => (
-                <Meter
-                  key={`${repo.owner}/${repo.repo}`}
-                  label={`${repo.owner}/${repo.repo}`}
-                  value={repo.jobs}
-                  max={repoMax}
-                  customValue={repo.jobs.toLocaleString()}
-                />
+            {/* Legend with counts + share */}
+            <div className="min-w-0 flex-1 space-y-2.5">
+              {stats.statuses.map((s) => (
+                <div key={s.status} className="flex items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+                      style={{ backgroundColor: STATUS_COLOR[s.status] ?? quietColor }}
+                    />
+                    <span className="truncate text-[13px] font-medium capitalize text-ui-default">{s.status}</span>
+                  </span>
+                  <span className="ui-font-mono shrink-0 text-xs tabular-nums text-ui-subtle">
+                    {s.count}
+                    <span className="text-ui-subtle/70"> ({Math.round((s.count / statusTotal) * 100)}%)</span>
+                  </span>
+                </div>
               ))}
             </div>
-          </GraphShell>
+          </div>
+        </GraphShell>
 
-          <GraphShell title="Model calls" icon={<Boxes size={14} strokeWidth={2} />}>
-            <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-              {stats.models.slice(0, 8).map((model) => (
-                <Meter
-                  key={model.modelUsed}
-                  label={modelName(model.modelUsed)}
-                  value={model.calls}
-                  max={modelMax}
-                  customValue={model.calls.toLocaleString()}
-                  indicatorClassName="meter-indicator-info"
-                />
-              ))}
-            </div>
-          </GraphShell>
-        </div>
+        <GraphShell title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />}>
+          <div className="space-y-3.5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+            {stats.topRepos.slice(0, 8).map((repo, i) => (
+              <TickMeter
+                key={`${repo.owner}/${repo.repo}`}
+                label={repo.repo}
+                value={repo.jobs}
+                max={repoMax}
+                color={tickColors[i % tickColors.length]}
+                valueLabel={repo.jobs.toLocaleString()}
+              />
+            ))}
+          </div>
+        </GraphShell>
+
+        <GraphShell title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />}>
+          <div className="space-y-3.5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+            {stats.models.slice(0, 8).map((model, i) => (
+              <TickMeter
+                key={model.modelUsed}
+                label={modelName(model.modelUsed)}
+                value={model.calls}
+                max={modelMax}
+                color={tickColors[i % tickColors.length]}
+                valueLabel={model.calls.toLocaleString()}
+              />
+            ))}
+          </div>
+        </GraphShell>
       </div>
+    </div>
   );
 }
 
@@ -314,12 +473,10 @@ function GraphBarCardSkeleton({ className = '' }: { className?: string }) {
       </div>
       <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-4">
-              <Skeleton height={10} width={`${45 + (i % 3) * 12}%`} />
-              <Skeleton height={12} width={28} />
-            </div>
-            <Skeleton height={8} width="100%" borderRadius={999} />
+          <div key={i} className="flex items-center gap-3">
+            <Skeleton height={12} width={90} />
+            <Skeleton height={14} width="100%" />
+            <Skeleton height={12} width={34} />
           </div>
         ))}
       </div>

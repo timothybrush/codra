@@ -6,6 +6,7 @@ import { PageHeader } from '@client/components/layout/page-header';
 import { Button } from '@client/components/ui/button';
 import { Alert } from '@client/components/ui/alert';
 import { Skeleton } from '@client/components/shared/skeleton';
+import { LoadError } from '@client/components/shared/load-error';
 import { Input } from '@client/components/ui/input';
 import { Select } from '@client/components/ui/select';
 import { Switch } from '@client/components/ui/switch';
@@ -18,7 +19,6 @@ import {
   RefreshCw,
   Plus,
   Trash2,
-  ChevronDown,
   ChevronRight,
   X,
   ExternalLink,
@@ -179,16 +179,12 @@ function SectionCard({
 }) {
   return (
     <section className="surface min-w-0 overflow-hidden">
-      <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          {icon && (
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
-              {icon}
-            </span>
-          )}
+      <div className="flex items-center justify-between gap-4 border-b border-ui-line px-5 py-4">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {icon && <span className="shrink-0 text-ui-subtle">{icon}</span>}
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-            <p className="truncate text-xs text-muted-foreground">{description}</p>
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">{title}</h2>
+            <p className="mt-0.5 truncate text-xs text-ui-subtle">{description}</p>
           </div>
         </div>
         {action && <div className="shrink-0">{action}</div>}
@@ -201,7 +197,7 @@ function SectionCard({
 /* ─── Field label ─────────────────────────────────────────────────────────── */
 function FieldLabel({ htmlFor, id, children }: { htmlFor: string; id?: string; children: React.ReactNode }) {
   return (
-    <label htmlFor={htmlFor} id={id} className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+    <label htmlFor={htmlFor} id={id} className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
       {children}
     </label>
   );
@@ -456,7 +452,7 @@ export function SettingsPage() {
 
   const persistProvider = async (
     provider: ProviderDraft,
-    { quiet = false, clearApiKey = false }: { quiet?: boolean; clearApiKey?: boolean } = {},
+    { quiet = false, clearApiKey = false, successMessage }: { quiet?: boolean; clearApiKey?: boolean; successMessage?: string } = {},
   ) => {
     if (provider.enabled && !clearApiKey && !providerHasCredential(provider)) {
       if (!quiet) {
@@ -484,7 +480,7 @@ export function SettingsPage() {
       const { provider: saved } = await api.updateProvider(provider.id, payload);
       setProviders(current => current.map(item => item.id === saved.id ? providerToDraft(saved) : item));
       setSavedProviders(current => current.map(item => item.id === saved.id ? saved : item));
-      if (!quiet) toast.success('Provider saved', { id: tid ?? undefined });
+      if (!quiet) toast.success(successMessage ?? 'Provider saved', { id: tid ?? undefined });
       return saved;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Provider update failed';
@@ -504,9 +500,16 @@ export function SettingsPage() {
   };
 
   const clearProviderKey = async (provider: ProviderDraft) => {
+    // Build the payload from the last SAVED state, not the draft — "remove key"
+    // must not silently persist unrelated unsaved edits (name/URL/protocol).
     // A provider can't stay enabled without a key, so drop it to disabled while
     // clearing (the server rejects an enabled provider with no credential).
-    await persistProvider({ ...provider, apiKey: '', enabled: false }, { clearApiKey: true });
+    const saved = savedProviders.find(item => item.id === provider.id);
+    const base = saved ? providerToDraft(saved) : provider;
+    await persistProvider(
+      { ...base, apiKey: '', enabled: false },
+      { clearApiKey: true, successMessage: 'API key removed' },
+    );
   };
 
   const createProvider = async () => {
@@ -580,10 +583,11 @@ export function SettingsPage() {
       />
 
       {error && (
-        <Alert variant="destructive">
-          <ShieldAlert className="h-4 w-4" />
-          <span className="ml-2 text-sm font-medium">{error}</span>
-        </Alert>
+        <LoadError
+          title="Something went wrong"
+          hint="The last request didn't go through. Retry the action, or reload the page."
+          detail={error}
+        />
       )}
 
       {syncErrors.length > 0 && (
@@ -668,43 +672,39 @@ export function SettingsPage() {
       <section className="surface min-w-0 overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-4 sm:px-5">
+        <div className="flex items-center justify-between gap-4 border-b border-ui-line px-4 py-4 sm:px-5">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">LLM Providers</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">LLM Providers</h2>
+            <p className="mt-0.5 text-xs text-ui-subtle">
               {loading ? 'Loading…' : `${configuredProviderCount} of ${providers.length} configured`}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => refreshModelCatalog()}
               disabled={loading || catalogRefreshing || saving !== null}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              icon={<RefreshCw size={13} className={cn(catalogRefreshing && 'animate-spin')} />}
+              className="text-ui-subtle hover:text-ui-default"
             >
-              <RefreshCw size={13} className={cn(catalogRefreshing && 'animate-spin')} />
               {catalogRefreshing ? 'Syncing…' : 'Sync'}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant={addingProvider ? 'ghost' : 'primary'}
+              size="sm"
               onClick={() => setAddingProvider(v => !v)}
-              className={cn(
-                'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
-                addingProvider
-                  ? 'text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'
-                  : 'bg-primary text-primary-foreground hover:opacity-90',
-              )}
+              icon={addingProvider ? <X size={13} /> : <Plus size={13} />}
             >
-              {addingProvider ? <X size={13} /> : <Plus size={13} />}
               {addingProvider ? 'Cancel' : 'Add'}
-            </button>
+            </Button>
           </div>
         </div>
 
         {/* Add provider form */}
         {addingProvider && (
-          <div className="animate-slide-down border-b border-border bg-muted/[0.04] px-4 py-5 sm:px-5 sm:py-6">
-            <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <div className="animate-slide-down border-b border-ui-line bg-ui-fill/20 px-4 py-5 sm:px-5 sm:py-6">
+            <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               New provider
             </p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -751,36 +751,40 @@ export function SettingsPage() {
                 <Input
                   id="new-provider-api-key"
                   type="password"
+                  autoComplete="new-password"
+                  spellCheck={false}
                   placeholder="sk-…"
                   value={newProvider.apiKey}
                   onChange={e => setNewProvider(current => ({ ...current, apiKey: e.target.value }))}
                 />
               </div>
             </div>
-            <div className="mt-5 flex items-center justify-end gap-3">
-              <button
-                type="button"
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setAddingProvider(false)}
-                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                className="text-ui-subtle hover:text-ui-default"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={createProvider}
                 disabled={saving !== null || !newProviderReady}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
+                loading={saving === 'provider:new'}
+                icon={<Plus size={13} />}
               >
-                {saving === 'provider:new' ? <RefreshCw size={11} className="animate-spin" /> : <Plus size={11} />}
                 Create
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
         {/* Provider list */}
         {loading ? (
-          <div className="divide-y divide-border/40">
+          <div className="divide-y divide-ui-line/60">
             {[148, 148, 148].map((h, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-4 sm:px-5">
                 <div className="flex-1 space-y-2">
@@ -793,11 +797,11 @@ export function SettingsPage() {
           </div>
         ) : providers.length === 0 && !addingProvider ? (
           <div className="px-5 py-14 text-center">
-            <p className="text-sm font-medium text-foreground">No providers yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">Add one to start routing models.</p>
+            <p className="text-sm font-medium text-ui-default">No providers yet</p>
+            <p className="mt-1 text-xs text-ui-subtle">Add one to start routing models.</p>
           </div>
         ) : (
-          <div className="divide-y divide-border/40">
+          <div className="divide-y divide-ui-line/60">
             {providers.map(provider => {
               const nativeCloudflare = provider.apiFormat === 'cloudflare-workers-ai';
               const customProvider = isCustomProvider(provider);
@@ -818,47 +822,62 @@ export function SettingsPage() {
                     dirty && 'bg-primary/[0.018]',
                   )}
                 >
-                  {/* Row */}
-                  <div className="flex min-w-0 items-center gap-3 px-4 py-4 sm:gap-4 sm:px-5">
-
-                    {/* Name + meta */}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">{provider.name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        <span className="font-mono">{provider.apiFormat}</span>
-                        {modelCount > 0 && (
-                          <span className="ml-2 opacity-70">· {modelCount} model{modelCount !== 1 ? 's' : ''}</span>
+                  {/* Row — the whole left side toggles the config panel */}
+                  <div className="flex min-w-0 items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedProviderId(configOpen ? null : provider.id)}
+                      aria-expanded={configOpen}
+                      aria-label={`${configOpen ? 'Collapse' : 'Configure'} ${provider.name}`}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-ui-fill/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40"
+                    >
+                      <ChevronRight
+                        size={14}
+                        className={cn(
+                          'shrink-0 text-ui-subtle transition-transform duration-200',
+                          configOpen && 'rotate-90 text-ui-default',
                         )}
-                      </p>
-                    </div>
-
-                    {/* Credential — hidden on smallest screens */}
-                    <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-                      {nativeCloudflare
-                        ? 'Worker binding'
-                        : provider.hasApiKey
-                          ? 'Key saved'
-                          : <span className="text-warning">No key</span>
-                      }
-                    </span>
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-ui-default">{provider.name}</span>
+                          <Badge
+                            variant={!provider.enabled ? 'neutral' : providerIsReady(provider) ? 'success' : 'warning'}
+                            className="shrink-0"
+                          >
+                            {providerStatusLabel(provider)}
+                          </Badge>
+                        </span>
+                        <span className="mt-0.5 block text-xs text-ui-subtle">
+                          <span className="font-mono">{provider.apiFormat}</span>
+                          {modelCount > 0 && (
+                            <span className="ml-2 opacity-70">· {modelCount} model{modelCount !== 1 ? 's' : ''}</span>
+                          )}
+                          {nativeCloudflare && <span className="ml-2 opacity-70">· Worker binding</span>}
+                        </span>
+                      </span>
+                    </button>
 
                     {/* Controls */}
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-1.5">
                       {/* Save — only visible when dirty */}
                       {dirty && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="primary"
+                          size="xs"
                           onClick={() => saveProvider(provider)}
                           disabled={saving !== null}
-                          className="animate-fade-in mr-1 inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                          loading={saving === `provider:${provider.id}`}
+                          icon={<Save size={11} />}
+                          className="animate-fade-in h-7 px-2.5"
                         >
-                          {saving === `provider:${provider.id}` ? <RefreshCw size={10} className="animate-spin" /> : <Save size={10} />}
                           Save
-                        </button>
+                        </Button>
                       )}
 
                       <Switch
                         checked={provider.enabled && canEnableProvider}
+                        aria-label={`${provider.enabled && canEnableProvider ? 'Disable' : 'Enable'} ${provider.name}`}
                         onCheckedChange={enabled => {
                           if (enabled && !canEnableProvider) {
                             setExpandedProviderId(provider.id);
@@ -869,27 +888,13 @@ export function SettingsPage() {
                         }}
                       />
 
-                      <button
-                        type="button"
-                        onClick={() => setExpandedProviderId(configOpen ? null : provider.id)}
-                        aria-label={configOpen ? 'Collapse' : 'Configure'}
-                        className={cn(
-                          'ml-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
-                          configOpen
-                            ? 'text-foreground'
-                            : 'text-muted-foreground/60 hover:text-muted-foreground',
-                        )}
-                      >
-                        {configOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      </button>
-
                       {customProvider && (
                         <button
                           type="button"
                           aria-label="Delete provider"
                           onClick={() => removeProvider(provider.id)}
                           disabled={saving !== null}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:text-danger disabled:pointer-events-none group-hover:text-muted-foreground/70"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ui-subtle/50 transition-colors hover:text-danger disabled:pointer-events-none group-hover:text-ui-subtle"
                         >
                           <Trash2 size={12} />
                         </button>
@@ -899,7 +904,7 @@ export function SettingsPage() {
 
                   {/* Expanded edit panel */}
                   {configOpen && (
-                    <div className="animate-slide-down border-t border-border/40 bg-muted/[0.04] px-4 py-5 sm:px-5">
+                    <div className="animate-slide-down border-t border-ui-line/60 bg-ui-fill/20 px-4 py-5 sm:px-5">
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {customProvider && (
                           <>
@@ -929,29 +934,52 @@ export function SettingsPage() {
                           </>
                         )}
                         {nativeCloudflare ? (
-                          <p className="col-span-full text-xs text-muted-foreground">
+                          <p className="col-span-full text-xs text-ui-subtle">
                             Uses the Worker AI binding defined in your Wrangler configuration.
                           </p>
                         ) : (
                           <div className="col-span-full">
                             <FieldLabel htmlFor={providerApiKeyId}>API key</FieldLabel>
-                            <Input
-                              id={providerApiKeyId}
-                              type="password"
-                              placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : 'sk-…'}
-                              value={provider.apiKey}
-                              onChange={e => updateProviderDraft(provider.id, { apiKey: e.target.value })}
-                              className="max-w-sm"
-                            />
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Input
+                                id={providerApiKeyId}
+                                type="password"
+                                autoComplete="new-password"
+                                spellCheck={false}
+                                placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : 'sk-…'}
+                                value={provider.apiKey}
+                                onChange={e => {
+                                  const apiKey = e.target.value;
+                                  // Losing the only credential must also drop `enabled`,
+                                  // otherwise the switch (which renders enabled && has
+                                  // credential) desyncs from the draft and Save would be
+                                  // rejected by the server.
+                                  const losesCredential = !apiKey.trim() && !provider.hasApiKey;
+                                  updateProviderDraft(provider.id, {
+                                    apiKey,
+                                    ...(losesCredential ? { enabled: false } : {}),
+                                  });
+                                }}
+                                className="min-w-0 max-w-sm flex-1 basis-64"
+                              />
+                              {provider.hasApiKey && (
+                                <Button
+                                  variant="destructive-outline"
+                                  size="xs"
+                                  onClick={() => void clearProviderKey(provider)}
+                                  disabled={saving !== null}
+                                  loading={saving === `provider:${provider.id}`}
+                                  icon={<Trash2 size={12} />}
+                                  className="h-8 px-2.5"
+                                >
+                                  Remove key
+                                </Button>
+                              )}
+                            </div>
                             {provider.hasApiKey && (
-                              <button
-                                type="button"
-                                onClick={() => void clearProviderKey(provider)}
-                                disabled={saving === `provider:${provider.id}`}
-                                className="mt-2 text-xs font-medium text-destructive underline-offset-2 hover:underline disabled:opacity-50"
-                              >
-                                Remove saved key
-                              </button>
+                              <p className="mt-1.5 text-xs text-ui-subtle">
+                                Removing the saved key also turns the provider off.
+                              </p>
                             )}
                           </div>
                         )}
@@ -965,10 +993,10 @@ export function SettingsPage() {
         )}
 
         {/* Global model strategy */}
-        <div className="border-t border-border/60">
+        <div className="border-t border-ui-line">
           <div className="px-4 py-4 sm:px-5">
-            <h3 className="text-sm font-semibold text-foreground">Default models</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">Used by repos that don't set their own model</p>
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">Default models</h3>
+            <p className="mt-0.5 text-xs text-ui-subtle">Used by repos that don't set their own model</p>
           </div>
           <div className="p-5 pt-0">
             {!loading && globalConfig ? (
@@ -990,8 +1018,8 @@ export function SettingsPage() {
 
         {/* Footer */}
         {!loading && (
-          <div className="border-t border-border/30 px-4 py-2.5 sm:px-5">
-            <p className="text-xs text-muted-foreground/60">
+          <div className="border-t border-ui-line/50 px-4 py-2.5 sm:px-5">
+            <p className="text-xs text-ui-subtle/70">
               {catalogRefreshing
                 ? 'Syncing model lists…'
                 : catalogRefreshedOnce
@@ -1040,14 +1068,14 @@ export function SettingsPage() {
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group flex flex-col gap-2.5 px-4 py-4 transition-colors hover:bg-primary/[0.04]"
+                  className="group flex flex-col gap-2.5 px-4 py-4 transition-colors hover:bg-ui-fill/40"
                 >
                   <span>
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground group-hover:text-primary">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-ui-default group-hover:text-ui-brand">
                       {label}
-                      <ExternalLink size={11} className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-primary" />
+                      <ExternalLink size={11} className="text-ui-subtle opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-ui-brand" />
                     </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{sub}</span>
+                    <span className="mt-0.5 block text-xs text-ui-subtle">{sub}</span>
                   </span>
                 </a>
               ))}

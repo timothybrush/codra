@@ -1,37 +1,40 @@
-import * as React from "react";
-import { cn } from "@client/lib/utils";
+import * as React from 'react';
+import { Switch as BaseSwitch } from '@base-ui/react/switch';
+import { cn } from '@client/lib/utils';
 
-export interface SwitchProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
+export interface SwitchProps {
+  checked?: boolean;
+  defaultChecked?: boolean;
+  disabled?: boolean;
   onCheckedChange?: (checked: boolean) => void;
-  onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  className?: string;
+  'aria-label'?: string;
+  id?: string;
 }
 
-const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, onCheckedChange, onChange, ...props }, ref) => {
-    return (
-      <label className="relative inline-flex cursor-pointer items-center">
-        <input
-          type="checkbox"
-          className="sr-only peer"
-          ref={ref}
-          onChange={(e) => {
-            onChange?.(e);
-            onCheckedChange?.(e.target.checked);
-          }}
-          {...props}
-        />
-        <div className={cn(
-          "relative h-5 w-9 rounded-full border transition-all duration-200",
-          "border-border bg-muted-foreground/20",
-          "peer-checked:border-primary peer-checked:bg-primary",
-          "after:absolute after:left-[3px] after:top-[3px] after:h-3 after:w-3 after:rounded-full after:bg-white after:shadow-sm after:transition-transform after:duration-200 after:content-['']",
-          "peer-checked:after:translate-x-4",
-          className
-        )} />
-      </label>
-    );
-  }
+/** Toggle switch on Base UI, styled with the ui-* tokens (brand track when on). */
+const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
+  ({ className, onCheckedChange, ...props }, ref) => (
+    <BaseSwitch.Root
+      ref={ref}
+      onCheckedChange={(checked) => onCheckedChange?.(checked)}
+      className={cn(
+        // Squarish track + knob (Cloudflare-dashboard switch shape).
+        'relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-[5px] p-[2px] transition-colors duration-200',
+        // Off: lighter zinc in dark so the track reads against the page.
+        // On: dark mode uses a deeper lime so the white knob doesn't blend.
+        'bg-ui-fill dark:bg-[oklch(40%_0_0)]',
+        'data-checked:bg-ui-brand dark:data-checked:bg-[oklch(64%_0.21_118)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40 focus-visible:ring-offset-1 focus-visible:ring-offset-ui-base',
+        'data-disabled:cursor-not-allowed data-disabled:opacity-50',
+        className,
+      )}
+      {...props}
+    >
+      <BaseSwitch.Thumb className="h-3 w-3 rounded-[3px] bg-white shadow-sm transition-transform duration-200 data-checked:translate-x-3" />
+    </BaseSwitch.Root>
+  ),
 );
-Switch.displayName = "Switch";
+Switch.displayName = 'Switch';
 
 export { Switch };

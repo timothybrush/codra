@@ -57,8 +57,10 @@ export function UpdatesEmailPrompt() {
           <div className="min-w-0">
             <h2 className="text-[13px] font-medium text-ui-default">Get important Codra updates</h2>
             <p className="mt-0.5 text-xs leading-relaxed text-ui-subtle">
-              Add an email for release notes, security fixes, and upgrade heads-up.{' '}
-              <span className="hidden sm:inline">You can opt out from any update email later. No spam.</span>
+              Get release notes, security fixes, and upgrade heads-ups by email.
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-ui-subtle">
+              Opt out anytime. No{'\u00A0'}spam.
             </p>
           </div>
         </div>

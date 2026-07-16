@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Slot } from '@radix-ui/react-slot';
+import { useRender } from '@base-ui/react/use-render';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@client/lib/utils';
@@ -14,7 +14,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-[var(--btn-primary-bg)] text-[oklch(20%_0.04_115)] shadow-sm hover:opacity-90',
+        primary: 'bg-[var(--btn-primary-bg)] text-[oklch(20%_0.04_115)] hover:opacity-90',
         secondary: 'border border-ui-line bg-ui-base text-ui-default hover:bg-ui-fill/60',
         default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-[.98]',
         destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
@@ -73,20 +73,28 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, shape = 'base', asChild = false, icon, loading, children, ...props }, ref) => {
     const classes = cn(buttonVariants({ variant, size }), shapeClass(shape, size), className);
 
-    if (asChild) {
-      return (
-        <Slot ref={ref} className={classes} {...props}>
-          {children}
-        </Slot>
-      );
-    }
-
-    return (
-      <button ref={ref} className={classes} {...props} disabled={props.disabled || loading}>
-        {loading ? <Loader2 className="size-4 animate-spin" /> : icon}
-        {children}
-      </button>
-    );
+    // Base UI composition: `asChild` renders the child element itself (props
+    // merged onto it), mirroring the former Radix Slot behaviour.
+    return useRender({
+      render: asChild ? (children as React.ReactElement) : undefined,
+      defaultTagName: 'button',
+      ref,
+      props: {
+        className: classes,
+        ...props,
+        ...(asChild
+          ? {}
+          : {
+              disabled: props.disabled || loading,
+              children: (
+                <>
+                  {loading ? <Loader2 className="size-4 animate-spin" /> : icon}
+                  {children}
+                </>
+              ),
+            }),
+      },
+    });
   },
 );
 Button.displayName = 'Button';

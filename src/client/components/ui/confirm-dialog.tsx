@@ -1,4 +1,4 @@
-import * as Dialog from '@radix-ui/react-dialog';
+import { Dialog } from '@base-ui/react/dialog';
 import { AlertTriangle } from 'lucide-react';
 import { Button, type ButtonProps } from '@client/components/ui/button';
 
@@ -26,8 +26,8 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-background/75 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in data-[state=closed]:fade-out" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-1.5rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-2xl data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=closed]:zoom-out-95">
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-background/75 backdrop-blur-sm transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-1.5rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-ui-line bg-card p-5 shadow-2xl transition-[opacity,transform] duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
           <div className="flex items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--warning-bg)] text-[var(--warning)]">
               <AlertTriangle size={18} />
@@ -41,9 +41,7 @@ export function ConfirmDialog({
           </div>
 
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Dialog.Close asChild>
-              <Button variant="outline">{cancelLabel}</Button>
-            </Dialog.Close>
+            <Dialog.Close render={<Button variant="outline" />}>{cancelLabel}</Dialog.Close>
             <Button
               variant={confirmVariant}
               onClick={() => {
@@ -54,7 +52,7 @@ export function ConfirmDialog({
               {confirmLabel}
             </Button>
           </div>
-        </Dialog.Content>
+        </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
   );

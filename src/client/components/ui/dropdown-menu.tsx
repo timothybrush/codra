@@ -1,4 +1,4 @@
-import { Slot } from '@radix-ui/react-slot';
+import { useRender } from '@base-ui/react/use-render';
 import { AnimatePresence, motion, useReducedMotion, type Transition } from 'motion/react';
 import {
   createContext,
@@ -10,6 +10,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
   type RefCallback,
 } from 'react';
@@ -73,23 +74,24 @@ export function DropdownMenuTrigger({
   children: ReactNode;
 }) {
   const ctx = useMenuCtx('DropdownMenuTrigger');
-  const Comp = asChild ? Slot : 'button';
   const setRef: RefCallback<HTMLElement> = (node) => {
     ctx.triggerRef.current = node;
   };
 
-  return (
-    <Comp
-      ref={setRef}
-      {...(!asChild && { type: 'button' as const })}
-      aria-haspopup="menu"
-      aria-expanded={ctx.open}
-      aria-controls={ctx.contentId}
-      onClick={() => ctx.setOpen(!ctx.open)}
-    >
-      {children}
-    </Comp>
-  );
+  // Base UI composition: `asChild` merges the trigger props onto the child
+  // element itself (former Radix Slot behaviour).
+  return useRender({
+    render: asChild ? (children as ReactElement) : undefined,
+    defaultTagName: 'button',
+    ref: setRef,
+    props: {
+      ...(!asChild && { type: 'button' as const, children }),
+      'aria-haspopup': 'menu',
+      'aria-expanded': ctx.open,
+      'aria-controls': ctx.contentId,
+      onClick: () => ctx.setOpen(!ctx.open),
+    },
+  });
 }
 
 export interface DropdownMenuContentProps {
@@ -272,25 +274,24 @@ export interface DropdownMenuItemProps {
 
 export function DropdownMenuItem({ asChild, className, onClick, children }: DropdownMenuItemProps) {
   const ctx = useMenuCtx('DropdownMenuItem');
-  const Comp = asChild ? Slot : 'button';
 
-  return (
-    <Comp
-      {...(!asChild && { type: 'button' as const })}
-      role="menuitem"
-      onClick={(e: MouseEvent<HTMLElement>) => {
+  return useRender({
+    render: asChild ? (children as ReactElement) : undefined,
+    defaultTagName: 'button',
+    props: {
+      ...(!asChild && { type: 'button' as const, children }),
+      role: 'menuitem',
+      onClick: (e: MouseEvent<HTMLElement>) => {
         onClick?.(e);
         ctx.setOpen(false);
-      }}
-      className={cn(
+      },
+      className: cn(
         'relative flex w-full cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm text-ui-default outline-none transition-colors',
         'hover:bg-ui-fill hover:text-ui-strong focus:bg-ui-fill focus:text-ui-strong',
         className,
-      )}
-    >
-      {children}
-    </Comp>
-  );
+      ),
+    },
+  });
 }
 
 export function DropdownMenuSeparator({ className }: { className?: string }) {
