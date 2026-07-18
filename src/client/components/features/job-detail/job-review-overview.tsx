@@ -3,6 +3,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import { ClipboardList } from 'lucide-react';
+import { Badge } from '@client/components/ui/badge';
 import type { JobDetail } from '@shared/schema';
 import { reviewSeverities } from '@shared/schema';
 
@@ -41,62 +42,55 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
   };
 
   return (
-    <div className="surface surface-static surface-static-shadow overflow-hidden mb-6">
+    <div className="ui-panel ui-font-sans min-w-0 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-5 py-4 border-b border-border gap-3 sm:gap-0">
-        <div className="flex items-center gap-2.5">
-          <ClipboardList size={14} strokeWidth={1.75} className="text-primary" />
-          <span className="text-sm font-semibold text-foreground">Review Overview</span>
+      <div className="flex flex-col items-start justify-between gap-3 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:gap-0 sm:px-5">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+          <h2 className="text-[13px] font-medium text-ui-default">Review overview</h2>
         </div>
         <div className="flex items-center gap-3">
           {job.overallCorrectness && (
-            <span
-              className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider border"
-              style={
-                job.overallCorrectness.toLowerCase().includes('incorrect')
-                  ? { background: 'var(--danger-bg)', color: 'var(--danger)', borderColor: 'var(--danger-border)' }
-                  : { background: 'var(--success-bg)', color: 'var(--success)', borderColor: 'var(--success-border)' }
-              }
+            <Badge
+              variant={job.overallCorrectness.toLowerCase().includes('incorrect') ? 'danger' : 'success'}
+              className="uppercase tracking-wider"
             >
               {job.overallCorrectness}
-            </span>
+            </Badge>
           )}
           {(job.overallConfidenceScore !== undefined && job.overallConfidenceScore !== null) && (
             <div className="flex flex-col items-end">
-              <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-muted-foreground/60 leading-none mb-0.5">Confidence</span>
-              <span className="text-sm font-bold text-foreground leading-none">{(Number(job.overallConfidenceScore) * 100).toFixed(0)}%</span>
+              <span className="mb-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-ui-subtle">Confidence</span>
+              <span className="ui-font-mono text-sm leading-none tabular-nums text-ui-strong">{(Number(job.overallConfidenceScore) * 100).toFixed(0)}%</span>
             </div>
           )}
         </div>
       </div>
 
       {/* Summary */}
-      <div className="px-5 py-5">
+      <div className="px-4 py-5 sm:px-5">
         <div className="prose max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins}>
             {renderSummary()}
           </ReactMarkdown>
         </div>
+      </div>
 
-        {/* Severity Triage */}
-        <div className="mt-6 pt-5 border-t border-border/40">
-          <div className="flex items-center gap-2 mb-3.5">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Priority Triage</p>
-            <div className="h-px flex-1 bg-border/30" />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {reviewSeverities.map((sev) => {
-              const count = sevCounts[sev] || 0;
-              if (count === 0 && sev !== 'nit') return null;
+      {/* Severity Triage */}
+      <div className="ui-well border-t border-ui-line px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">Priority triage</p>
+          {reviewSeverities.map((sev) => {
+            const count = sevCounts[sev] || 0;
+            if (count === 0 && sev !== 'nit') return null;
 
-              return (
-                <div key={sev} className="flex items-center gap-1.5">
-                  <span className={`severity-tag ${sev} ${count === 0 ? 'opacity-40' : ''}`}>{sev}</span>
-                  <span className="font-mono text-sm font-bold text-foreground tabular-nums">{count}</span>
-                </div>
-              );
-            })}
-          </div>
+            return (
+              <div key={sev} className="flex items-center gap-1.5">
+                <span className={`severity-tag ${sev} ${count === 0 ? 'opacity-40' : ''}`}>{sev}</span>
+                <span className="ui-font-mono text-sm tabular-nums text-ui-default">{count}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

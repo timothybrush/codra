@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
-import { Alert } from '@client/components/ui/alert';
+import { Badge } from '@client/components/ui/badge';
 import type { FileReviewRecord } from '@shared/schema';
 
 import { formatDuration } from '@client/lib/utils';
@@ -22,16 +22,16 @@ type FileStatus = FileReviewRecord['fileStatus'];
 const STATUS_META: Record<FileStatus, {
   Icon: typeof CheckCircle2;
   iconCls: string;
-  pill: string;
+  badge: 'success' | 'neutral' | 'danger';
   label: string;
 }> = {
-  done:    { Icon: CheckCircle2, iconCls: 'text-success',          pill: 'bg-success/10 text-success border-success/20',          label: 'Done'    },
-  skipped: { Icon: SkipForward,  iconCls: 'text-muted-foreground', pill: 'bg-secondary text-muted-foreground border-border/50',   label: 'Skipped' },
-  failed:  { Icon: AlertCircle,  iconCls: 'text-danger',           pill: 'bg-danger/10 text-danger border-danger/20',             label: 'Failed'  },
-  pending: { Icon: Hourglass,    iconCls: 'text-muted-foreground', pill: 'bg-secondary text-muted-foreground border-border/50',   label: 'Pending' },
+  done:    { Icon: CheckCircle2, iconCls: 'text-success',   badge: 'success', label: 'Done'    },
+  skipped: { Icon: SkipForward,  iconCls: 'text-ui-subtle', badge: 'neutral', label: 'Skipped' },
+  failed:  { Icon: AlertCircle,  iconCls: 'text-danger',    badge: 'danger',  label: 'Failed'  },
+  pending: { Icon: Hourglass,    iconCls: 'text-ui-subtle', badge: 'neutral', label: 'Pending' },
 };
 
-function FileCard({ file }: { file: FileReviewRecord }) {
+function FileRow({ file }: { file: FileReviewRecord }) {
   const meta = STATUS_META[file.fileStatus] ?? STATUS_META.pending;
   const { Icon } = meta;
   const duration = formatDuration(file.durationMs);
@@ -40,88 +40,88 @@ function FileCard({ file }: { file: FileReviewRecord }) {
   const modelShort = file.modelUsed?.split('/').pop() ?? null;
 
   return (
-    <details className="group surface overflow-hidden">
-      <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden hover:bg-muted/20 transition-colors select-none">
+    <details className="group min-w-0">
+      <summary className="flex cursor-pointer select-none list-none items-center gap-3 px-4 py-3 transition-colors hover:bg-ui-fill/40 [&::-webkit-details-marker]:hidden sm:px-5">
 
         {/* Status icon */}
-        <Icon size={15} className={`shrink-0 ${meta.iconCls}`} />
+        <Icon size={14} className={`shrink-0 ${meta.iconCls}`} />
 
         {/* File path */}
-        <span className="font-mono text-sm text-foreground truncate flex-1 min-w-0">
+        <span className="ui-font-mono min-w-0 flex-1 truncate text-xs text-ui-default">
           {file.filePath}
         </span>
 
         {/* Meta chips — hidden on small screens */}
-        <div className="hidden md:flex items-center gap-3 shrink-0">
+        <div className="hidden shrink-0 items-center gap-3 md:flex">
           {modelShort && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50">
+            <span className="ui-font-mono flex items-center gap-1 text-[10px] text-ui-subtle">
               <Cpu size={10} />{modelShort}
             </span>
           )}
           {duration && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50">
+            <span className="ui-font-mono flex items-center gap-1 text-[10px] tabular-nums text-ui-subtle">
               <Clock size={10} />{duration}
             </span>
           )}
           {(inTok || outTok) && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50">
+            <span className="ui-font-mono flex items-center gap-1 text-[10px] tabular-nums text-ui-subtle">
               <Hash size={10} />{inTok ?? '—'}↑ {outTok ?? '—'}↓
             </span>
           )}
         </div>
 
         {/* Status pill */}
-        <span className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${meta.pill}`}>
+        <Badge variant={meta.badge} className="shrink-0">
           {meta.label}
-        </span>
+        </Badge>
 
         {/* Chevron */}
         <ChevronDown
           size={14}
-          className="shrink-0 text-muted-foreground/40 transition-transform duration-200 group-open:rotate-180"
+          className="shrink-0 text-ui-subtle transition-transform duration-200 group-open:rotate-180"
         />
       </summary>
 
       {/* Expanded content */}
-      <div className="border-t border-border/40">
+      <div className="border-t border-ui-line/60">
 
         {/* Mobile meta strip */}
-        <div className="md:hidden flex flex-wrap gap-x-5 gap-y-1 px-5 py-2.5 bg-muted/10 border-b border-border/30 text-[10px] font-mono text-muted-foreground/60">
-          {modelShort && <span><Cpu size={9} className="inline mr-1" />{modelShort}</span>}
-          {duration   && <span><Clock size={9} className="inline mr-1" />{duration}</span>}
-          {inTok      && <span><Hash size={9} className="inline mr-1" />{inTok}↑ {outTok ?? '—'}↓</span>}
+        <div className="ui-well ui-font-mono flex flex-wrap gap-x-5 gap-y-1 border-b border-ui-line/60 px-4 py-2.5 text-[10px] text-ui-subtle md:hidden">
+          {modelShort && <span><Cpu size={9} className="mr-1 inline" />{modelShort}</span>}
+          {duration   && <span><Clock size={9} className="mr-1 inline" />{duration}</span>}
+          {inTok      && <span><Hash size={9} className="mr-1 inline" />{inTok}↑ {outTok ?? '—'}↓</span>}
         </div>
 
         {/* File-level error */}
         {file.fileStatus === 'failed' && file.errorMessage && (
           <div
-            className="mx-5 mt-4 rounded-lg border p-3.5"
+            className="mx-4 mt-4 rounded-md border p-3.5 sm:mx-5"
             style={{ background: 'var(--danger-bg)', borderColor: 'var(--danger-border)' }}
           >
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--danger)' }}>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--danger)' }}>
               Review error
             </p>
-            <p className="font-mono text-xs break-all leading-relaxed" style={{ color: 'var(--danger)' }}>
+            <p className="ui-font-mono break-all text-xs leading-relaxed" style={{ color: 'var(--danger)' }}>
               {file.errorMessage}
             </p>
           </div>
         )}
 
         {/* Two-column content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border/40">
-          <div className="p-5 min-w-0 flex flex-col gap-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="grid grid-cols-1 divide-y divide-ui-line/60 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               Prompt / diff
             </p>
-            <pre className="code-block flex-1 max-h-[480px] text-[10px] sm:text-[11px] overflow-auto leading-relaxed">
+            <pre className="code-block max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
               {file.diffInput ?? '— No prompt saved —'}
             </pre>
           </div>
-          <div className="p-5 min-w-0 flex flex-col gap-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               Raw model output
             </p>
-            <pre className="code-block flex-1 max-h-[480px] text-[10px] sm:text-[11px] overflow-auto leading-relaxed">
+            <pre className="code-block max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
               {file.rawAiOutput ?? '— No output saved —'}
             </pre>
           </div>
@@ -145,39 +145,40 @@ export function JobLogsPage() {
   };
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="ui-font-sans flex flex-col gap-5">
 
       {/* Back */}
       <Link
         to={`/jobs/${job.id}`}
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors w-fit"
+        className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-ui-subtle transition-colors hover:text-ui-default"
       >
         <ChevronLeft size={14} />
         Back to Job Details
       </Link>
 
       {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary mb-1.5">Raw Logs</p>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground leading-none">Review logs</h1>
-          <p className="mt-2 text-sm text-muted-foreground font-mono">
-            {job.owner}/{job.repo} · PR #{job.prNumber} · <span className="opacity-60">{job.commitSha.slice(0, 7)}</span>
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight text-foreground" style={{ letterSpacing: '-0.02em' }}>
+            Review logs
+          </h1>
+          <p className="ui-font-mono mt-1.5 truncate text-xs text-ui-subtle">
+            {job.owner}/{job.repo} · #{job.prNumber} · {job.commitSha.slice(0, 7)}
           </p>
         </div>
 
         {/* Summary counts */}
         {counts.total > 0 && (
-          <div className="flex items-center divide-x divide-border rounded-lg border border-border bg-card shadow-sm overflow-hidden shrink-0">
+          <div className="ui-panel flex shrink-0 items-center divide-x divide-ui-line/60 overflow-hidden">
             {[
-              { label: 'Files',   val: counts.total,   cls: 'text-foreground'   },
-              { label: 'Reviewed', val: counts.done,   cls: 'text-success'      },
-              { label: 'Skipped', val: counts.skipped, cls: 'text-muted-foreground' },
-              { label: 'Failed',  val: counts.failed,  cls: counts.failed > 0 ? 'text-danger' : 'text-muted-foreground' },
+              { label: 'Files',    val: counts.total,   cls: 'text-ui-strong' },
+              { label: 'Reviewed', val: counts.done,    cls: 'text-success'   },
+              { label: 'Skipped',  val: counts.skipped, cls: 'text-ui-subtle' },
+              { label: 'Failed',   val: counts.failed,  cls: counts.failed > 0 ? 'text-danger' : 'text-ui-subtle' },
             ].map(({ label, val, cls }) => (
               <div key={label} className="flex flex-col items-center px-4 py-2.5">
-                <span className={`text-base font-bold tabular-nums leading-none ${cls}`}>{val}</span>
-                <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">{label}</span>
+                <span className={`ui-font-mono text-base leading-none tabular-nums ${cls}`}>{val}</span>
+                <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">{label}</span>
               </div>
             ))}
           </div>
@@ -188,22 +189,31 @@ export function JobLogsPage() {
 
       {/* File list */}
       {job.files.length === 0 ? (
-        <div className="surface flex flex-col items-center justify-center gap-4 py-20 text-center">
-          <FileCode2 size={36} className="text-muted-foreground/15" strokeWidth={1.5} />
+        <div className="ui-panel flex flex-col items-center justify-center gap-4 py-20 text-center">
+          <FileCode2 size={36} className="text-ui-subtle/30" strokeWidth={1.5} />
           <div>
-            <p className="text-sm font-semibold text-muted-foreground">No files processed yet</p>
+            <p className="text-sm font-medium text-ui-default">No files processed yet</p>
             {(job.status === 'running' || job.status === 'queued') && (
-              <p className="mt-1 text-xs text-muted-foreground/50">
+              <p className="mt-1 text-xs text-ui-subtle">
                 Logs appear here once files are reviewed
               </p>
             )}
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {job.files.map(file => (
-            <FileCard key={file.id} file={file} />
-          ))}
+        <div className="ui-panel min-w-0 overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
+            <FileCode2 size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+            <h2 className="text-[13px] font-medium text-ui-default">File reviews</h2>
+            <span className="ui-font-mono ml-auto text-[11px] tabular-nums text-ui-subtle">
+              {counts.total} {counts.total === 1 ? 'file' : 'files'}
+            </span>
+          </div>
+          <div className="divide-y divide-ui-line/60">
+            {job.files.map(file => (
+              <FileRow key={file.id} file={file} />
+            ))}
+          </div>
         </div>
       )}
     </section>

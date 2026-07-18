@@ -147,7 +147,7 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
           )}
           {show('pr') && (
             <div className="mt-1 flex min-w-0 items-start gap-2">
-              <span className="mt-0.5 shrink-0 ui-font-mono rounded bg-ui-fill px-1.5 py-0.5 text-[11px] font-semibold text-ui-subtle">
+              <span className="mt-0.5 shrink-0 ui-font-mono rounded bg-ui-fill/50 px-1.5 py-0.5 text-[11px] font-semibold text-ui-subtle">
                 #{job.prNumber}
               </span>
               <p className="line-clamp-2 text-sm font-semibold leading-5 text-ui-strong">

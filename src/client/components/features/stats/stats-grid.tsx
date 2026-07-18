@@ -61,7 +61,7 @@ function StatCard({ label, value, unit, icon: Icon, color, noun, trend, delta }:
       </div>
 
       {/* Inner elevated panel: mono number + unit left, bar sparkline right. */}
-      <div className="mt-3 flex items-center justify-between gap-4 rounded-md bg-[oklch(96.5%_0_0)] px-4 py-3.5 dark:bg-[oklch(19%_0_0)]">
+      <div className="ui-well mt-3 flex items-center justify-between gap-4 rounded-md px-4 py-3.5">
         {loading ? (
           <Skeleton height={40} width={100} />
         ) : (

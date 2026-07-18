@@ -212,6 +212,10 @@ export const jobSummarySchema = z.object({
 export const jobsQuerySchema = z.object({
   owner: z.string().optional(),
   repo: z.string().optional(),
+  prNumber: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : Number(v)),
+    z.number().int().positive().optional(),
+  ),
   status: z.enum(jobStatuses).optional(),
   verdict: z.enum(reviewVerdicts).optional(),
   search: z.string().optional(),

@@ -8,7 +8,7 @@ import { Select } from '@client/components/ui/select';
 import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { usePolling } from '@client/hooks/use-polling';
-import { GitPullRequest, ChevronLeft, ChevronRight, RefreshCw, AlertTriangle, RotateCcw, Trash2, Info, Search } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, RefreshCw, Search } from 'lucide-react';
 import type { JobSummary } from '@shared/schema';
 
 export function JobsPage() {
@@ -17,7 +17,6 @@ export function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
 
   const [filters, setFilters] = useState({
     status: '', verdict: '', search: '', page: 1,
@@ -59,6 +58,7 @@ export function JobsPage() {
       {/* ── Header ─────────────────────────────────── */}
       <PageHeader
         title="Jobs"
+        description="Every review job across all pull requests."
         actions={
           <div className="flex gap-2">
             <Button
@@ -94,7 +94,7 @@ export function JobsPage() {
             />
             <Input
               type="text"
-              id="pr-search"
+              id="job-search"
               size="sm"
               placeholder="Title or #number..."
               value={filters.search}
@@ -137,11 +137,11 @@ export function JobsPage() {
           </div>
         </div>
 
-        <JobsTable jobs={jobs} loading={loading} />
+        <JobsTable jobs={jobs} loading={loading} columns={['repo', 'pr', 'status', 'verdict', 'created', 'action']} />
 
         {!loading && jobs.length === 0 && (
           <EmptyState
-            icon={<GitPullRequest />}
+            icon={<Activity />}
             title="No jobs yet"
             description="Your pull request analysis logs will appear here"
             hints={[

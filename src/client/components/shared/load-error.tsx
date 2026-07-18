@@ -46,7 +46,7 @@ export function LoadError({
               {hint}
             </p>
             {detail && (
-              <code className="ui-font-mono mt-2 inline-block max-w-full truncate rounded-[5px] bg-[oklch(96.5%_0_0)] px-2 py-1 text-[11px] text-ui-subtle dark:bg-[oklch(19%_0_0)]">
+              <code className="ui-well ui-font-mono mt-2 inline-block max-w-full truncate rounded-[5px] px-2 py-1 text-[11px] text-ui-subtle">
                 {detail}
               </code>
             )}

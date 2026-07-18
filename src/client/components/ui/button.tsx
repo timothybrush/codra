@@ -14,7 +14,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-[var(--btn-primary-bg)] text-[oklch(20%_0.04_115)] hover:opacity-90',
+        primary:
+          'border border-[var(--btn-primary-border)] bg-[var(--btn-primary-surface)] text-[var(--btn-primary-fg)] hover:bg-[var(--btn-primary-hover)]',
         secondary: 'border border-ui-line bg-ui-base text-ui-default hover:bg-ui-fill/60',
         default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-[.98]',
         destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',

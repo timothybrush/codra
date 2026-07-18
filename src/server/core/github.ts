@@ -399,6 +399,48 @@ export class GitHubClient {
     return response;
   }
 
+  /** Single GraphQL call against api.github.com/graphql with the installation token. */
+  async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+    return withRetry('graphql', async () => {
+      const token = await this.getInstallationToken();
+
+      if (this.tracker) this.tracker.incrementSubrequests(1);
+      const response = await withTimeout('GitHub GraphQL', GITHUB_TIMEOUT_MS, (signal) =>
+        fetch('https://api.github.com/graphql', {
+          method: 'POST',
+          signal,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'User-Agent': this.env.BOT_USERNAME ?? 'codra-bot',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ query, variables }),
+        }),
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new GitHubError(
+          response.status,
+          errText,
+          '/graphql',
+          `GitHub GraphQL request failed with ${response.status}: ${errText}`,
+        );
+      }
+
+      const payload = (await response.json()) as { data?: T; errors?: Array<{ message: string }> };
+      if (payload.errors?.length) {
+        throw new GitHubError(
+          422,
+          JSON.stringify(payload.errors),
+          '/graphql',
+          `GitHub GraphQL error: ${payload.errors[0].message}`,
+        );
+      }
+      return payload.data as T;
+    });
+  }
+
   async getPullRequest(owner: string, repo: string, pullNumber: number) {
     return withRetry(`getPullRequest ${owner}/${repo}#${pullNumber}`, async () => {
       const response = await this.requestAndCheck(`${repoApiPath(owner, repo)}/pulls/${pullNumber}`);

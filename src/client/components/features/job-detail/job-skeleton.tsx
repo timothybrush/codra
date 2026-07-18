@@ -1,5 +1,5 @@
 import { Skeleton } from '@client/components/shared/skeleton';
-import { Card, CardContent } from '@client/components/ui/card';
+import { LoadError } from '@client/components/shared/load-error';
 
 interface JobDetailSkeletonProps {
   error: string | null;
@@ -7,45 +7,46 @@ interface JobDetailSkeletonProps {
 
 export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
   return (
-    <section className="flex flex-col gap-6">
-      {error && (
-        <div
-          className="rounded-md border px-4 py-3 text-sm"
-          style={{ background: 'var(--danger-bg)', borderColor: 'var(--danger-border)', color: 'var(--danger)' }}
-        >
-          {error}
-        </div>
-      )}
+    <section className="ui-font-sans flex flex-col gap-6">
+      {error && <LoadError title="Something went wrong" detail={error} />}
       <header className="flex items-start justify-between">
         <div className="space-y-2">
           <Skeleton width={120} height="0.75rem" />
           <Skeleton width={280} height="2rem" />
           <Skeleton width={200} height="0.9rem" />
         </div>
-        <Skeleton width={100} height="2.25rem" borderRadius={12} />
+        <Skeleton width={100} height="2.25rem" borderRadius={7} />
       </header>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card><CardContent className="p-5 space-y-3">
-          <Skeleton width="50%" height="1.2rem" />
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-1">
-              <Skeleton width={60} height="0.65rem" />
-              <Skeleton width={100} height="1rem" />
-            </div>
-          ))}
-        </CardContent></Card>
-        <Card><CardContent className="p-5 space-y-3">
-          <Skeleton width="50%" height="1.2rem" />
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center justify-between rounded-md bg-muted/30 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <Skeleton width={12} height={12} borderRadius="50%" />
-                <Skeleton width={120} height="0.9rem" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="ui-panel overflow-hidden">
+          <div className="border-b border-ui-line px-4 py-3 sm:px-5">
+            <Skeleton width="40%" height="1rem" />
+          </div>
+          <div className="space-y-3 px-4 py-4 sm:px-5">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="space-y-1">
+                <Skeleton width={60} height="0.65rem" />
+                <Skeleton width={100} height="1rem" />
               </div>
-              <Skeleton width={40} height="0.75rem" />
-            </div>
-          ))}
-        </CardContent></Card>
+            ))}
+          </div>
+        </div>
+        <div className="ui-panel overflow-hidden">
+          <div className="border-b border-ui-line px-4 py-3 sm:px-5">
+            <Skeleton width="40%" height="1rem" />
+          </div>
+          <div className="space-y-3 px-4 py-4 sm:px-5">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="ui-well flex items-center justify-between rounded-md px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <Skeleton width={12} height={12} borderRadius="50%" />
+                  <Skeleton width={120} height="0.9rem" />
+                </div>
+                <Skeleton width={40} height="0.75rem" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );

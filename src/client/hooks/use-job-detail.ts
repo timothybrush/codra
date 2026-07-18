@@ -4,6 +4,30 @@ import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import type { JobDetail } from '@shared/schema';
 
+/* Session-scoped cache so revisiting a job paints instantly from the last
+   payload while the network refresh runs in the background. Job detail carries
+   every file's full diff, so writes are best-effort (quota is swallowed). */
+function jobCacheKey(id: string) {
+  return `codra:job:${id}`;
+}
+
+function readJobCache(id: string): JobDetail | null {
+  try {
+    const raw = sessionStorage.getItem(jobCacheKey(id));
+    return raw ? (JSON.parse(raw) as JobDetail) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJobCache(id: string, job: JobDetail) {
+  try {
+    sessionStorage.setItem(jobCacheKey(id), JSON.stringify(job));
+  } catch {
+    /* quota exceeded / unavailable — skip */
+  }
+}
+
 export function useJobDetail(id: string) {
   const navigate = useNavigate();
   const [job, setJob] = useState<JobDetail | null>(null);
@@ -36,6 +60,7 @@ export function useJobDetail(id: string) {
       if (!response.notModified && response.data) {
         latestJob.current = response.data.job;
         setJob(response.data.job);
+        writeJobCache(id, response.data.job);
       }
       setError(null);
       schedulePolling();
@@ -62,7 +87,15 @@ export function useJobDetail(id: string) {
   useEffect(() => {
     if (id) {
       etag.current = null;
-      latestJob.current = null;
+      // Paint the cached copy immediately, then revalidate over the network.
+      const cached = readJobCache(id);
+      if (cached) {
+        latestJob.current = cached;
+        setJob(cached);
+      } else {
+        latestJob.current = null;
+        setJob(null);
+      }
       fetchJob();
     }
     return () => stopPolling();

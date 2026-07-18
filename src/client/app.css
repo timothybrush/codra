@@ -56,9 +56,17 @@
   /* Signature lime - darkened in light mode for AA accessibility on white */
   --primary:             oklch(64%   0.24  115);
   --primary-foreground:  oklch(100%  0     0);   /* White text on the deeper green */
-  /* Filled primary buttons: one bright lime in both themes, with dark text on
-     top for contrast. Not theme-dependent, so defined once here. */
-  --btn-primary-bg:      #CCE800;
+  /* Brand lime. `--btn-primary-bg` is the solid accent (progress bars, tab
+     underlines, viewed checkboxes) — deepened here to the same AA-accessible
+     tone as `--primary` so it doesn't read as a neon slash on white; .dark
+     overrides it back to the bright lime. Primary BUTTONS use a lime-tinted
+     surface + lime border. Light mode: pale lime fill with near-black text for
+     max readability; .dark overrides below (bright lime text there instead). */
+  --btn-primary-bg:      oklch(64% 0.24 115);
+  --btn-primary-fg:      oklch(20% 0.02 118);
+  --btn-primary-border:  oklch(72% 0.17 118);
+  --btn-primary-surface: oklch(95% 0.09 118);
+  --btn-primary-hover:   oklch(90% 0.13 118);
 
   /* Secondary / muted - Zinc */
   --secondary:           oklch(96.3% 0.003 286.3);
@@ -107,6 +115,13 @@
   --code-bg: oklch(96.3% 0.003 286.3);
   --code-fg: oklch(27.4% 0.006 286.3);
   --code-border: oklch(90.9% 0.004 286.3);
+
+  /* Diff add/del — a true green/red (not the brand lime), tuned per theme so
+     rows are clearly distinguishable and +/- counts read correctly. Light. */
+  --diff-add-bg: oklch(95% 0.06 150);
+  --diff-add-fg: oklch(48% 0.13 150);
+  --diff-del-bg: oklch(95% 0.05 27);
+  --diff-del-fg: oklch(52% 0.16 27);
 }
 
 /* ─────────────────────────────────────────────────────
@@ -124,6 +139,14 @@
 
   --primary:             oklch(94%  0.23  115); /* #E0FE56 */
   --primary-foreground:  oklch(12%  0.04  115);
+
+  /* Primary buttons: bright lime text/border on a faint lime fill. Solid
+     accent (tab underlines, progress bars) goes back to the bright neon here. */
+  --btn-primary-bg:      #CCE800;
+  --btn-primary-fg:      #CCE800;
+  --btn-primary-border:  color-mix(in oklab, #CCE800 50%, transparent);
+  --btn-primary-surface: color-mix(in oklab, #CCE800 8%, transparent);
+  --btn-primary-hover:   color-mix(in oklab, #CCE800 16%, transparent);
 
   --secondary:           oklch(18%  0.018 115);
   --secondary-foreground:oklch(82%  0.012 115);
@@ -161,6 +184,12 @@
   --code-bg: oklch(20.5% 0.005 286.3);
   --code-fg: oklch(86.5% 0.005 286.3);
   --code-border: oklch(27.4% 0.006 286.3);
+
+  /* Diff add/del — green/red bands on the near-black diff panel. Dark. */
+  --diff-add-bg: oklch(30% 0.06 150);
+  --diff-add-fg: oklch(82% 0.15 150);
+  --diff-del-bg: oklch(31% 0.08 27);
+  --diff-del-fg: oklch(80% 0.16 27);
 }
 
 /* ─────────────────────────────────────────────────────
@@ -629,7 +658,7 @@
     }
   }
   &.P3  { @apply bg-info-bg text-info border-info-border; }
-  &.nit { @apply bg-muted text-muted-foreground border-border; }
+  &.nit { @apply bg-ui-fill/50 text-ui-subtle border-ui-line; }
 }
 
 @utility category-tag {
@@ -930,10 +959,86 @@
   border-color: oklch(0.27 0 0);
 }
 .ui-well {
-  background: oklch(96.5% 0 0);
+  /* Slightly lighter + warmer than pure gray so recessed panels (table
+     headers, stat-card inner wells) read as a soft tint, not a flat slab. */
+  background: oklch(97.8% 0.002 286.3);
 }
 .dark .ui-well {
   background: oklch(19% 0 0);
+}
+
+/* Diff-viewer syntax tokens (see src/client/lib/highlight.tsx). Muted,
+   theme-aware hues so highlighted code stays readable on the add/del tints. */
+.tok-kw   { color: oklch(48% 0.19 305); }
+.tok-str  { color: oklch(46% 0.12 150); }
+.tok-num  { color: oklch(50% 0.13 65);  }
+.tok-com  { color: oklch(58% 0.01 260); font-style: italic; }
+.tok-fn   { color: oklch(46% 0.14 260); }
+.tok-type { color: oklch(45% 0.11 200); }
+.dark .tok-kw   { color: oklch(75% 0.14 305); }
+.dark .tok-str  { color: oklch(76% 0.11 150); }
+.dark .tok-num  { color: oklch(78% 0.12 65);  }
+.dark .tok-com  { color: oklch(58% 0.01 260); }
+.dark .tok-fn   { color: oklch(76% 0.1 260);  }
+.dark .tok-type { color: oklch(78% 0.1 200);  }
+
+/* Diff row tints + add/del number colors (theme vars set above). */
+.diff-add    { background-color: var(--diff-add-bg); }
+.diff-del    { background-color: var(--diff-del-bg); }
+.diff-add-fg { color: var(--diff-add-fg); }
+.diff-del-fg { color: var(--diff-del-fg); }
+
+/* Markdown inline tokens (.md diffs). */
+.tok-md-head { color: oklch(46% 0.14 260); font-weight: 600; }
+.tok-strong  { color: inherit; font-weight: 700; }
+.tok-em      { color: inherit; font-style: italic; }
+.dark .tok-md-head { color: oklch(76% 0.1 260); }
+
+/* Late-arriving header/meta content eases in instead of popping. */
+@keyframes ui-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ui-fade-in {
+  animation: ui-fade-in 0.25s ease-out both;
+}
+
+/* Diff-viewer file tree: indent guide lines + connector ticks on nested
+   levels, and an animated expand/collapse (grid-rows 0fr ↔ 1fr). */
+.diff-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.diff-tree ul ul {
+  margin-left: 13px;
+  padding-left: 11px;
+  border-left: 1px solid var(--ui-line);
+}
+.diff-tree li {
+  position: relative;
+  margin-top: 2px;
+}
+.diff-tree ul ul li::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 14px;
+  width: 9px;
+  height: 1px;
+  background-color: var(--ui-line);
+}
+.diff-tree-children {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.25s ease-in-out;
+}
+.diff-tree-children[data-collapsed="true"] {
+  grid-template-rows: 0fr;
+}
+.diff-tree-children > div {
+  overflow: hidden;
+  min-width: 0;
 }
 
 @utility stat-label {
@@ -956,7 +1061,7 @@
   & strong { @apply font-bold; }
   & em { @apply italic; }
   & code {
-    @apply font-mono text-[0.78em] bg-muted px-[0.3em] py-[0.1em] rounded-[3px] border border-border;
+    @apply font-mono text-[0.78em] bg-ui-fill/60 text-ui-strong px-[0.3em] py-[0.1em] rounded-[3px] border border-ui-line;
   }
   & pre {
     @apply px-4 py-[0.85rem] rounded-md overflow-x-auto text-[0.78em];

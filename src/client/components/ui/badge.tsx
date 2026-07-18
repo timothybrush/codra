@@ -12,8 +12,8 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:   'bg-primary/15 text-primary',
-        secondary: 'bg-ui-fill/70 text-ui-subtle',
-        neutral:   'bg-ui-fill/70 text-ui-subtle',
+        secondary: 'bg-ui-fill/45 text-ui-default',
+        neutral:   'bg-ui-fill/45 text-ui-default',
         info:      'bg-info/15 text-info',
         success:   'bg-success/15 text-success',
         warning:   'bg-warning/15 text-warning',

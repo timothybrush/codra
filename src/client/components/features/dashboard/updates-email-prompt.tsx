@@ -51,7 +51,7 @@ export function UpdatesEmailPrompt() {
     <section className="ui-font-sans rounded-lg border border-ui-line bg-white p-3.5 dark:border-[oklch(0.27_0_0)] dark:bg-black sm:p-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[oklch(96.5%_0_0)] text-ui-default dark:bg-[oklch(19%_0_0)] sm:flex">
+          <span className="ui-well hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-ui-default sm:flex">
             <Mail size={15} strokeWidth={2} />
           </span>
           <div className="min-w-0">

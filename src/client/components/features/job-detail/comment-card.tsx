@@ -1,3 +1,4 @@
+import type { ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -5,6 +6,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import { FileText } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import type { ParsedReviewComment } from '@shared/schema';
+import { HighlightedCode, langForHint, langForPath } from '@client/lib/highlight';
 import { severityConfig } from './constants';
 
 const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
@@ -18,56 +20,81 @@ export function CommentCard({ comment, filePath }: CommentCardProps) {
   const sev = severityConfig[comment.severity] ?? severityConfig.nit;
   const SevIcon = sev.icon;
 
+  // Syntax-highlight fenced code inside the body: use the fence hint if present,
+  // else fall back to the file's language.
+  const markdownComponents = {
+    code({ className, children, ...props }: ComponentPropsWithoutRef<'code'> & { className?: string }) {
+      const text = String(children ?? '');
+      const hint = /language-([\w+-]+)/.exec(className ?? '')?.[1];
+      const isBlock = Boolean(hint) || text.includes('\n');
+      if (!isBlock) {
+        return (
+          <code className="ui-font-mono rounded border border-ui-line bg-ui-fill/60 px-1 py-0.5 text-[0.85em] text-ui-strong" {...props}>
+            {children}
+          </code>
+        );
+      }
+      const lang = hint ? langForHint(hint) : langForPath(filePath);
+      return (
+        <code className="ui-font-mono block text-[12px] leading-relaxed">
+          <HighlightedCode code={text} lang={lang} />
+        </code>
+      );
+    },
+  } as const;
+
   return (
     <article
       className={cn(
-        'mb-4 rounded-md border p-5 shadow-sm',
+        'ui-font-sans rounded-md border p-4 sm:p-5',
         sev.bg, sev.border,
       )}
     >
       {/* Header row */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex items-start gap-2 min-w-0">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2">
           {sev.svg ? (
-            <img src={sev.svg} alt={comment.severity} className="w-[18px] h-[18px] shrink-0 mt-px" />
+            <img src={sev.svg} alt={comment.severity} className="mt-px h-[18px] w-[18px] shrink-0" />
           ) : (
-            <SevIcon size={15} className={cn('shrink-0 mt-px', sev.iconColor)} />
+            <SevIcon size={15} className={cn('mt-px shrink-0', sev.iconColor)} />
           )}
-          <span className="font-bold text-sm text-foreground leading-snug">{comment.title}</span>
+          <span className="text-sm font-semibold leading-snug text-foreground">{comment.title}</span>
         </div>
         <span className={`severity-tag ${comment.severity} shrink-0`}>{comment.severity}</span>
       </div>
 
       {/* Meta: file · line */}
-      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1 font-mono bg-card/60 px-1.5 py-0.5 rounded text-foreground/70">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ui-subtle">
+        <span className="ui-font-mono flex items-center gap-1 rounded bg-card/60 px-1.5 py-0.5 text-[11px] text-foreground/70">
           <FileText size={10} /> {filePath}
         </span>
         {comment.line != null && (
-          <span className="text-muted-foreground font-medium">line {comment.line}</span>
+          <span className="ui-font-mono tabular-nums">line {comment.line}</span>
         )}
       </div>
 
       {/* Body - stripped of suggestions to avoid duplication in UI */}
-      <div className="prose prose-sm max-w-none text-foreground/90 leading-relaxed mb-4">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins}>
+      <div className="prose prose-sm mb-4 max-w-none leading-relaxed text-foreground/90">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins} components={markdownComponents}>
           {comment.body.split('```suggestion')[0].trim()}
         </ReactMarkdown>
       </div>
 
-      {/* Code suggestion (UI view) */}
+      {/* Code suggestion (UI view) — syntax-highlighted using the file's language */}
       {comment.codeSuggestion && (
-        <div className="mt-4 pt-4 border-t border-border/40">
-          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 mb-2">
-            Suggested Fix
+        <div className="mt-4 border-t border-border/40 pt-4">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+            Suggested fix
           </p>
-          <div className="rounded-md overflow-hidden border" style={{ background: 'var(--code-bg)', borderColor: 'var(--code-border)', color: 'var(--code-fg)' }}>
-            <div className="p-3 overflow-x-auto text-[13px] font-mono leading-relaxed prose-pre:m-0 prose-pre:bg-transparent prose-pre:border-none prose-pre:p-0">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins}>
-                {`\`\`\`\n${comment.codeSuggestion.replace(/```suggestion\n?|```/g, '').trim()}\n\`\`\``}
-              </ReactMarkdown>
-            </div>
-          </div>
+          <pre
+            className="ui-font-mono overflow-x-auto rounded-md border p-3 text-[12px] leading-relaxed"
+            style={{ background: 'var(--code-bg)', borderColor: 'var(--code-border)', color: 'var(--code-fg)' }}
+          >
+            <HighlightedCode
+              code={comment.codeSuggestion.replace(/```suggestion\n?|```/g, '').trim()}
+              lang={langForPath(filePath)}
+            />
+          </pre>
         </div>
       )}
     </article>

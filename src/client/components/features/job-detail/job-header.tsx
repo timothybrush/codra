@@ -60,21 +60,23 @@ export function JobHeader({
 
   return (
     <>
-      <header className="flex flex-col sm:flex-row items-start justify-between gap-4">
+      <header className="ui-font-sans flex flex-col sm:flex-row items-start justify-between gap-4">
       <div className="min-w-0 w-full">
-        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          <Link to="/jobs" className="hover:text-foreground transition-colors">Jobs</Link>
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+          <Link to="/jobs" className="hover:text-ui-default transition-colors">Jobs</Link>
           <ChevronRight size={12} className="opacity-40" />
-          <span className="text-foreground/60">{job.owner}/{job.repo}</span>
+          <span className="ui-font-mono lowercase tracking-normal text-ui-default">
+            {job.owner}/{job.repo}#{job.prNumber}
+          </span>
           <ChevronRight size={12} className="opacity-40" />
           <span
-            className="font-mono text-[10px] font-medium lowercase tracking-normal text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-default"
+            className="ui-font-mono font-medium lowercase tracking-normal text-ui-subtle cursor-default"
             title={job.id}
           >
             {job.id.slice(0, 8)}…
           </span>
         </div>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="mt-2 text-xl font-bold text-foreground" style={{ letterSpacing: '-0.02em' }}>
           <a
             href={`https://github.com/${job.owner}/${job.repo}/pull/${job.prNumber}`}
             target="_blank"
@@ -82,12 +84,24 @@ export function JobHeader({
             className="inline-flex items-center gap-2 hover:text-primary transition-colors"
           >
             {job.prTitle ?? 'Untitled pull request'}
-            <ExternalLink size={16} className="text-muted-foreground/50" />
+            <ExternalLink size={15} className="text-ui-subtle" />
           </a>
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground leading-snug max-w-[480px] truncate">
-          PR #{job.prNumber}
-        </p>
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-ui-subtle">
+          <span className="ui-font-mono">#{job.prNumber}</span>
+          {job.baseRef && job.headRef && (
+            <>
+              <span className="opacity-50">·</span>
+              <span className="ui-font-mono max-w-[160px] truncate rounded-md bg-ui-fill/50 px-1.5 py-0.5 text-[11px] text-ui-default">
+                {job.baseRef}
+              </span>
+              <span className="opacity-60">←</span>
+              <span className="ui-font-mono max-w-[220px] truncate rounded-md bg-ui-fill/50 px-1.5 py-0.5 text-[11px] text-ui-default">
+                {job.headRef}
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">

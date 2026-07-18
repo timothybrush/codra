@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { api } from '@client/lib/api';
-import type { StatsPayload } from '@shared/schema';
-import type { JobSummary } from '@shared/schema';
-import { ArrowRight, GitPullRequest } from 'lucide-react';
+import type { StatsPayload, JobSummary } from '@shared/schema';
+import { ArrowRight, GitPullRequest, Activity } from 'lucide-react';
 import { JobsTable } from '@client/components/shared/jobs-table';
 import { EmptyState } from '@client/components/shared/empty-state';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';
@@ -75,7 +74,7 @@ export function DashboardPage() {
       <div className="ui-panel min-w-0 overflow-hidden">
         <div className="flex items-center justify-between gap-2 border-b border-ui-line px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <GitPullRequest size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+            <Activity size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
             <h2 className="truncate text-[13px] font-medium text-ui-default">Recent reviews</h2>
           </div>
           <Link to="/jobs">
@@ -98,7 +97,7 @@ export function DashboardPage() {
             <EmptyState
               icon={<GitPullRequest />}
               title="No jobs yet"
-              description="Your pull request analysis logs will appear here"
+              description="Your pull request reviews will appear here"
               hints={[
                 'Once you open a PR in any of the connected repos, analysis triggers automatically',
                 'To trigger manually, comment @codra on any PR',

@@ -293,6 +293,7 @@ export async function listJobs(
   query: {
     owner?: string;
     repo?: string;
+    prNumber?: number;
     status?: string;
     verdict?: string;
     search?: string;
@@ -310,6 +311,10 @@ export async function listJobs(
   if (query.repo) {
     params.push(query.repo);
     conditions.push(`r.repo = $${params.length}`);
+  }
+  if (query.prNumber) {
+    params.push(query.prNumber);
+    conditions.push(`j.pr_number = $${params.length}`);
   }
   if (query.status) {
     params.push(query.status);

@@ -25,42 +25,27 @@ export function JobProgress({ job }: JobProgressProps) {
     : null;
 
   return (
-    <div
-      className="relative overflow-hidden rounded-xl px-6 py-5"
-      style={{
-        background: 'var(--primary)',
-        color: 'var(--primary-foreground)',
-      }}
-    >
-      {/* Subtle grid texture */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-[0.07]"
-        style={{
-          backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 23px, var(--primary-foreground) 23px, var(--primary-foreground) 24px),
-            repeating-linear-gradient(90deg, transparent, transparent 23px, var(--primary-foreground) 23px, var(--primary-foreground) 24px)`,
-        }}
-      />
-
-      <div className="relative">
-        {/* Top row: label + count */}
-        <div className="flex items-baseline justify-between gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            {isQueued
-              ? <Hourglass size={13} className="opacity-70 shrink-0" />
-              : <FileCode2 size={13} className="opacity-70 shrink-0" />
-            }
-            <span className="text-sm font-semibold tracking-tight">
-              {isQueued ? 'Waiting in queue' : 'Reviewing files'}
-            </span>
-          </div>
-          <span className="font-mono text-xs font-bold opacity-60 tabular-nums shrink-0">
-            {isQueued ? '—' : `${finishedCount} / ${total}`}
+    <div className="ui-panel ui-font-sans overflow-hidden">
+      {/* Header strip */}
+      <div className="flex items-baseline justify-between gap-4 border-b border-ui-line px-4 py-3 sm:px-5">
+        <div className="flex items-center gap-2">
+          {isQueued
+            ? <Hourglass size={14} className="shrink-0 text-ui-default" />
+            : <FileCode2 size={14} className="shrink-0 text-ui-default" />
+          }
+          <span className="text-[13px] font-medium text-ui-default">
+            {isQueued ? 'Waiting in queue' : 'Reviewing files'}
           </span>
         </div>
+        <span className="ui-font-mono shrink-0 text-xs tabular-nums text-ui-subtle">
+          {isQueued ? '—' : `${finishedCount} / ${total}`}
+        </span>
+      </div>
 
+      <div className="px-4 py-4 sm:px-5">
         {/* Progress track */}
         <div
-          className="h-[3px] rounded-full bg-primary-foreground/15 overflow-hidden"
+          className="h-1.5 overflow-hidden rounded-full bg-ui-fill"
           role="progressbar"
           aria-valuenow={isQueued ? 0 : pct}
           aria-valuemin={0}
@@ -68,24 +53,24 @@ export function JobProgress({ job }: JobProgressProps) {
           aria-label={isQueued ? 'Review waiting in queue' : 'File review progress'}
         >
           <div
-            className="h-full rounded-full bg-primary-foreground transition-[width] duration-700 ease-out"
+            className="h-full rounded-full bg-[var(--btn-primary-bg)] transition-[width] duration-700 ease-out"
             style={{ width: isQueued ? '0%' : `${pct}%` }}
           />
         </div>
 
         {/* Active file + percent */}
         {!isQueued && (
-          <div className="flex items-baseline justify-between gap-4 mt-2.5">
-            <div className="min-w-0 flex items-baseline gap-0 font-mono text-[11px] opacity-55 truncate">
+          <div className="mt-2.5 flex items-baseline justify-between gap-4">
+            <div className="ui-font-mono flex min-w-0 items-baseline gap-0 truncate text-[11px] text-ui-subtle">
               {prefixPath && (
-                <span className="opacity-60 shrink-0 hidden sm:inline">{prefixPath}</span>
+                <span className="hidden shrink-0 opacity-60 sm:inline">{prefixPath}</span>
               )}
               {displayPath
-                ? <span className="font-semibold">{displayPath}</span>
+                ? <span className="text-ui-default">{displayPath}</span>
                 : <span className="italic opacity-40">—</span>
               }
             </div>
-            <span className="font-mono text-xs font-bold opacity-50 tabular-nums shrink-0">{pct}%</span>
+            <span className="ui-font-mono shrink-0 text-xs tabular-nums text-ui-subtle">{pct}%</span>
           </div>
         )}
       </div>
