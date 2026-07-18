@@ -110,14 +110,6 @@ export function DashboardPage() {
               className="rounded-none border-0"
             />
           )}
-
-          {!loading && recentJobs.length > 0 && (
-            <div className="ui-well border-t border-ui-line px-4 py-2.5">
-              <p className="ui-font-mono text-[11px] text-ui-subtle">
-                {recentJobs.length} review jobs · refreshes every 15s
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </section>

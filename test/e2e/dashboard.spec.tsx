@@ -92,7 +92,7 @@ describe('Frontend UI Flows (JSDOM)', () => {
     expect(screen.getByText('500')).toBeDefined();
 
     // Check for activity stream item
-    expect(screen.getByText('test-owner/test-repo')).toBeDefined();
+    expect(screen.getByRole('link', { name: 'test-owner/test-repo' })).toBeDefined();
     expect(screen.getByRole('link', { name: 'Fixing bug' })).toBeDefined();
   });
 });

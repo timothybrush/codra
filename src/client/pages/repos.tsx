@@ -508,6 +508,12 @@ export function ReposPage() {
     <section className="page-enter flex flex-col gap-5">
       <PageHeader
         title="Repositories"
+        description={
+          repos.length > 0 &&
+          (filteredRepos.length === repos.length
+            ? `${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'} · ${enabledCount} enabled`
+            : `${filteredRepos.length} of ${repos.length} repositories · ${enabledCount} enabled`)
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -626,13 +632,6 @@ export function ReposPage() {
                 );
               })
             )}
-          </div>
-
-          {/* Footer strip */}
-          <div className="ui-well border-t border-ui-line px-4 py-2.5">
-            <p className="ui-font-mono text-[11px] text-ui-subtle">
-              {filteredRepos.length} of {repos.length} repositories · {enabledCount} enabled
-            </p>
           </div>
         </div>
       )}

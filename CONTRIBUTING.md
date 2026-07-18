@@ -72,10 +72,10 @@ npm run typecheck
 
 ## 🚀 Pull Request Process
 
-1.  **Fork & Branch**: Create a feature branch from `dev`.
+1.  **Fork & Branch**: Create a feature branch from `main`.
 2.  **Atomic Commits**: Keep your commits focused and descriptive.
-3.  **Sync**: Ensure your branch is up to date with `dev`.
-4.  **Target Branch**: Open pull requests against `dev`.
+3.  **Sync**: Ensure your branch is up to date with `main`.
+4.  **Target Branch**: Open pull requests against `main`.
 5.  **PR Description**: Use the provided template (if available) or clearly explain the *what* and *why* of your changes.
 6.  **CLA Check**: Once you open the PR, an automated check will verify your CLA status. If you haven't signed yet, follow the link in the check output.
 

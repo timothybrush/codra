@@ -73,7 +73,7 @@ export function UpdatesEmailPrompt() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@example.com"
-            className="min-w-0 flex-1"
+            className="min-w-0 px-3 sm:flex-1"
             aria-label="Email for Codra release updates"
           />
           <Button

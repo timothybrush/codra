@@ -50,6 +50,8 @@ export function JobsPage() {
   usePolling(load, 15_000, [filters, itemsPerPage]);
 
   const totalPages = Math.ceil(total / itemsPerPage);
+  const rangeStart = total === 0 ? 0 : (filters.page - 1) * itemsPerPage + 1;
+  const rangeEnd = Math.min(filters.page * itemsPerPage, total);
 
   return (
     <section className="page-enter flex flex-col gap-5">
@@ -154,50 +156,57 @@ export function JobsPage() {
           />
         )}
 
-        {/* ── Pagination footer (Beetle-style) ─── */}
-        <div className="ui-well flex items-center justify-between gap-3 border-t border-ui-line px-4 py-2.5">
-          {/* Items per page */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-ui-subtle">Items per page:</span>
-            <Select
-              value={String(itemsPerPage)}
-              onValueChange={(v) => {
-                setItemsPerPage(Number(v));
-                setFilters(f => ({ ...f, page: 1 }));
-              }}
-              options={[10, 20, 50, 100].map(n => ({ value: String(n), label: String(n) }))}
-              variant="card"
-              triggerClassName="h-8 w-20 px-2 py-1 text-xs"
-            />
-          </div>
+        {/* ── Pagination footer ─── */}
+        {total > 0 && (
+          <div className="flex flex-col gap-2.5 border-t border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-ui-subtle">
+              Showing <span className="text-ui-default">{rangeStart}–{rangeEnd}</span> of{' '}
+              <span className="text-ui-default">{total.toLocaleString()}</span> jobs
+            </p>
 
-          {/* Page navigation */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={filters.page === 1}
-              onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
-              className="h-7 w-7 p-0"
-              aria-label="Previous page"
-            >
-              <ChevronLeft size={14} />
-            </Button>
-            <span className="ui-font-mono text-xs tabular-nums text-ui-subtle">
-              Page {filters.page} of {Math.max(totalPages, 1)}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={filters.page >= totalPages}
-              onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
-              className="h-7 w-7 p-0"
-              aria-label="Next page"
-            >
-              <ChevronRight size={14} />
-            </Button>
+            <div className="flex items-center justify-between gap-4 sm:justify-end">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-ui-subtle">Rows per page</span>
+                <Select
+                  value={String(itemsPerPage)}
+                  onValueChange={(v) => {
+                    setItemsPerPage(Number(v));
+                    setFilters(f => ({ ...f, page: 1 }));
+                  }}
+                  options={[10, 20, 50, 100].map(n => ({ value: String(n), label: String(n) }))}
+                  variant="card"
+                  triggerClassName="h-7 w-[4.5rem] px-2 py-1 text-xs"
+                />
+              </div>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={filters.page === 1}
+                  onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
+                  className="h-7 w-7 p-0"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft size={14} />
+                </Button>
+                <span className="min-w-[3.5rem] text-center text-xs tabular-nums text-ui-subtle">
+                  {filters.page} / {Math.max(totalPages, 1)}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={filters.page >= totalPages}
+                  onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
+                  className="h-7 w-7 p-0"
+                  aria-label="Next page"
+                >
+                  <ChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </section>
   );
