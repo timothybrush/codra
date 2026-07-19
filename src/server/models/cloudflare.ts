@@ -25,7 +25,7 @@ const REVIEW_RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['title', 'body', 'priority', 'code_location'],
+        required: ['title', 'body', 'priority', 'confidence_score', 'code_location'],
         properties: {
           title: { type: 'string', maxLength: 100 },
           body: { type: 'string' },

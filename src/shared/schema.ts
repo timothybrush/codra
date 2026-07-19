@@ -28,6 +28,7 @@ export const parsedReviewCommentSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   codeSuggestion: z.string().min(1).nullable().optional(),
+  confidenceScore: z.number().min(0).max(1).nullable().optional(),
 });
 
 export const fileReviewModelOutputSchema = z.object({
@@ -80,6 +81,7 @@ export const reviewConfigSchema = z.object({
   max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
   max_comments: z.number().int().min(1).max(150).default(10),
   min_severity: z.enum(reviewSeverities).default('nit'),
+  min_confidence: z.number().min(0).max(1).default(0.6),
   focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),
   custom_rules: z.array(z.string().min(1)).default([]),
   labels: labelsSchema.default({
@@ -112,6 +114,7 @@ export const repoConfigSchema = z.object({
     max_total_diff_chars: 150_000,
     max_comments: 10,
     min_severity: 'nit',
+    min_confidence: 0.6,
     focus: [...reviewCategories],
     custom_rules: [],
     labels: {

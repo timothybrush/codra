@@ -95,7 +95,6 @@ function StepRow({ step, index, total }: { step: JobStep; index: number; total: 
 export function JobMetaCards({ job }: JobMetaCardsProps) {
   const isPartialReview = job.status === 'done' && job.errorMessage?.startsWith('Partial review:');
   const steps = job.steps ?? [];
-  const shortCommitSha = job.commitSha?.slice(0, 7) ?? 'unknown';
 
   return (
     <div className="ui-font-sans grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -132,21 +131,9 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
             ))}
 
             <div>
-              <dt className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">Commit</dt>
-              <dd>
-                {job.commitSha ? (
-                  <a
-                    href={`https://github.com/${job.owner}/${job.repo}/commit/${job.commitSha}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ui-font-mono inline-flex items-center gap-1.5 text-xs text-ui-default transition-colors hover:text-primary"
-                  >
-                    {shortCommitSha}
-                    <ExternalLink size={10} className="text-ui-subtle" />
-                  </a>
-                ) : (
-                  <span className="ui-font-mono text-xs text-ui-subtle">{shortCommitSha}</span>
-                )}
+              <dt className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">Created</dt>
+              <dd className="ui-font-mono text-xs tabular-nums text-ui-default">
+                {new Date(job.createdAt).toLocaleString()}
               </dd>
             </div>
 
@@ -179,11 +166,6 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
                 </dd>
               </div>
             )}
-
-            <div className="col-span-2 border-t border-ui-line/60 pt-3">
-              <dt className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">Created</dt>
-              <dd className="ui-font-mono text-xs tabular-nums text-ui-subtle">{new Date(job.createdAt).toLocaleString()}</dd>
-            </div>
           </dl>
 
           {/* Error / partial message */}

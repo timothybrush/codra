@@ -58,7 +58,6 @@ export function JobDetailPage() {
       <nav className="flex items-center gap-1 border-b border-ui-line" role="tablist" aria-label="Job detail sections">
         {TABS.map(({ id: tabId, label, icon: Icon }) => {
           const active = tab === tabId;
-          const count = tabId === 'files' ? job.files.length : null;
           return (
             <button
               key={tabId}
@@ -73,11 +72,6 @@ export function JobDetailPage() {
             >
               <Icon size={14} strokeWidth={2} />
               {label}
-              {count !== null && count > 0 && (
-                <span className="ui-font-mono rounded-full bg-ui-fill/50 px-1.5 py-px text-[10px] tabular-nums text-ui-subtle">
-                  {count}
-                </span>
-              )}
               {active && (
                 <motion.span
                   layoutId="job-tab-underline"

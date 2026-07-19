@@ -6,7 +6,6 @@ import rehypeSanitize from 'rehype-sanitize';
 import { FileText } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import type { ParsedReviewComment } from '@shared/schema';
-import { HighlightedCode, langForHint, langForPath } from '@client/lib/highlight';
 import { severityConfig } from './constants';
 
 const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
@@ -20,13 +19,12 @@ export function CommentCard({ comment, filePath }: CommentCardProps) {
   const sev = severityConfig[comment.severity] ?? severityConfig.nit;
   const SevIcon = sev.icon;
 
-  // Syntax-highlight fenced code inside the body: use the fence hint if present,
-  // else fall back to the file's language.
+  // Plain code rendering (no syntax highlighting) -- findings read better as
+  // quiet monospace blocks against the tinted severity card.
   const markdownComponents = {
     code({ className, children, ...props }: ComponentPropsWithoutRef<'code'> & { className?: string }) {
       const text = String(children ?? '');
-      const hint = /language-([\w+-]+)/.exec(className ?? '')?.[1];
-      const isBlock = Boolean(hint) || text.includes('\n');
+      const isBlock = /language-[\w+-]+/.test(className ?? '') || text.includes('\n');
       if (!isBlock) {
         return (
           <code className="ui-font-mono rounded border border-ui-line bg-ui-fill/60 px-1 py-0.5 text-[0.85em] text-ui-strong" {...props}>
@@ -34,22 +32,16 @@ export function CommentCard({ comment, filePath }: CommentCardProps) {
           </code>
         );
       }
-      const lang = hint ? langForHint(hint) : langForPath(filePath);
       return (
-        <code className="ui-font-mono block text-[12px] leading-relaxed">
-          <HighlightedCode code={text} lang={lang} />
+        <code className="ui-font-mono block whitespace-pre text-[12px] leading-relaxed" {...props}>
+          {text.replace(/\n+$/, '')}
         </code>
       );
     },
   } as const;
 
   return (
-    <article
-      className={cn(
-        'ui-font-sans rounded-md border p-4 sm:p-5',
-        sev.bg, sev.border,
-      )}
-    >
+    <article className="ui-font-sans rounded-md border border-ui-line bg-ui-base p-4 sm:p-5">
       {/* Header row */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2">
@@ -80,20 +72,17 @@ export function CommentCard({ comment, filePath }: CommentCardProps) {
         </ReactMarkdown>
       </div>
 
-      {/* Code suggestion (UI view) — syntax-highlighted using the file's language */}
+      {/* Code suggestion (UI view) */}
       {comment.codeSuggestion && (
         <div className="mt-4 border-t border-border/40 pt-4">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
             Suggested fix
           </p>
           <pre
-            className="ui-font-mono overflow-x-auto rounded-md border p-3 text-[12px] leading-relaxed"
+            className="thin-scroll ui-font-mono overflow-x-auto rounded-md border p-3 text-[12px] leading-relaxed"
             style={{ background: 'var(--code-bg)', borderColor: 'var(--code-border)', color: 'var(--code-fg)' }}
           >
-            <HighlightedCode
-              code={comment.codeSuggestion.replace(/```suggestion\n?|```/g, '').trim()}
-              lang={langForPath(filePath)}
-            />
+            {comment.codeSuggestion.replace(/```suggestion\n?|```/g, '').trim()}
           </pre>
         </div>
       )}

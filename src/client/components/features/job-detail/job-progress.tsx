@@ -67,7 +67,7 @@ export function JobProgress({ job }: JobProgressProps) {
               )}
               {displayPath
                 ? <span className="text-ui-default">{displayPath}</span>
-                : <span className="italic opacity-40">—</span>
+                : <span>{Math.max(total - finishedCount, 0)} {total - finishedCount === 1 ? 'file' : 'files'} remaining</span>
               }
             </div>
             <span className="ui-font-mono shrink-0 text-xs tabular-nums text-ui-subtle">{pct}%</span>

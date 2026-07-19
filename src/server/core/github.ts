@@ -459,6 +459,22 @@ export class GitHubClient {
     });
   }
 
+  /**
+   * Diff between two specific commits (not "current PR state"), so it stays correct
+   * even after the PR has moved on, merged, or closed. Used to reconstruct a past
+   * job's diff on demand once its short-lived KV cache has expired.
+   */
+  async getCompareDiff(owner: string, repo: string, base: string, head: string) {
+    return withRetry(`getCompareDiff ${owner}/${repo} ${base}...${head}`, async () => {
+      const response = await this.requestAndCheck(
+        `${repoApiPath(owner, repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+        {},
+        'application/vnd.github.v3.diff',
+      );
+      return response.text();
+    });
+  }
+
   async getRepoFileOrNull(owner: string, repo: string, path: string) {
     return withRetry(`getRepoFileOrNull ${owner}/${repo}/${path}`, async () => {
       const response = await this.request(`${repoApiPath(owner, repo)}/contents/${encodeGitHubContentPath(path)}`);

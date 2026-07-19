@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Check,
   ChevronDown,
@@ -14,28 +14,84 @@ import {
   Info,
 } from 'lucide-react';
 import { Badge, StatusBadge } from '@client/components/ui/badge';
-import { Button } from '@client/components/ui/button';
+import { api } from '@client/lib/api';
 import { highlightLine, langForPath } from '@client/lib/highlight';
 import { cn } from '@client/lib/utils';
 import type { FileReviewRecord, JobDetail, ParsedReviewComment } from '@shared/schema';
 import { CommentCard } from './comment-card';
 
-/* Diffs longer than this collapse behind a "Load diff" button so a huge PR
-   doesn't render tens of thousands of rows at once (which shrinks the page
-   scrollbar to nothing). Files carrying review comments are never auto-hidden. */
+/* diff_input isn't persisted in Postgres (reconstructed on demand from KV/GitHub — see
+   GET /api/jobs/:id/diffs), so it's fetched lazily the moment this tab actually mounts and
+   session-cached per job so switching tabs back and forth doesn't refetch. */
+function readDiffsCache(jobId: string): Record<string, string> | null {
+  try {
+    const raw = sessionStorage.getItem(`codra:job-diffs:${jobId}`);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDiffsCache(jobId: string, diffs: Record<string, string>) {
+  try {
+    const payload = JSON.stringify(diffs);
+    // Serializing multi-MB diffs janks the main thread and evicts everything else
+    // in sessionStorage; giant PRs just refetch (the server-side KV cache is warm).
+    if (payload.length > 2_000_000) return;
+    sessionStorage.setItem(`codra:job-diffs:${jobId}`, payload);
+  } catch {
+    /* quota exceeded / unavailable — skip */
+  }
+}
+
+/** A file present in the PR diff that has no review row (yet) — e.g. the job is
+    still running, or the file was skipped. Shown like GitHub shows every changed
+    file, with a "pending" status instead of review results. */
+function syntheticFileReview(jobId: string, filePath: string, diffInput: string): FileReviewRecord {
+  return {
+    id: `diff-only:${filePath}`,
+    jobId,
+    filePath,
+    fileStatus: 'pending',
+    modelUsed: '',
+    diffLineCount: null,
+    diffInput,
+    rawAiOutput: null,
+    parsedComments: [],
+    inputTokens: null,
+    outputTokens: null,
+    durationMs: null,
+    verdict: null,
+    fileSummary: null,
+    errorMessage: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/* Diffs longer than this render only the first PREVIEW_ROWS lines with a
+   "Show full diff" control (GitHub-style truncation), so a huge PR never dumps
+   tens of thousands of rows into the DOM at once. Files carrying review
+   comments are never truncated (anchors must stay visible). */
 const LARGE_DIFF_ROWS = 300;
+const PREVIEW_ROWS = 150;
 
 /* Above this many files, only files with review comments start expanded —
    the tree is the navigation surface, so a huge PR opens as a short page. */
 const AUTO_EXPAND_FILE_LIMIT = 8;
 
-/* Offscreen file panels skip layout/paint entirely; the placeholder height
-   keeps the scrollbar honest ('auto' remembers the real height once rendered,
-   the fallback approximates it before that). Massively cheapens huge PRs. */
-function panelCvStyle(open: boolean): CSSProperties {
+/* Row height used to estimate a panel's rendered size before it first paints. */
+const DIFF_ROW_PX = 20;
+
+/* Offscreen file panels skip layout/paint entirely; the placeholder height keeps
+   the scrollbar honest ('auto' remembers the real height once rendered, the
+   estimate covers it before that). An accurate per-file estimate — derived from
+   the diff's own line count, capped at the preview size — keeps the page height
+   stable while scrolling instead of "growing" as panels come into view. */
+function panelCvStyle(open: boolean, lineEstimate: number): CSSProperties {
+  const body = open ? Math.min(lineEstimate, PREVIEW_ROWS) * DIFF_ROW_PX + 140 : 0;
   return {
     contentVisibility: 'auto',
-    containIntrinsicSize: open ? 'auto 480px' : 'auto 46px',
+    containIntrinsicSize: `auto ${46 + body}px`,
   };
 }
 
@@ -122,25 +178,31 @@ export function parseUnifiedDiff(diff: string): DiffRow[] {
   return rows;
 }
 
+/** Cheap line scan (no row objects): add/del counts plus a total-rows estimate,
+    so collapsed panels never pay for a full parse. */
 export function diffStats(diff: string | null) {
-  if (!diff) return { adds: 0, dels: 0 };
+  if (!diff) return { adds: 0, dels: 0, total: 0 };
   let adds = 0;
   let dels = 0;
+  let total = 0;
   let started = false;
   for (const line of diff.split('\n')) {
-    if (HUNK_RE.test(line)) { started = true; continue; }
+    if (HUNK_RE.test(line)) { started = true; total++; continue; }
     if (!started) continue;
     if (line.startsWith('diff --git')) { started = false; continue; }
     const padded = parsePaddedLine(line);
     if (padded) {
+      total++;
       if (padded.prefix === '+') adds++;
       else if (padded.prefix === '-') dels++;
       continue;
     }
-    if (line.startsWith('+') && !line.startsWith('+++')) adds++;
-    else if (line.startsWith('-') && !line.startsWith('---')) dels++;
+    const p = line[0];
+    if (p === '+' && !line.startsWith('+++')) { adds++; total++; }
+    else if (p === '-' && !line.startsWith('---')) { dels++; total++; }
+    else if (p === ' ') total++;
   }
-  return { adds, dels };
+  return { adds, dels, total };
 }
 
 /* ── Diff rows ────────────────────────────────────────────────── */
@@ -191,28 +253,40 @@ interface FileDiffProps {
   file: FileReviewRecord;
   open: boolean;
   viewed: boolean;
-  /** Skip the large-diff gate (single-file mode always renders the diff). */
-  forceLoad?: boolean;
+  /** The job's diffs are still being fetched (see JobDiffs) — don't yet claim "no diff saved". */
+  diffsLoading?: boolean;
   onOpenChange: (open: boolean) => void;
   onToggleViewed: (viewed: boolean) => void;
 }
 
-function FileDiff({ file, open, viewed, forceLoad = false, onOpenChange, onToggleViewed }: FileDiffProps) {
-  const lang = useMemo(() => langForPath(file.filePath), [file.filePath]);
-  const rows = useMemo(() => (file.diffInput ? parseUnifiedDiff(file.diffInput) : []), [file.diffInput]);
-  const { adds, dels } = useMemo(() => diffStats(file.diffInput), [file.diffInput]);
+const NO_ROWS: DiffRow[] = [];
 
-  // Large diffs stay hidden until asked for — unless they carry review comments
-  // or the caller forces them open (single-file mode).
-  const isLarge = rows.length > LARGE_DIFF_ROWS && file.parsedComments.length === 0 && !forceLoad;
-  const [loaded, setLoaded] = useState(!isLarge);
+function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChange, onToggleViewed }: FileDiffProps) {
+  const lang = useMemo(() => langForPath(file.filePath), [file.filePath]);
+  // Header stats come from a cheap line scan; the full row parse only happens once
+  // the panel is actually open — collapsed files cost almost nothing.
+  const { adds, dels } = useMemo(() => diffStats(file.diffInput), [file.diffInput]);
+  const rows = useMemo(
+    () => (open && file.diffInput ? parseUnifiedDiff(file.diffInput) : NO_ROWS),
+    [open, file.diffInput],
+  );
+
+  // GitHub-style truncation: long diffs render a preview with a "Show full diff"
+  // control. Files with review comments always render fully (anchors must show).
+  const truncatable = rows.length > LARGE_DIFF_ROWS && file.parsedComments.length === 0;
+  const [showFull, setShowFull] = useState(false);
+  const visibleRows = useMemo(
+    () => (truncatable && !showFull ? rows.slice(0, PREVIEW_ROWS) : rows),
+    [rows, truncatable, showFull],
+  );
+  const hiddenLines = rows.length - visibleRows.length;
 
   // Anchor comments to their new-file line and split the diff into segments:
   // runs of rows, interrupted by comment blocks. Unmatched comments fall to the end.
   const { segments, unanchored } = useMemo(() => {
     const byLine = new Map<number, ParsedReviewComment[]>();
     const rest: ParsedReviewComment[] = [];
-    const anchorable = new Set(rows.filter((r) => r.newNo !== null).map((r) => r.newNo));
+    const anchorable = new Set(visibleRows.filter((r) => r.newNo !== null).map((r) => r.newNo));
     for (const comment of file.parsedComments) {
       if (comment.line != null && anchorable.has(comment.line)) {
         const list = byLine.get(comment.line) ?? [];
@@ -228,7 +302,7 @@ function FileDiff({ file, open, viewed, forceLoad = false, onOpenChange, onToggl
       | { type: 'comments'; comments: ParsedReviewComment[] }
     > = [];
     let run: DiffRow[] = [];
-    for (const row of rows) {
+    for (const row of visibleRows) {
       run.push(row);
       const comments = row.newNo !== null ? byLine.get(row.newNo) : undefined;
       if (comments) {
@@ -240,7 +314,7 @@ function FileDiff({ file, open, viewed, forceLoad = false, onOpenChange, onToggl
     if (run.length > 0) segs.push({ type: 'rows', rows: run });
 
     return { segments: segs, unanchored: rest };
-  }, [rows, file.parsedComments]);
+  }, [visibleRows, file.parsedComments]);
 
   const toggleViewed = (next: boolean) => {
     onToggleViewed(next);
@@ -309,25 +383,16 @@ function FileDiff({ file, open, viewed, forceLoad = false, onOpenChange, onToggl
       {open && (
         <div className="min-w-0">
           {rows.length === 0 ? (
-            <p className="px-4 py-8 text-center text-xs text-ui-subtle">No diff saved for this file.</p>
-          ) : !loaded ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
-              <p className="text-xs text-ui-subtle">
-                Large diff hidden, {rows.length.toLocaleString()} lines
-                {' '}(<span className="diff-add-fg">+{adds}</span>{' '}
-                <span className="diff-del-fg">−{dels}</span>).
-              </p>
-              <Button variant="secondary" size="sm" onClick={() => setLoaded(true)}>
-                Load diff
-              </Button>
-            </div>
+            <p className="px-4 py-8 text-center text-xs text-ui-subtle">
+              {diffsLoading ? 'Loading diff…' : 'Diff unavailable for this file.'}
+            </p>
           ) : (
             // Comments split the diff into independently-scrollable row segments so
             // comment cards stay at panel width instead of stretching to the widest
             // code line inside one shared horizontal scroller.
             segments.map((segment, i) =>
               segment.type === 'rows' ? (
-                <div key={i} className="overflow-x-auto">
+                <div key={i} className="thin-scroll overflow-x-auto">
                   <div className="min-w-fit py-1">
                     {segment.rows.map((row, j) => (
                       <DiffLine key={j} row={row} lang={lang} />
@@ -344,6 +409,33 @@ function FileDiff({ file, open, viewed, forceLoad = false, onOpenChange, onToggl
                 </div>
               ),
             )
+          )}
+
+          {/* GitHub-style truncation footer for long diffs */}
+          {hiddenLines > 0 && (
+            <div className="ui-well flex items-center justify-center gap-3 border-t border-ui-line px-4 py-2.5">
+              <p className="text-xs text-ui-subtle">
+                {hiddenLines.toLocaleString()} more {hiddenLines === 1 ? 'line' : 'lines'} not shown.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowFull(true)}
+                className="text-xs font-medium text-primary transition-opacity hover:opacity-80"
+              >
+                Show full diff
+              </button>
+            </div>
+          )}
+          {truncatable && showFull && (
+            <div className="ui-well flex items-center justify-center border-t border-ui-line px-4 py-2">
+              <button
+                type="button"
+                onClick={() => setShowFull(false)}
+                className="text-xs font-medium text-ui-subtle transition-colors hover:text-ui-default"
+              >
+                Collapse to preview
+              </button>
+            </div>
           )}
 
           {/* Error + comments that didn't match a diff line */}
@@ -486,10 +578,10 @@ function FileTree({ nodes, collapsedDirs, viewedFiles, selectedFileId, onToggleD
               onClick={() => onSelectFile(node.file)}
               aria-current={selected ? 'true' : undefined}
               className={cn(
-                'flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors',
+                'group flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors',
                 selected ? 'bg-ui-fill font-medium text-ui-strong' : 'hover:bg-ui-fill/60',
               )}
-              title={node.file.filePath}
+              title={`${node.file.filePath} · +${adds} −${dels}`}
             >
               {viewed ? (
                 <Check size={13} className="shrink-0 text-success" strokeWidth={3} />
@@ -507,7 +599,14 @@ function FileTree({ nodes, collapsedDirs, viewedFiles, selectedFileId, onToggleD
               {node.file.parsedComments.length > 0 && (
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title={`${node.file.parsedComments.length} review comments`} />
               )}
-              <span className="ui-font-mono shrink-0 text-[10px] tabular-nums">
+              {/* Counts appear only on hover/selection — `hidden` (not opacity-0) so
+                  they don't reserve width and squeeze the filename when invisible. */}
+              <span
+                className={cn(
+                  'ui-font-mono shrink-0 text-[10px] tabular-nums',
+                  selected ? 'inline' : 'hidden group-hover:inline',
+                )}
+              >
                 <span className="diff-add-fg">+{adds}</span>{' '}
                 <span className="diff-del-fg">−{dels}</span>
               </span>
@@ -526,41 +625,82 @@ interface JobDiffsProps {
 }
 
 export function JobDiffs({ job }: JobDiffsProps) {
+  const [diffsByPath, setDiffsByPath] = useState<Record<string, string> | null>(() => readDiffsCache(job.id));
+  const [diffsLoading, setDiffsLoading] = useState(diffsByPath === null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDiffsLoading(true);
+    api.getJobDiffs(job.id)
+      .then((res) => {
+        if (cancelled) return;
+        setDiffsByPath(res.diffs);
+        writeDiffsCache(job.id, res.diffs);
+      })
+      .catch(() => {
+        if (!cancelled) setDiffsByPath((current) => current ?? {});
+      })
+      .finally(() => {
+        if (!cancelled) setDiffsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.id]);
+
+  // The full GitHub-style file list: every file in the PR diff, merged with review
+  // rows where they exist. Files without a review row yet (job still running,
+  // skipped, etc.) show as pending, sorted by path like GitHub.
+  const files = useMemo(() => {
+    const merged = job.files.map((f) =>
+      diffsByPath?.[f.filePath] ? { ...f, diffInput: diffsByPath[f.filePath] } : f,
+    );
+    if (diffsByPath) {
+      const known = new Set(job.files.map((f) => f.filePath));
+      for (const [path, diff] of Object.entries(diffsByPath)) {
+        if (!known.has(path)) merged.push(syntheticFileReview(job.id, path, diff));
+      }
+    }
+    return merged.sort((a, b) => a.filePath.localeCompare(b.filePath));
+  }, [job.id, job.files, diffsByPath]);
+
+  // Per-file cheap stats, computed once per diff change and reused everywhere
+  // (header counts, tree, totals, panel size estimates).
+  const statsByPath = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof diffStats>>();
+    for (const file of files) map.set(file.filePath, diffStats(file.diffInput));
+    return map;
+  }, [files]);
+
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(() => new Set());
-  // Big PRs open as a short page: only files with review comments start expanded.
-  const [openFiles, setOpenFiles] = useState<Set<string>>(() =>
-    job.files.length > AUTO_EXPAND_FILE_LIMIT
-      ? new Set(job.files.filter((f) => f.parsedComments.length > 0).map((f) => f.id))
-      : new Set(job.files.map((f) => f.id)),
-  );
+  // Open state is an override on top of a default rule, so files that stream in
+  // later (running jobs, late-arriving diffs) still get sensible defaults: big
+  // PRs start collapsed except files carrying review comments.
+  const [openOverrides, setOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
+  const isLargePr = files.length > AUTO_EXPAND_FILE_LIMIT;
+  const isOpen = (file: FileReviewRecord) =>
+    openOverrides.get(file.id) ?? (!isLargePr || file.parsedComments.length > 0);
+
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   // Single-file mode: render one diff at a time — the fast path for huge PRs.
   const [singleFileMode, setSingleFileMode] = useState(false);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  const isLargePr = job.files.length > AUTO_EXPAND_FILE_LIMIT;
-
-  const tree = useMemo(() => buildTree(job.files), [job.files]);
+  const tree = useMemo(() => buildTree(files), [files]);
 
   const totals = useMemo(() => {
     let adds = 0;
     let dels = 0;
-    for (const file of job.files) {
-      const s = diffStats(file.diffInput);
+    for (const s of statsByPath.values()) {
       adds += s.adds;
       dels += s.dels;
     }
     return { adds, dels };
-  }, [job.files]);
+  }, [statsByPath]);
 
   const setOpen = (id: string, open: boolean) =>
-    setOpenFiles((current) => {
-      const next = new Set(current);
-      if (open) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+    setOpenOverrides((current) => new Map(current).set(id, open));
 
   const setViewed = (id: string, viewed: boolean) =>
     setViewedFiles((current) => {
@@ -581,16 +721,16 @@ export function JobDiffs({ job }: JobDiffsProps) {
   };
 
   // Single-file mode current selection (defaults to the first file).
-  const currentIndex = Math.max(0, job.files.findIndex((f) => f.id === selectedFileId));
-  const currentFile = job.files[currentIndex];
+  const currentIndex = Math.max(0, files.findIndex((f) => f.id === selectedFileId));
+  const currentFile = files[currentIndex];
   const stepFile = (delta: number) => {
-    const next = job.files[currentIndex + delta];
+    const next = files[currentIndex + delta];
     if (next) jumpToFile(next);
   };
 
-  const allOpen = openFiles.size === job.files.length;
+  const allOpen = files.every((f) => isOpen(f));
   const toggleAll = () =>
-    setOpenFiles(allOpen ? new Set() : new Set(job.files.map((f) => f.id)));
+    setOpenOverrides(new Map(files.map((f) => [f.id, !allOpen])));
 
   const toggleDir = (path: string) =>
     setCollapsedDirs((current) => {
@@ -600,7 +740,7 @@ export function JobDiffs({ job }: JobDiffsProps) {
       return next;
     });
 
-  if (job.files.length === 0) {
+  if (files.length === 0) {
     return (
       <div className="ui-panel flex flex-col items-center justify-center py-16 text-center">
         <FileDiffIcon size={32} className="mb-3 text-ui-subtle/30" />
@@ -613,10 +753,13 @@ export function JobDiffs({ job }: JobDiffsProps) {
   return (
     <div className="flex min-w-0 items-start gap-4">
       {/* File tree — sticky, scrolls independently so it stays reachable in huge PRs. */}
-      <aside className="ui-panel sticky top-4 hidden max-h-[calc(100vh-2rem)] w-64 shrink-0 flex-col overflow-hidden lg:flex">
+      <aside className="ui-panel sticky top-4 hidden max-h-[calc(100vh-2rem)] w-72 shrink-0 flex-col overflow-hidden lg:flex xl:w-80">
         <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3">
           <FileDiffIcon size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Files</h2>
+          <span className="ui-font-mono ml-auto text-[11px] tabular-nums text-ui-subtle">
+            {files.length}
+          </span>
         </div>
         {/* Viewed progress — matches the review progress bar styling. */}
         <div
@@ -624,15 +767,15 @@ export function JobDiffs({ job }: JobDiffsProps) {
           role="progressbar"
           aria-valuenow={viewedFiles.size}
           aria-valuemin={0}
-          aria-valuemax={job.files.length}
+          aria-valuemax={files.length}
           aria-label="Files marked viewed"
         >
           <div
             className="h-full bg-[var(--btn-primary-bg)] transition-[width] duration-500 ease-out"
-            style={{ width: `${(viewedFiles.size / job.files.length) * 100}%` }}
+            style={{ width: `${(viewedFiles.size / files.length) * 100}%` }}
           />
         </div>
-        <div className="diff-tree min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="diff-tree diff-tree-scroll min-h-0 flex-1 overflow-y-auto py-2 pl-2 pr-1">
           <FileTree
             nodes={tree}
             collapsedDirs={collapsedDirs}
@@ -644,7 +787,7 @@ export function JobDiffs({ job }: JobDiffsProps) {
         </div>
         <div className="ui-well border-t border-ui-line px-4 py-2">
           <p className="ui-font-mono text-[10px] tabular-nums text-ui-subtle">
-            {job.files.length} {job.files.length === 1 ? 'file' : 'files'} ·{' '}
+            {files.length} {files.length === 1 ? 'file' : 'files'} ·{' '}
             <span className="diff-add-fg">+{totals.adds}</span>{' '}
             <span className="diff-del-fg">−{totals.dels}</span>
           </p>
@@ -676,15 +819,15 @@ export function JobDiffs({ job }: JobDiffsProps) {
           <span className="flex items-center gap-1.5 text-xs text-ui-subtle">
             <GitCommitHorizontal size={13} />
             {singleFileMode
-              ? `File ${currentIndex + 1} of ${job.files.length}`
-              : `${job.files.length} ${job.files.length === 1 ? 'file' : 'files'}`}
+              ? `File ${currentIndex + 1} of ${files.length}`
+              : `${files.length} ${files.length === 1 ? 'file' : 'files'}`}
           </span>
           <span className="ui-font-mono text-xs tabular-nums">
             <span className="diff-add-fg">+{totals.adds}</span>{' '}
             <span className="diff-del-fg">−{totals.dels}</span>
           </span>
           <span className="ml-auto text-xs tabular-nums text-ui-subtle">
-            {viewedFiles.size} / {job.files.length} viewed
+            {viewedFiles.size} / {files.length} viewed
           </span>
           {singleFileMode ? (
             <div className="flex items-center gap-1">
@@ -700,7 +843,7 @@ export function JobDiffs({ job }: JobDiffsProps) {
               <button
                 type="button"
                 onClick={() => stepFile(1)}
-                disabled={currentIndex >= job.files.length - 1}
+                disabled={currentIndex >= files.length - 1}
                 aria-label="Next file"
                 className="flex h-6 w-6 items-center justify-center rounded-md border border-ui-line text-ui-subtle transition-colors hover:bg-ui-fill/60 hover:text-ui-default disabled:pointer-events-none disabled:opacity-40"
               >
@@ -725,8 +868,8 @@ export function JobDiffs({ job }: JobDiffsProps) {
             key={currentFile.id}
             file={currentFile}
             open
-            forceLoad
             viewed={viewedFiles.has(currentFile.id)}
+            diffsLoading={diffsLoading}
             onOpenChange={() => {}}
             onToggleViewed={(viewed) => {
               setViewed(currentFile.id, viewed);
@@ -735,11 +878,11 @@ export function JobDiffs({ job }: JobDiffsProps) {
             }}
           />
         ) : (
-          job.files.map((file) => (
+          files.map((file) => (
             <div
               key={file.id}
               id={fileAnchorId(file.id)}
-              style={panelCvStyle(openFiles.has(file.id))}
+              style={panelCvStyle(isOpen(file), statsByPath.get(file.filePath)?.total ?? 0)}
               ref={(el) => {
                 if (el) fileRefs.current.set(file.id, el);
                 else fileRefs.current.delete(file.id);
@@ -747,8 +890,9 @@ export function JobDiffs({ job }: JobDiffsProps) {
             >
               <FileDiff
                 file={file}
-                open={openFiles.has(file.id)}
+                open={isOpen(file)}
                 viewed={viewedFiles.has(file.id)}
+                diffsLoading={diffsLoading}
                 onOpenChange={(open) => setOpen(file.id, open)}
                 onToggleViewed={(viewed) => setViewed(file.id, viewed)}
               />

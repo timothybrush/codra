@@ -16,6 +16,10 @@ export class GitHubService {
     return this.client.getPullRequestDiff(owner, repo, prNumber);
   }
 
+  async getCompareDiff(owner: string, repo: string, base: string, head: string) {
+    return this.client.getCompareDiff(owner, repo, base, head);
+  }
+
   async createCheckRun(owner: string, repo: string, params: { headSha: string; title: string; summary: string }) {
     return this.client.createCheckRun(owner, repo, params);
   }

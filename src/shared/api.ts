@@ -34,6 +34,13 @@ export type JobDetailResponse = {
   job: JobDetail;
 };
 
+/** Per-file reconstructed diff/prompt text, fetched on demand (see GET /api/jobs/:id/diffs) --
+    diff_input isn't persisted in Postgres, so this comes from KV or a fresh GitHub fetch. Files
+    with no entry are unavailable (e.g. the underlying commits are gone). */
+export type JobDiffsResponse = {
+  diffs: Record<string, string>;
+};
+
 export type RetryJobResponse = {
   job: JobSummary;
 };

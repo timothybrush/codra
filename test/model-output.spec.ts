@@ -1,5 +1,6 @@
-import { parseFileReviewResponse } from '@server/core/model-output';
+import { parseFileReviewResponse, dedupeFindings } from '@server/core/model-output';
 import type { FileDiff } from '@server/core/diff';
+import type { ParsedReviewComment } from '@shared/schema';
 
 describe('Model Output Parsing Deep Dive', () => {
   const mockFile: FileDiff = {
@@ -170,5 +171,79 @@ export function nextOwner(owner: string) {
     const result = parseFileReviewResponse(rawOutput, mockFile);
     expect(result.comments).toHaveLength(0);
     expect(result.verdict).toBe('approve');
+  });
+
+  it('carries per-finding confidence_score through to the parsed comment', () => {
+    const rawOutput = `
+{
+  "findings": [{
+    "title": "Real bug",
+    "body": "Concrete issue",
+    "priority": 1,
+    "confidence_score": 0.92,
+    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
+  }],
+  "overall_correctness": "issues found",
+  "overall_explanation": "explanation"
+}`;
+
+    const result = parseFileReviewResponse(rawOutput, mockFile);
+    expect(result.comments[0].confidenceScore).toBeCloseTo(0.92);
+  });
+
+  it('defaults a finding with no priority to P3 (low), not P2', () => {
+    const rawOutput = `
+{
+  "findings": [{
+    "title": "Unranked finding",
+    "body": "Model did not set a priority",
+    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
+  }],
+  "overall_correctness": "issues found",
+  "overall_explanation": "explanation"
+}`;
+
+    const result = parseFileReviewResponse(rawOutput, mockFile);
+    expect(result.comments[0].severity).toBe('P3');
+  });
+});
+
+describe('dedupeFindings', () => {
+  const make = (over: Partial<ParsedReviewComment>): ParsedReviewComment => ({
+    path: 'a.ts',
+    line: 1,
+    position: 1,
+    severity: 'P2',
+    category: 'quality',
+    title: 'Use of any',
+    body: 'body',
+    ...over,
+  });
+
+  it('collapses same-titled findings across files, keeping the strongest', () => {
+    const input = [
+      make({ path: 'a.ts', severity: 'P3', confidenceScore: 0.4 }),
+      make({ path: 'b.ts', severity: 'P1', confidenceScore: 0.5 }),
+      make({ path: 'c.ts', severity: 'P3', confidenceScore: 0.9 }),
+    ];
+    const result = dedupeFindings(input);
+    expect(result).toHaveLength(1);
+    expect(result[0].severity).toBe('P1');
+    expect(result[0].path).toBe('b.ts');
+  });
+
+  it('prefers higher confidence when severities tie', () => {
+    const input = [
+      make({ title: 'Null deref', severity: 'P2', confidenceScore: 0.3 }),
+      make({ title: 'Null deref', severity: 'P2', confidenceScore: 0.8 }),
+    ];
+    const result = dedupeFindings(input);
+    expect(result).toHaveLength(1);
+    expect(result[0].confidenceScore).toBeCloseTo(0.8);
+  });
+
+  it('keeps findings with genuinely different titles', () => {
+    const input = [make({ title: 'Bug A' }), make({ title: 'Bug B' })];
+    expect(dedupeFindings(input)).toHaveLength(2);
   });
 });

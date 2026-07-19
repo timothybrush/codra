@@ -528,6 +528,7 @@ describe('ModelService', () => {
             max_total_diff_chars: 150_000,
             max_comments: 10,
             min_severity: 'nit',
+            min_confidence: 0.6,
             focus: ['quality'],
             custom_rules: [],
             labels: false,

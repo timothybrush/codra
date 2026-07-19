@@ -354,7 +354,7 @@ export async function bulkMarkFilesFailed(
     env,
     `
       INSERT INTO file_reviews (job_id, file_path, file_status, model_used, diff_line_count, diff_input, error_msg, duration_ms)
-      SELECT $1::uuid, u.file_path, 'failed', $2, u.diff_line_count, '', $3, 0
+      SELECT $1::uuid, u.file_path, 'failed', $2, u.diff_line_count, NULL, $3, 0
       FROM UNNEST($4::text[], $5::int[]) AS u(file_path, diff_line_count)
       ON CONFLICT (job_id, file_path) DO NOTHING
     `,

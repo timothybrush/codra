@@ -1011,8 +1011,9 @@
   padding: 0;
 }
 .diff-tree ul ul {
-  margin-left: 13px;
-  padding-left: 11px;
+  /* Tight per-level indent (18px) so deeply nested paths keep usable width. */
+  margin-left: 10px;
+  padding-left: 8px;
   border-left: 1px solid var(--ui-line);
 }
 .diff-tree li {
@@ -1022,14 +1023,17 @@
 .diff-tree ul ul li::before {
   content: "";
   position: absolute;
-  left: -11px;
+  left: -8px;
   top: 14px;
-  width: 9px;
+  width: 6px;
   height: 1px;
   background-color: var(--ui-line);
 }
 .diff-tree-children {
   display: grid;
+  /* The implicit column would size to content (auto), leaving nested rows narrow;
+     pin it to full width so file rows stretch edge-to-edge like the top level. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 1fr;
   transition: grid-template-rows 0.25s ease-in-out;
 }
@@ -1039,6 +1043,30 @@
 .diff-tree-children > div {
   overflow: hidden;
   min-width: 0;
+}
+
+/* Thin lime scrollbar matching the app's global one. The WebKit `::-webkit-
+   scrollbar` rules are already global, but `scrollbar-width` isn't inherited, so
+   scoped scrollers (tree, diffs) that want the thin treatment on Firefox must
+   opt in here. */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(70% 0.15 115 / 0.35) transparent;
+}
+.dark .thin-scroll {
+  scrollbar-color: oklch(94% 0.23 115 / 0.25) transparent;
+}
+
+/* The tree's own scrollbar: thin lime, pinned so it never overlaps the panel's
+   rounded corners. */
+.diff-tree-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(70% 0.15 115 / 0.35) transparent;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.dark .diff-tree-scroll {
+  scrollbar-color: oklch(94% 0.23 115 / 0.25) transparent;
 }
 
 @utility stat-label {

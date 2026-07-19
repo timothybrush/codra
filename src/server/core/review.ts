@@ -26,7 +26,9 @@ import {
   updateJobCheckRun,
   updateJobStep,
 } from '@server/db/jobs';
-import { filterReviewableFiles, parseUnifiedDiff } from './diff';
+import { filterReviewableFiles, parseUnifiedDiff, type FileDiff } from './diff';
+import { dedupeFindings } from './model-output';
+import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from '../prompts/verify';
 
 import { GitHubService } from '../services/github';
 import { GitHubClient } from './github';
@@ -387,7 +389,7 @@ export async function runReviewJob(env: AppBindings, message: ReviewJobMessage):
     if (phase === 'prepare') {
       await runPreparePhase(env, job, leaseOwner, github);
     } else if (phase === 'finalize') {
-      await runFinalizePhase(env, job, leaseOwner, github, formatter);
+      await runFinalizePhase(env, job, leaseOwner, github, formatter, model);
     } else {
       await runReviewPhase(env, job, leaseOwner, github, model, tracker);
     }
@@ -1028,7 +1030,9 @@ async function persistCompletedReview(
     modelUsed: response.modelUsed,
     modelProvider: response.provider,
     diffLineCount: file.lineCount,
-    diffInput: response.userPrompt,
+    // Not persisted: reconstructed on demand from GitHub/KV (see getDiffFiles + the
+    // /api/jobs/:id/diffs route) instead of storing the rendered prompt/diff in Postgres.
+    diffInput: null,
     rawAiOutput: response.rawText,
     parsedComments: response.parsed.comments,
     inputTokens: response.inputTokens,
@@ -1069,7 +1073,7 @@ async function persistFailedFileReview(
     modelUsed: input.modelUsed,
     modelProvider: input.modelProvider ?? null,
     diffLineCount: input.diffLineCount,
-    diffInput: '',
+    diffInput: null,
     rawAiOutput: null,
     parsedComments: [],
     inputTokens: null,
@@ -1111,7 +1115,7 @@ async function reviewAndPersistFile(
       modelUsed: response.modelUsed,
       modelProvider: response.provider,
       diffLineCount: file.lineCount,
-      diffInput: response.userPrompt,
+      diffInput: null,
       rawAiOutput: response.rawText,
       parsedComments: response.parsed.comments,
       inputTokens: response.inputTokens,
@@ -1150,7 +1154,7 @@ async function reviewAndPersistFile(
         modelUsed: modelId,
         modelProvider,
         diffLineCount: file.lineCount,
-        diffInput: '',
+        diffInput: null,
         durationMs: Date.now() - startedAt,
         errorMessage,
       });
@@ -1253,12 +1257,69 @@ async function sendReviewTelemetry(
   }
 }
 
+// How many top-ranked candidate findings to send to the verification pass. Anything below this
+// cutoff is left untouched — it sits below the max_comments cap and would be truncated anyway, so
+// spending prompt tokens verifying it is wasteful.
+const VERIFY_MAX_CANDIDATES = 40;
+
+/**
+ * Best-effort verification pass: one consolidated model call re-checks the top candidate findings
+ * against their diff context and drops the false positives. Any failure (model error, unparseable
+ * output) falls back to returning the input findings unchanged — verification never blocks a review.
+ */
+export async function verifyFindings(params: {
+  job: Pick<PersistedReviewJob, 'id'>;
+  config: RepoConfig;
+  files: FileDiff[];
+  comments: ParsedReviewComment[];
+  model: Pick<ModelService, 'verifyFindings'>;
+}): Promise<ParsedReviewComment[]> {
+  const { comments, files, model, config, job } = params;
+  if (comments.length === 0) return comments;
+
+  const toVerify = comments.slice(0, VERIFY_MAX_CANDIDATES);
+  const passthrough = comments.slice(VERIFY_MAX_CANDIDATES);
+
+  const fileByPath = new Map(files.map((file) => [file.path, file]));
+  const candidates: VerifyCandidate[] = toVerify.map((comment, index) => ({
+    index,
+    path: comment.path,
+    line: comment.line ?? null,
+    title: comment.title,
+    body: comment.body,
+    snippet: renderDiffSnippet(fileByPath.get(comment.path), comment.line ?? undefined),
+  }));
+
+  try {
+    const response = await model.verifyFindings({ candidates, config });
+    const results = parseVerifyResponse(response.rawText);
+    const dropped = new Set<number>();
+    for (const result of results) {
+      if (result.verdict === 'drop') dropped.add(result.index);
+    }
+    const kept = toVerify.filter((_, index) => !dropped.has(index));
+    logger.info('Verification pass complete', {
+      jobId: job.id,
+      candidates: toVerify.length,
+      dropped: toVerify.length - kept.length,
+    });
+    return [...kept, ...passthrough];
+  } catch (error) {
+    logger.warn('Verification pass failed; posting pre-verification findings', {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return comments;
+  }
+}
+
 async function runFinalizePhase(
   env: AppBindings,
   job: PersistedReviewJob,
   leaseOwner: string,
   github: GitHubService,
   formatter: FormatterService,
+  model: ModelService,
 ) {
   await updateJobStep(env, job.id, 'Generating Summary', { status: 'running' });
 
@@ -1336,14 +1397,36 @@ async function runFinalizePhase(
   const failedFileCount = fileSummaries.filter((file) => file.verdict === 'failed').length;
   const severityRanks: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit: 4 };
   const minRank = severityRanks[config.review.min_severity] ?? 4;
+  const minConfidence = config.review.min_confidence ?? 0;
 
-  let finalComments = reviewedComments.filter(c => (severityRanks[c.severity] ?? 4) <= minRank);
-  finalComments.sort((a, b) => (severityRanks[a.severity] ?? 4) - (severityRanks[b.severity] ?? 4));
+  // 1. Severity + confidence gates. A finding with an explicit confidence below the threshold is
+  //    dropped as too speculative; findings without a confidence score are kept (the model didn't
+  //    provide one) but rank lowest in the confidence tiebreak below.
+  let finalComments = reviewedComments.filter((c) => {
+    if ((severityRanks[c.severity] ?? 4) > minRank) return false;
+    if (typeof c.confidenceScore === 'number' && c.confidenceScore < minConfidence) return false;
+    return true;
+  });
 
-  const omittedCount = reviewedComments.length - Math.min(finalComments.length, effectiveMaxComments);
+  // 2. Collapse duplicate findings repeated across files (e.g. the same "Use of any" N times).
+  finalComments = dedupeFindings(finalComments);
+
+  // 3. Order by severity (most severe first), then by confidence, so the max_comments cap keeps the
+  //    strongest findings rather than whichever happened to be first in file order.
+  finalComments.sort((a, b) => {
+    const rankDiff = (severityRanks[a.severity] ?? 4) - (severityRanks[b.severity] ?? 4);
+    if (rankDiff !== 0) return rankDiff;
+    return (b.confidenceScore ?? 0) - (a.confidenceScore ?? 0);
+  });
+
+  // 4. Verification pass: one consolidated model call re-checks the surviving candidates against the
+  //    actual diff and drops false positives. Best-effort — on any failure we keep the filtered set.
+  finalComments = await verifyFindings({ job, config, files, comments: finalComments, model });
+
   if (finalComments.length > effectiveMaxComments) {
     finalComments = finalComments.slice(0, effectiveMaxComments);
   }
+  const omittedCount = reviewedComments.length - finalComments.length;
 
   const verdictSummary = formatter.summarizeVerdict(finalComments, hasFailures);
   await updateJobStep(env, job.id, 'Generating Summary', { status: 'done' });
@@ -1352,7 +1435,7 @@ async function runFinalizePhase(
   let formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.BOT_USERNAME);
 
   if (omittedCount > 0) {
-    formattedSummary += `\n\n> [!NOTE]\n> **${omittedCount} comments were omitted** from this review to reduce noise and respect the configured \`max_comments\` limit (${effectiveMaxComments}). Showing the most critical issues.`;
+    formattedSummary += `\n\n> [!NOTE]\n> **${omittedCount} finding${omittedCount === 1 ? ' was' : 's were'} omitted** to reduce noise, low-confidence, duplicate, or unverified findings are filtered out, and the review is capped at \`max_comments\` (${effectiveMaxComments}). Showing the most critical issues.`;
   }
 
   // If a prior finalize attempt already reached the posting stage (the 'Completing' step was
@@ -1406,13 +1489,10 @@ async function runFinalizePhase(
   });
   logger.info(`Review job completed: ${job.owner}/${job.repo} PR #${job.prNumber}`);
 
-  // The cached PR diff is only needed while the job is being reviewed. Drop it now the job is done
-  // so completed jobs don't leave large diff blobs sitting in KV until the 6h TTL expires.
-  try {
-    await env.APP_KV.delete(diffCacheKey(job.id));
-  } catch (error) {
-    logger.warn(`Failed to delete cached diff for completed job ${job.id}`, error instanceof Error ? error : new Error(String(error)));
-  }
+  // The cached PR diff is intentionally left in KV (not deleted here): diff_input/prompts are no
+  // longer persisted to Postgres, so the job detail UI reconstructs a file's diff on demand from
+  // this same cache for as long as its 6h TTL lasts, falling back to GitHub after that (see
+  // getDiffFiles below and the /api/jobs/:id/diffs route).
 
   // Cosmetics: labels and the check-run conclusion. Best-effort -- the review is posted and the job
   // is already 'done', so a failure here (e.g. subrequest budget spent, GitHub blip) must not fail
@@ -1493,7 +1573,7 @@ function hasCompletedStep(job: PersistedReviewJob, stepName: string) {
   return job.steps.some((step) => step.name === stepName && step.status === 'done');
 }
 
-function diffCacheKey(jobId: string) {
+export function diffCacheKey(jobId: string) {
   return `diff:${jobId}`;
 }
 
@@ -1520,6 +1600,32 @@ export async function getDiffFiles(
   }
 
   return filterReviewableFiles(parseUnifiedDiff(rawDiff, config.review), config.review);
+}
+
+/**
+ * Reconstructs the raw PR diff for a job that has already finished, for the on-demand
+ * "diff_input isn't stored in Postgres" reconstruction path (see /api/jobs/:id/diffs).
+ * Reuses the same short-lived KV cache `getDiffFiles` writes during processing when it's
+ * still warm (fast path, no GitHub call); once that 6h TTL has lapsed, re-derives the exact
+ * same diff from GitHub via the job's own base/head commits (NOT the live PR diff, which may
+ * have moved on since) and writes it back to the same cache key/TTL for subsequent requests.
+ */
+export async function getOrFetchRawDiffForCompletedJob(
+  env: AppBindings,
+  job: { id: string; owner: string; repo: string; baseSha: string; commitSha: string },
+  github: Pick<GitHubService, 'getCompareDiff'>,
+): Promise<string> {
+  const cacheKey = diffCacheKey(job.id);
+  const cached = await env.APP_KV.get(cacheKey);
+  if (cached) return cached;
+
+  const rawDiff = await github.getCompareDiff(job.owner, job.repo, job.baseSha, job.commitSha);
+  try {
+    await env.APP_KV.put(cacheKey, rawDiff, { expirationTtl: DIFF_CACHE_TTL_SECONDS });
+  } catch (error) {
+    logger.warn(`Failed to cache reconstructed diff for job ${job.id}`, error instanceof Error ? error : new Error(String(error)));
+  }
+  return rawDiff;
 }
 
 export async function failJobAndCheckRun(

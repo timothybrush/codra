@@ -8,6 +8,10 @@ import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';
 import { logger } from '@server/core/logger';
 import type { AppBindings } from '@server/env';
+import { getOrFetchRawDiffForCompletedJob } from '@server/core/review';
+import { parseUnifiedDiff } from '@server/core/diff';
+import { buildFileReviewPrompts } from '@server/prompts/file-review';
+import { GitHubService } from '@server/services/github';
 
 /**
  * Best-effort termination of a job's Cloudflare Workflow instance. The instance id is the one we
@@ -76,6 +80,51 @@ export function createJobsRouter() {
     response.headers.set('ETag', etag);
     response.headers.set('Last-Modified', lastModified);
     response.headers.set('Cache-Control', 'private, no-cache');
+    return response;
+  });
+
+  // diff_input (the rendered prompt embedding that file's diff) isn't persisted to Postgres --
+  // reconstructed here on demand, only when the client actually opens Files-changed/Raw Logs.
+  // Reuses the same KV cache the job wrote during processing while it's still warm (fast path),
+  // and falls back to re-deriving the exact same diff from GitHub (via the job's own base/head
+  // commits, not the live PR) once that 6h TTL has lapsed.
+  app.get('/:id/diffs', async (c) => {
+    const job = await getJobDetail(c.env, c.req.param('id'));
+    if (!job) {
+      return jsonError('Job not found.', 404);
+    }
+
+    const config = job.configSnapshot ?? defaultRepoConfig;
+    const github = new GitHubService(c.env, job.installationId);
+
+    let rawDiff: string;
+    try {
+      rawDiff = await getOrFetchRawDiffForCompletedJob(
+        c.env,
+        { id: job.id, owner: job.owner, repo: job.repo, baseSha: job.baseSha, commitSha: job.commitSha },
+        github,
+      );
+    } catch (error) {
+      logger.warn(`Could not reconstruct diff for job ${job.id}`, error instanceof Error ? error : new Error(String(error)));
+      return c.json({ diffs: {} });
+    }
+
+    // The ENTIRE PR diff (every reviewable file), not just files that already have a
+    // review row -- so the Files-changed view matches GitHub's diff even while a job
+    // is still mid-review and most files haven't been processed yet.
+    const diffs: Record<string, string> = {};
+    for (const file of parseUnifiedDiff(rawDiff, config.review)) {
+      if (file.isDeleted || file.isBinary || !file.path) continue;
+      diffs[file.path] = buildFileReviewPrompts({
+        file,
+        prTitle: job.prTitle,
+        prDescription: null,
+        config: config.review,
+      }).userPrompt;
+    }
+
+    const response = c.json({ diffs });
+    response.headers.set('Cache-Control', 'private, max-age=60');
     return response;
   });
 

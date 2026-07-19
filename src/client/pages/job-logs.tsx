@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { LoadError } from '@client/components/shared/load-error';
 import {
@@ -8,9 +9,30 @@ import {
 import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
 import { Badge } from '@client/components/ui/badge';
+import { api } from '@client/lib/api';
 import type { FileReviewRecord } from '@shared/schema';
 
 import { formatDuration } from '@client/lib/utils';
+
+/* diff_input isn't persisted in Postgres (reconstructed on demand from KV/GitHub — see
+   GET /api/jobs/:id/diffs); fetched lazily here and session-cached per job, sharing the
+   same cache key as the Files-changed tab so switching between the two doesn't refetch. */
+function readDiffsCache(jobId: string): Record<string, string> | null {
+  try {
+    const raw = sessionStorage.getItem(`codra:job-diffs:${jobId}`);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDiffsCache(jobId: string, diffs: Record<string, string>) {
+  try {
+    sessionStorage.setItem(`codra:job-diffs:${jobId}`, JSON.stringify(diffs));
+  } catch {
+    /* quota exceeded / unavailable — skip */
+  }
+}
 
 function fmtK(n: number | null) {
   if (n === null) return null;
@@ -31,7 +53,7 @@ const STATUS_META: Record<FileStatus, {
   pending: { Icon: Hourglass,    iconCls: 'text-ui-subtle', badge: 'neutral', label: 'Pending' },
 };
 
-function FileRow({ file }: { file: FileReviewRecord }) {
+function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading: boolean }) {
   const meta = STATUS_META[file.fileStatus] ?? STATUS_META.pending;
   const { Icon } = meta;
   const duration = formatDuration(file.durationMs);
@@ -113,15 +135,15 @@ function FileRow({ file }: { file: FileReviewRecord }) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               Prompt / diff
             </p>
-            <pre className="code-block max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
-              {file.diffInput ?? '— No prompt saved —'}
+            <pre className="code-block thin-scroll max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
+              {file.diffInput ?? (diffsLoading ? '— Loading… —' : '— Prompt unavailable —')}
             </pre>
           </div>
           <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               Raw model output
             </p>
-            <pre className="code-block max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
+            <pre className="code-block thin-scroll max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
               {file.rawAiOutput ?? '— No output saved —'}
             </pre>
           </div>
@@ -135,13 +157,41 @@ export function JobLogsPage() {
   const { id = '' } = useParams();
   const { job, error } = useJobDetail(id);
 
+  const [diffsByPath, setDiffsByPath] = useState<Record<string, string> | null>(() => readDiffsCache(id));
+  const [diffsLoading, setDiffsLoading] = useState(diffsByPath === null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDiffsLoading(true);
+    api.getJobDiffs(id)
+      .then((res) => {
+        if (cancelled) return;
+        setDiffsByPath(res.diffs);
+        writeDiffsCache(id, res.diffs);
+      })
+      .catch(() => {
+        if (!cancelled) setDiffsByPath((current) => current ?? {});
+      })
+      .finally(() => {
+        if (!cancelled) setDiffsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const files = useMemo(
+    () => (job ? job.files.map((f) => (diffsByPath?.[f.filePath] ? { ...f, diffInput: diffsByPath[f.filePath] } : f)) : []),
+    [job, diffsByPath],
+  );
+
   if (!job) return <JobDetailSkeleton error={error} />;
 
   const counts = {
-    done:    job.files.filter(f => f.fileStatus === 'done').length,
-    skipped: job.files.filter(f => f.fileStatus === 'skipped').length,
-    failed:  job.files.filter(f => f.fileStatus === 'failed').length,
-    total:   job.files.length,
+    done:    files.filter(f => f.fileStatus === 'done').length,
+    skipped: files.filter(f => f.fileStatus === 'skipped').length,
+    failed:  files.filter(f => f.fileStatus === 'failed').length,
+    total:   files.length,
   };
 
   return (
@@ -188,7 +238,7 @@ export function JobLogsPage() {
       {error && <LoadError title="Something went wrong" detail={error} />}
 
       {/* File list */}
-      {job.files.length === 0 ? (
+      {files.length === 0 ? (
         <div className="ui-panel flex flex-col items-center justify-center gap-4 py-20 text-center">
           <FileCode2 size={36} className="text-ui-subtle/30" strokeWidth={1.5} />
           <div>
@@ -210,8 +260,8 @@ export function JobLogsPage() {
             </span>
           </div>
           <div className="divide-y divide-ui-line/60">
-            {job.files.map(file => (
-              <FileRow key={file.id} file={file} />
+            {files.map(file => (
+              <FileRow key={file.id} file={file} diffsLoading={diffsLoading} />
             ))}
           </div>
         </div>

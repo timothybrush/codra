@@ -390,7 +390,9 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
         2: 'P2',
         3: 'P3'
       };
-      const severity = finding.priority !== undefined ? priorityMap[finding.priority] || 'P2' : 'P2';
+      // A missing priority means the model didn't bother to rank it — treat as low (P3),
+      // not mid (P2), so speculative/unranked findings sort to the bottom and get gated out.
+      const severity = finding.priority !== undefined ? priorityMap[finding.priority] || 'P3' : 'P3';
 
       const cleanText = (text: string) => {
         let current = text.trim();
@@ -423,6 +425,7 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
         title,
         body: withSuggestion(body, finding.code_suggestion),
         codeSuggestion: finding.code_suggestion,
+        confidenceScore: typeof finding.confidence_score === 'number' ? finding.confidence_score : undefined,
       });
     })
     .filter((comment): comment is ParsedReviewComment => Boolean(comment));
@@ -441,6 +444,42 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
     overallCorrectness: parsed.overall_correctness,
     confidenceScore: parsed.overall_confidence_score,
   };
+}
+
+const SEVERITY_RANK: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit: 4 };
+
+function normalizeFindingTitle(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Collapses near-duplicate findings. The same issue (e.g. "Use of any") is frequently reported
+ * across many files on a large PR; posting each one is pure noise. We key on the normalized title
+ * so restatements of the same finding — whether in the same file or across files — collapse to a
+ * single representative, keeping the highest-severity / highest-confidence instance.
+ */
+export function dedupeFindings(comments: ParsedReviewComment[]): ParsedReviewComment[] {
+  const best = new Map<string, ParsedReviewComment>();
+  for (const comment of comments) {
+    const key = normalizeFindingTitle(comment.title);
+    if (!key) {
+      // Untitled/odd finding — keep as-is under a unique key so it isn't merged away.
+      best.set(`__unique__${best.size}`, comment);
+      continue;
+    }
+    const existing = best.get(key);
+    if (!existing) {
+      best.set(key, comment);
+      continue;
+    }
+    const rank = SEVERITY_RANK[comment.severity] ?? 4;
+    const existingRank = SEVERITY_RANK[existing.severity] ?? 4;
+    const isBetter =
+      rank < existingRank ||
+      (rank === existingRank && (comment.confidenceScore ?? 0) > (existing.confidenceScore ?? 0));
+    if (isBetter) best.set(key, comment);
+  }
+  return Array.from(best.values());
 }
 
 export function parseSummaryResponse(raw: string): string {

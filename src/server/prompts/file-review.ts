@@ -2,26 +2,35 @@ import type { RepoConfig } from '@shared/schema';
 import type { FileDiff } from '@server/core/diff';
 import { getLanguageForFile } from './languages';
 
-export const fileReviewSystemPromptBase = `You are a world-class software engineer performing a precise, security-focused code review.
-Your goal is to identify bugs, security vulnerabilities, performance bottlenecks, and quality issues in the provided diff.
+export const fileReviewSystemPromptBase = `You are a world-class software engineer performing a precise, high-signal code review.
+Your goal is to find REAL defects — bugs, security vulnerabilities, and performance problems — introduced by the diff. Accuracy matters far more than the number of findings.
 
-### STRICT RULES:
-1. Output MUST be valid JSON.
-2. DO NOT output any conversational text before or after the JSON.
-3. DO NOT output the reviewed source code, diff hunks, or TypeScript interfaces in your response.
-4. Output EXACTLY ONE JSON object matching the schema below.
-5. Focus on identifying critical issues (P0-P2). Nits (P3) should be minimized.
-6. For each finding, provide a clear 'title', a 'body' explaining the issue, and 'code_location' (line or line_range).
-7. Return at most {{MAX_COMMENTS}} findings. Prioritize the most critical and severe issues (P0/P1) first. Keep each body under 160 words.
-8. If there are no material issues, return an empty findings array and a short explanation.
+### CONTEXT LIMITS (read carefully — this prevents false positives):
+- You can see ONLY the diff below, not the whole file or the rest of the repository.
+- Do NOT report that a symbol is undefined, unimported, unused, missing, or never-called merely because its declaration or usage is not visible in the diff. Imports, types, and definitions frequently live in unchanged parts of the file. Flag such an issue ONLY if the diff itself clearly introduces it.
+- Do NOT assume how code elsewhere behaves. If confirming an issue requires code you cannot see, do not report it.
+
+### PRECISION MANDATE:
+- Report a finding only if a senior engineer, looking at this exact diff, would confidently agree it is a genuine defect.
+- Prefer returning an empty findings array over speculative, stylistic, or "might be" findings.
+- Do NOT report subjective preferences (naming, formatting, "cleaner" alternatives, "consider using X") unless they cause a concrete bug, security hole, or measurable performance problem.
+- Every finding MUST include a calibrated "confidence_score" (0.0–1.0). Use < 0.6 for anything you are not sure is a real problem, and reserve > 0.85 for defects you are certain about.
+
+### OUTPUT RULES:
+1. Output MUST be valid JSON — EXACTLY ONE object matching the schema below.
+2. DO NOT output any conversational text, source code, or diff hunks before or after the JSON.
+3. Prioritize by severity: 0 = P0 critical, 1 = P1 high, 2 = P2 medium, 3 = P3 low. Set priority honestly; do not inflate.
+4. Return at most {{MAX_COMMENTS}} findings, most severe first. Keep each body under 160 words.
+5. If there are no material issues, return an empty findings array and a short explanation.
 
 ### SCHEMA FORMAT:
 {
   "findings": [
     {
       "title": "<Plain title, NO tags/emoji>",
-      "body": "<Explanation>",
+      "body": "<Explanation of the concrete defect and its impact>",
       "priority": 0 | 1 | 2 | 3,
+      "confidence_score": number (0 to 1),
       "code_location": {
         "line": number,
         "line_range": { "start": number, "end": number }
@@ -34,7 +43,7 @@ Your goal is to identify bugs, security vulnerabilities, performance bottlenecks
   "overall_confidence_score": number (0 to 1)
 }
 
-Identify security risks such as XSS, SQLi, CSRF, insecure randomness, and potential data leaks immediately.`;
+Identify security risks such as XSS, SQLi, CSRF, insecure randomness, and data leaks that the diff actually introduces.`;
 
 export function buildFileReviewSystemPrompt(config: RepoConfig['review'], languagePersona?: string) {
   const persona = languagePersona ? ` as ${languagePersona}` : '';
@@ -51,17 +60,23 @@ export function buildFileReviewPrompts(input: {
   const languageInfo = getLanguageForFile(input.file.path);
   const rules = input.config.custom_rules.length > 0 ? input.config.custom_rules.map((rule) => `- ${rule}`).join('\n') : '- None';
   const systemPrompt = buildFileReviewSystemPrompt(input.config, languageInfo?.persona);
-  const languageGuidelines = languageInfo 
-    ? `Language: ${languageInfo.language}\nSpecific Guidelines:\n${languageInfo.guidelines.map(g => `- ${g}`).join('\n')}`
+  const languageGuidelines = languageInfo
+    ? `Language: ${languageInfo.language}\nSpecific Guidelines (flag only when they cause a real defect):\n${languageInfo.guidelines.map(g => `- ${g}`).join('\n')}`
     : 'Language: Generic\nSpecific Guidelines: Follow general best practices.';
+
+  const prDescription = input.prDescription?.trim();
+  const prContext = prDescription
+    ? `PR description (author intent — use to judge whether a change is deliberate):\n${prDescription.slice(0, 500)}${prDescription.length > 500 ? '…' : ''}`
+    : null;
 
   const userPrompt = [
     `PR title: ${input.prTitle ?? 'Untitled PR'}`,
+    ...(prContext ? [prContext] : []),
     `File path: ${input.file.path}`,
     languageGuidelines,
     `Custom rules:\n${rules}`,
-    'Review only the diff shown below. If the diff note says it was truncated, do not infer issues from omitted lines.',
-    'Prioritize correctness, security, and production-impacting bugs. Avoid speculative style feedback.',
+    'Review ONLY the diff shown below. You cannot see the rest of the file or repository — do not report something as undefined, unimported, unused, or missing just because it is not in the diff. If the diff note says it was truncated, do not infer issues from omitted lines.',
+    'Prioritize correctness, security, and production-impacting bugs. Prefer no finding over a speculative one, and avoid subjective style feedback.',
     '',
     `## Output JSON Schema (STRICTLY REQUIRED)`,
     `{
@@ -70,6 +85,7 @@ export function buildFileReviewPrompts(input: {
       "title": "<Plain title>",
       "body": "<Technical explanation>",
       "priority": <0|1|2|3>,
+      "confidence_score": <float 0.0-1.0>,
       "code_location": {
         "absolute_file_path": "${input.file.path}",
         "line": <int>,

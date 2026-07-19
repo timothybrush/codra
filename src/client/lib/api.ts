@@ -1,6 +1,7 @@
 import type {
   AuthSessionResponse,
   JobDetailResponse,
+  JobDiffsResponse,
   JobsResponse,
   ModelConfigsResponse,
   RepoConfigResponse,
@@ -166,6 +167,9 @@ export const api = {
       headers.set('if-none-match', options.etag);
     }
     return requestWithMeta<JobDetailResponse>(`/api/jobs/${id}`, { headers });
+  },
+  getJobDiffs(id: string) {
+    return request<JobDiffsResponse>(`/api/jobs/${id}/diffs`);
   },
   retryJob(id: string) {
     return request<RetryJobResponse>(`/api/jobs/${id}/retry`, {

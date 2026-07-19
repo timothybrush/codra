@@ -5,6 +5,7 @@ import { reviewWithOpenAI } from '../models/openai';
 import { reviewWithAnthropic } from '../models/anthropic';
 import { buildFileReviewPrompts } from '../prompts/file-review';
 import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '../prompts/summary';
+import { buildVerifyPrompt, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '../prompts/verify';
 import { parseFileReviewResponse } from '../core/model-output';
 import { truncateFileDiff, chunkFileDiff } from '../core/diff';
 import type { RepoConfig } from '@shared/schema';
@@ -662,5 +663,53 @@ export class ModelService {
     }
 
     throw lastError;
+  }
+
+  /**
+   * Runs one consolidated verification call: the model re-checks candidate findings against their
+   * diff context and returns keep/drop verdicts. Best-effort — the caller treats any throw as
+   * "verification unavailable" and keeps the pre-verification findings, so this must never be relied
+   * on to block a review. Reuses the same model chain and concurrency gate as the review call.
+   */
+  async verifyFindings(params: { candidates: VerifyCandidate[]; config: RepoConfig }): Promise<ModelResponse> {
+    const { primary, fallbacks } = this.selectModel({ totalLineCount: 0, config: params.config });
+    const modelsToTry = [primary, ...fallbacks];
+    const input = {
+      systemPrompt: VERIFY_SYSTEM_PROMPT,
+      userPrompt: buildVerifyPrompt(params.candidates),
+    };
+    // Scale the timeout with the number of findings under review (capped inside adaptiveModelTimeoutMs).
+    const timeoutMs = adaptiveModelTimeoutMs(params.candidates.length * 8);
+
+    let lastError: unknown;
+    for (const currentModel of modelsToTry) {
+      let resolved: ResolvedModelConfig;
+      try {
+        resolved = await this.resolveModel(currentModel);
+      } catch (error) {
+        lastError = error;
+        continue;
+      }
+
+      if (resolved.apiFormat === 'cloudflare-workers-ai' && await this.isProviderUnavailable(resolved.providerId)) {
+        continue;
+      }
+
+      try {
+        const response = await this.callResolvedModel(resolved, input, timeoutMs);
+        if (this.tracker) {
+          this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
+        }
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (resolved.apiFormat === 'cloudflare-workers-ai' && isCloudflareAllocationError(error)) {
+          await this.markProviderUnavailable(resolved.providerId, error instanceof Error ? error.message : String(error));
+        }
+        logger.warn(`Verification model ${currentModel} failed`, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    throw lastError ?? new Error('No model available for verification pass.');
   }
 }
