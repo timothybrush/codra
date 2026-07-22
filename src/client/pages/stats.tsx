@@ -452,25 +452,21 @@ function MetricsGrid({
   );
 }
 
-function GraphCardSkeleton({ className = '' }: { className?: string }) {
+/* Skeletons reuse GraphShell so the card chrome — border, title, and icon —
+   stays put; only the chart body (the part that actually loads) is skeletoned. */
+function GraphCardSkeleton({ title, icon, className = '' }: { title: string; icon?: ReactNode; className?: string }) {
   return (
-    <LayerCard className={cn('flex flex-col', className)}>
-      <div className="px-4 pt-4 sm:px-5 sm:pt-5">
-        <Skeleton height={16} width={140} />
-      </div>
+    <GraphShell title={title} icon={icon} className={className}>
       <div className="h-64 px-4 pb-4 pt-4 sm:h-80 sm:px-5 sm:pb-5">
         <Skeleton height="100%" width="100%" borderRadius={6} />
       </div>
-    </LayerCard>
+    </GraphShell>
   );
 }
 
-function GraphBarCardSkeleton({ className = '' }: { className?: string }) {
+function GraphBarCardSkeleton({ title, icon, className = '' }: { title: string; icon?: ReactNode; className?: string }) {
   return (
-    <LayerCard className={cn('flex flex-col', className)}>
-      <div className="px-4 pt-4 sm:px-5 sm:pt-5">
-        <Skeleton height={16} width={140} />
-      </div>
+    <GraphShell title={title} icon={icon} className={className}>
       <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="flex items-center gap-3">
@@ -480,7 +476,7 @@ function GraphBarCardSkeleton({ className = '' }: { className?: string }) {
           </div>
         ))}
       </div>
-    </LayerCard>
+    </GraphShell>
   );
 }
 
@@ -488,13 +484,13 @@ function MetricsGridSkeleton() {
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-        <GraphCardSkeleton />
-        <GraphCardSkeleton />
+        <GraphCardSkeleton title="Review Flow" icon={<Activity size={14} strokeWidth={2} />} />
+        <GraphCardSkeleton title="Token Volume" icon={<Coins size={14} strokeWidth={2} />} />
       </div>
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        <GraphBarCardSkeleton />
-        <GraphBarCardSkeleton />
-        <GraphBarCardSkeleton />
+        <GraphBarCardSkeleton title="Job Health" icon={<ShieldCheck size={14} strokeWidth={2} />} />
+        <GraphBarCardSkeleton title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />} />
+        <GraphBarCardSkeleton title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />} />
       </div>
     </div>
   );
@@ -505,8 +501,15 @@ export function StatsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(14);
   const isDark = useIsDarkMode();
+
+  // Switching the range reloads every metric, so clear the current data to show
+  // skeletons while the new range loads (same as the initial page load).
+  const changeDays = (next: number) => {
+    setStats(null);
+    setDays(next);
+  };
 
   const load = async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -533,7 +536,7 @@ export function StatsPage() {
         actions={
           <PageHeaderActions
             days={days}
-            onDaysChange={setDays}
+            onDaysChange={changeDays}
             onRefresh={() => load(true)}
             refreshing={refreshing}
           />

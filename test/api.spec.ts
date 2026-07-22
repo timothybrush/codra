@@ -8,6 +8,7 @@ import { GitHubClient } from '@server/core/github';
 import { syncUpdatesEmail } from '@server/core/updates-email';
 import { defaultRepoConfig, reviewJobMessageSchema } from '@shared/schema';
 import type {
+  AccountResponse,
   AuthSessionResponse,
   JobDetailResponse,
   JobsResponse,
@@ -314,6 +315,59 @@ describe('Dashboard API Suite', () => {
     expect(response.status).toBe(200);
     const data = await response.json() as AuthSessionResponse;
     expect(data.user.login).toBe('devarshishimpi');
+  });
+
+  it('persists and returns a durable account record with a unique account id', async () => {
+    const env = createTestEnv();
+    const token = await getAuthCookie(env);
+
+    const response = await app.request('/api/auth/account', {
+      headers: { Cookie: `codra_session=${token}` },
+    }, env);
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as AccountResponse;
+    expect(data.account.githubUserId).toBe(42);
+    expect(data.account.githubUsername).toBe('devarshishimpi');
+    expect(data.account.accountName).toBe('Devarshi Shimpi');
+    expect(typeof data.account.id).toBe('string');
+    expect(data.account.id.length).toBeGreaterThan(0);
+  });
+
+  it('updates the editable account display name', async () => {
+    const env = createTestEnv();
+    const token = await getAuthCookie(env);
+
+    const response = await app.request('/api/auth/account', {
+      method: 'PATCH',
+      headers: { Cookie: `codra_session=${token}`, 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest' },
+      body: JSON.stringify({ name: 'Renamed Codra User' }),
+    }, env);
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as AccountResponse;
+    expect(data.account.accountName).toBe('Renamed Codra User');
+    expect(data.account.githubUserId).toBe(42);
+
+    // The change persists on subsequent reads.
+    const followUp = await app.request('/api/auth/account', {
+      headers: { Cookie: `codra_session=${token}` },
+    }, env);
+    const followUpData = await followUp.json() as AccountResponse;
+    expect(followUpData.account.accountName).toBe('Renamed Codra User');
+  });
+
+  it('rejects an empty account name', async () => {
+    const env = createTestEnv();
+    const token = await getAuthCookie(env);
+
+    const response = await app.request('/api/auth/account', {
+      method: 'PATCH',
+      headers: { Cookie: `codra_session=${token}`, 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest' },
+      body: JSON.stringify({ name: '   ' }),
+    }, env);
+
+    expect(response.status).toBe(400);
   });
 
   it('syncs an updates email only once per GitHub user', async () => {

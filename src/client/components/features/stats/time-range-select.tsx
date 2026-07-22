@@ -18,7 +18,8 @@ const timeRanges = [
 ];
 
 export function TimeRangeSelect({ value, onValueChange, className, triggerStyle }: TimeRangeSelectProps) {
-  const selectedRange = timeRanges.find((r) => r.value === value) || timeRanges[2];
+  // Default range is "Last 14 days" (timeRanges[1]) when the value isn't a known option.
+  const selectedRange = timeRanges.find((r) => r.value === value) || timeRanges[1];
 
   return (
     <Select

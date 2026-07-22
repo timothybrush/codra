@@ -53,7 +53,7 @@ export function JobsPage() {
   const rangeEnd = Math.min(filters.page * itemsPerPage, total);
 
   return (
-    <section className="page-enter flex flex-col gap-5">
+    <section className="page-enter flex min-h-0 flex-1 flex-col gap-5">
 
       {/* ── Header ─────────────────────────────────── */}
       <PageHeader
@@ -83,10 +83,12 @@ export function JobsPage() {
         />
       )}
 
-      {/* ── Table card: toolbar + table + pagination in one panel ─── */}
-      <div className="ui-panel min-w-0 overflow-hidden">
+      {/* ── Table card: toolbar + table + pagination in one panel. Fills the
+          available height so the table body scrolls internally and the page /
+          content card never needs a scrollbar. ─── */}
+      <div className="ui-panel flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Filter toolbar */}
-        <div className="flex flex-col gap-2 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center">
+        <div className="flex shrink-0 flex-col gap-2 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <Search
               size={13}
@@ -137,7 +139,7 @@ export function JobsPage() {
           </div>
         </div>
 
-        <JobsTable jobs={jobs} loading={loading} columns={['repo', 'pr', 'status', 'verdict', 'created', 'action']} />
+        <JobsTable jobs={jobs} loading={loading} fill columns={['repo', 'pr', 'status', 'verdict', 'created', 'action']} />
 
         {!loading && jobs.length === 0 && (
           <EmptyState
@@ -158,7 +160,7 @@ export function JobsPage() {
 
         {/* ── Pagination footer ─── */}
         {total > 0 && (
-          <div className="flex flex-col gap-2.5 border-t border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex shrink-0 flex-col gap-2.5 border-t border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-ui-subtle">
               Showing <span className="text-ui-default">{rangeStart}–{rangeEnd}</span> of{' '}
               <span className="text-ui-default">{total.toLocaleString()}</span> jobs

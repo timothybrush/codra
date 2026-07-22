@@ -22,6 +22,14 @@ export function DashboardPage() {
 
   const [days, setDays] = useState(14);
 
+  // Switching the range reloads the stat cards, so clear them to show skeletons
+  // while the new range loads (same as the initial page load). The recent-jobs
+  // table is range-independent, so it keeps its data.
+  const changeDays = (next: number) => {
+    setStats(null);
+    setDays(next);
+  };
+
   const load = async (manual = false) => {
     if (manual) setRefreshing(true);
     try {
@@ -52,7 +60,7 @@ export function DashboardPage() {
         actions={
           <PageHeaderActions
             days={days}
-            onDaysChange={setDays}
+            onDaysChange={changeDays}
             onRefresh={() => load(true)}
             refreshing={refreshing}
           />

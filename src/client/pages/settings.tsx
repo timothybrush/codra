@@ -178,7 +178,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="surface min-w-0 overflow-hidden">
+    <section className="ui-panel min-w-0 overflow-hidden">
       <div className="flex items-center justify-between gap-4 border-b border-ui-line px-5 py-4">
         <div className="flex min-w-0 items-center gap-2.5">
           {icon && <span className="shrink-0 text-ui-subtle">{icon}</span>}
@@ -669,7 +669,7 @@ export function SettingsPage() {
       />
 
       {/* ── LLM Providers ──────────────────────────────────────────────────── */}
-      <section className="surface min-w-0 overflow-hidden">
+      <section className="ui-panel min-w-0 overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-4 border-b border-ui-line px-4 py-4 sm:px-5">

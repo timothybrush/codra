@@ -22,6 +22,20 @@ export type AuthSessionResponse = {
   user: AuthSessionUser;
 };
 
+/** Durable account record persisted in Postgres (account_settings). */
+export type AccountSettings = {
+  /** Stable, unique account id (uuid) — distinct from the GitHub user id. */
+  id: string;
+  githubUserId: number;
+  githubUsername: string;
+  accountName: string | null;
+  accountEmail: string | null;
+};
+
+export type AccountResponse = {
+  account: AccountSettings;
+};
+
 export type UpdatesEmailStatus = 'pending' | 'subscribed';
 
 export type UpdatesEmailResponse = {

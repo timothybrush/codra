@@ -1,4 +1,5 @@
 import type {
+  AccountResponse,
   AuthSessionResponse,
   JobDetailResponse,
   JobDiffsResponse,
@@ -124,6 +125,15 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 export const api = {
   getSession() {
     return request<AuthSessionResponse>('/api/auth/session');
+  },
+  getAccount() {
+    return request<AccountResponse>('/api/auth/account');
+  },
+  updateAccountName(name: string) {
+    return request<AccountResponse>('/api/auth/account', {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
   },
   logout() {
     return request<{ ok: boolean }>('/auth/logout', {

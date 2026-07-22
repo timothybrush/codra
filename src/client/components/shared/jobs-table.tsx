@@ -25,6 +25,12 @@ interface JobsTableProps {
   loading: boolean;
   /** Columns to show. Defaults to all. */
   columns?: Column[];
+  /**
+   * Fill the parent's height and scroll the table body internally (sticky
+   * header), instead of growing to fit all rows. Used on the Jobs page so the
+   * page / content card never needs its own scrollbar.
+   */
+  fill?: boolean;
 }
 
 const DEFAULT_COLUMNS: Column[] = [
@@ -141,13 +147,13 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {show('repo') && (
-            <p className="truncate text-xs font-semibold text-ui-subtle">
+            <p className="truncate text-xs font-semibold text-ui-default dark:text-ui-subtle">
               {job.owner}/{job.repo}
             </p>
           )}
           {show('pr') && (
             <div className="mt-1 flex min-w-0 items-start gap-2">
-              <span className="mt-0.5 shrink-0 ui-font-mono rounded bg-ui-fill/50 px-1.5 py-0.5 text-[11px] font-semibold text-ui-subtle">
+              <span className="mt-0.5 shrink-0 ui-font-mono rounded bg-ui-fill/50 px-1.5 py-0.5 text-[11px] font-semibold text-ui-default dark:text-ui-subtle">
                 #{job.prNumber}
               </span>
               <p className="line-clamp-2 text-sm font-semibold leading-5 text-ui-strong">
@@ -174,7 +180,7 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
           ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ui-subtle">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ui-default dark:text-ui-subtle">
         {show('files') && (
           <div className="flex items-center gap-1.5">
             <FileText size={13} />
@@ -195,13 +201,13 @@ function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] })
   );
 }
 
-export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
+export function JobsTable({ jobs, loading, columns, fill = false }: JobsTableProps) {
   const cols: Column[] = columns ?? DEFAULT_COLUMNS;
   const tableMinWidth = cols.length > 7 ? 'min-w-[980px]' : 'min-w-[720px]';
 
   return (
-    <div className="min-w-0 max-w-full overflow-hidden">
-      <div className="sm:hidden">
+    <div className={cn('min-w-0 max-w-full', fill ? 'flex min-h-0 flex-1 flex-col' : 'overflow-hidden')}>
+      <div className={cn('sm:hidden', fill && 'auto-hide-scroll min-h-0 flex-1 overflow-y-auto')}>
         {loading && jobs.length === 0
           ? Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="border-b border-ui-line px-4 py-4 last:border-b-0">
@@ -223,7 +229,12 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
           : jobs.map((job) => <JobMobileCard key={job.id} job={job} columns={cols} />)}
       </div>
 
-      <div className="hidden max-w-full overflow-x-auto sm:block">
+      <div
+        className={cn(
+          'hidden max-w-full sm:block',
+          fill ? 'auto-hide-scroll min-h-0 flex-1 overflow-auto' : 'overflow-x-auto',
+        )}
+      >
         <table className={cn('w-full border-separate border-spacing-0 text-sm', tableMinWidth)}>
           <thead>
             <tr className="ui-well">
@@ -233,6 +244,9 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
                   className={cn(
                     thCls,
                     COLUMN_CLASSES[col],
+                    // Sticky header when the body scrolls internally; the well
+                    // background keeps rows from showing through underneath.
+                    fill && 'ui-well sticky top-0 z-10',
                     (col === 'files' || col === 'tokens') && 'text-right',
                     col === 'action' && 'text-center',
                   )}
@@ -281,7 +295,7 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
                       {cols.includes('pr') && (
                         <td className={cn('border-t border-ui-line px-4 py-3 align-middle overflow-hidden', COLUMN_CLASSES.pr)}>
                           <div className="flex min-w-0 items-baseline gap-2">
-                            <span className="ui-font-mono shrink-0 text-[11px] text-ui-subtle">
+                            <span className="ui-font-mono shrink-0 text-[11px] text-ui-default dark:text-ui-subtle">
                               #{job.prNumber}
                             </span>
                             <Link
@@ -334,7 +348,7 @@ export function JobsTable({ jobs, loading, columns }: JobsTableProps) {
                       {cols.includes('created') && (
                         <td className={cn('whitespace-nowrap border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.created)}>
                           <span
-                            className="ui-font-mono text-xs tabular-nums text-ui-subtle"
+                            className="ui-font-mono text-xs tabular-nums text-ui-default dark:text-ui-subtle"
                             title={formatRelativeDate(job.createdAt)}
                           >
                             {formatDate(job.createdAt)}

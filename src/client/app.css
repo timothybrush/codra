@@ -46,7 +46,7 @@
 :root {
   /* Surfaces - Pure & Crisp */
   /* Surfaces - High-Contrast */
-  --background:         oklch(96.3% 0.003 286.3); /* #f4f4f5 */
+  --background:         oklch(100%  0     0);     /* #ffffff */
   --foreground:         oklch(12%   0.02  115);
   --card:               oklch(100%  0     0);     /* #ffffff */
   --card-foreground:    oklch(12%   0.02  115);
@@ -130,7 +130,7 @@
 .dark {
   /* Surfaces - Deep & Layered */
   /* Surfaces - Ultra-Dark */
-  --background:          #09090b;
+  --background:          #000000;
   --foreground:          oklch(98%  0.005 115);
   --card:                #09090b;
   --card-foreground:     oklch(98%  0.005 115);
@@ -515,43 +515,57 @@
 @utility reveal-delay-4  { transition-delay: 320ms !important; }
 
 /* ─────────────────────────────────────────────────────
-   Custom Scrollbar
+   Scrollbars — ONE treatment everywhere.
+   • Neutral (default grey), not the brand colour.
+   • Auto-hiding: the thumb is invisible until the container is actively
+     scrolling. A global scroll listener (app-shell.tsx) sets `data-scrolling`
+     on whatever just scrolled and clears it ~700ms after scrolling stops.
+   • Applied via `*` (Firefox doesn't inherit scrollbar-* ) and the global
+     WebKit pseudo-elements, so every scroll container in the app matches
+     without any per-element opt-in class.
+   Track space is always reserved while an element is scrollable, so revealing
+   the thumb never shifts layout.
 ───────────────────────────────────────────────────── */
-:root {
-  scrollbar-color: oklch(70% 0.15 115 / 0.35) transparent;
+* {
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
 
-.dark {
-  scrollbar-color: oklch(94% 0.23 115 / 0.25) transparent;
+/* Firefox: reveal a neutral thumb only while scrolling. */
+[data-scrolling] {
+  scrollbar-color: oklch(0% 0 0 / 0.32) transparent;
+}
+.dark [data-scrolling] {
+  scrollbar-color: oklch(100% 0 0 / 0.3) transparent;
 }
 
-/* WebKit-based browsers (Chrome, Safari, Edge) */
+/* WebKit (Chrome, Safari, Edge). Transparent border + padding-box clip insets
+   the visible thumb so it reads as a slim rounded bar. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: oklch(70% 0.15 115 / 0.3);
+  background-color: transparent;
+  border: 3px solid transparent;
+  background-clip: padding-box;
   border-radius: 999px;
-  transition: background 0.2s;
+  transition: background-color 0.3s ease;
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: oklch(70% 0.20 115 / 0.55);
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: oklch(0% 0 0 / 0.3);
 }
-
-.dark ::-webkit-scrollbar-thumb {
-  background: oklch(94% 0.23 115 / 0.22);
+[data-scrolling]::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0% 0 0 / 0.45);
 }
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: oklch(94% 0.23 115 / 0.45);
+.dark [data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: oklch(100% 0 0 / 0.28);
+}
+.dark [data-scrolling]::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(100% 0 0 / 0.45);
 }
 
 /* ─────────────────────────────────────────────────────
@@ -723,26 +737,12 @@
   }
 }
 
-.dashboard-sidebar,
-.dashboard-sidebar :where(a, button, p, span, div, svg) {
-  color: oklch(100% 0 0) !important;
-}
-
-.dashboard-sidebar {
-  background-color: #000000 !important;
-}
-
-.dark .dashboard-sidebar,
-.dark .dashboard-sidebar :where(a, button, p, span, div, svg) {
-  color: oklch(100% 0 0) !important;
-}
-
-.dark .dashboard-sidebar {
-  background-color: #000000 !important;
-}
+/* Sidebar is flat against the page canvas; its chrome (nav rows, controls,
+   text) is styled with the app's ui-* / --primary tokens via Tailwind classes
+   in app-shell.tsx, so it reads as the same system as the rest of the UI. */
 
 .app-shell-content {
-  --background: oklch(96.3% 0.003 286.3); /* #f4f4f5 */
+  --background: oklch(97.8% 0.002 286.3); /* lighter zinc — between zinc-100 and white */
   --card: oklch(100% 0 0); /* #ffffff */
   --muted: oklch(90.9% 0.004 286.3); /* #e4e4e7 */
   --popover: oklch(100% 0 0);
@@ -761,155 +761,27 @@
   --input: oklch(22% 0.02 115);
 }
 
-.dashboard-sidebar-divider {
-  height: 1px;
-  margin: 0 0.75rem;
-  background:
-    linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in oklch, oklch(100% 0 0) 14%, transparent) 18%,
-      color-mix(in oklch, var(--primary) 18%, transparent) 50%,
-      color-mix(in oklch, oklch(100% 0 0) 14%, transparent) 82%,
-      transparent
-    );
-}
-
-.dark .dashboard-sidebar-divider {
-  background:
-    linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in oklch, oklch(100% 0 0) 14%, transparent) 18%,
-      color-mix(in oklch, var(--primary) 18%, transparent) 50%,
-      color-mix(in oklch, oklch(100% 0 0) 14%, transparent) 82%,
-      transparent
-    );
-}
-
-.dashboard-sidebar :where(button[aria-label='Expand sidebar'], button[aria-label='Collapse sidebar'], button[aria-label='Toggle theme'], button[aria-label='Close menu']) {
-  background-color: oklch(0% 0 0) !important;
-  color: oklch(100% 0 0) !important;
-}
-
-.dark .dashboard-sidebar :where(button[aria-label='Expand sidebar'], button[aria-label='Collapse sidebar'], button[aria-label='Toggle theme'], button[aria-label='Close menu']) {
-  background-color: oklch(0% 0 0) !important;
-  color: oklch(100% 0 0) !important;
-}
-
-.dashboard-sidebar .dashboard-sidebar-username {
-  color: oklch(92% 0.004 286.32) !important;
-}
-
-.dark .dashboard-sidebar .dashboard-sidebar-username {
-  color: oklch(92% 0.004 286.32) !important;
-}
-
-.dashboard-sidebar-action {
-  will-change: transform;
-}
-
-/* Collapsed sidebar only: SharedLayoutBg pill handles background */
-.dashboard-sidebar-collapsed .dashboard-sidebar-action:hover,
-.dashboard-sidebar-collapsed .dashboard-sidebar-action:focus-visible {
-  background-color: transparent !important;
+/* Sidebar rows: the SharedLayoutBg pill is the sole hover affordance — the
+   row itself never transforms on hover/focus/active. Active rows paint their
+   own neutral fill (Tailwind classes in app-shell.tsx). */
+.dashboard-sidebar-action:hover,
+.dashboard-sidebar-action:focus-visible,
+.dashboard-sidebar-action:active {
   transform: none !important;
 }
 
-/* Collapsed active button hovered: deep green */
-.dashboard-sidebar-collapsed .dashboard-sidebar-action[aria-current="page"]:hover,
-.dashboard-sidebar-collapsed .dashboard-sidebar-action[aria-current="page"]:focus-visible {
-  background-color: oklch(30% 0.35 115 / 0.35) !important;
-}
-
-.dashboard-sidebar-collapsed .dashboard-sidebar-action:active {
-  transform: none !important;
-}
-
-.dashboard-sidebar-action-icon,
-.dashboard-sidebar-action-label {
-  will-change: transform;
-}
-
+/* Skimmer shine on the selected row: a light beam parked off-screen that
+   sweeps across once when the active row is hovered/focused. */
 .dashboard-sidebar-shine {
-  transform: skew(-13deg) translateX(-110%);
+  transform: skew(-13deg) translateX(-130%);
   transition: transform 0ms linear;
   will-change: transform;
 }
-
 .dashboard-sidebar-action:hover .dashboard-sidebar-shine,
 .dashboard-sidebar-action:focus-visible .dashboard-sidebar-shine {
-  transform: skew(-13deg) translateX(110%);
-  transition-duration: 1000ms;
+  transform: skew(-13deg) translateX(130%);
+  transition-duration: 1500ms;
   transition-timing-function: var(--ease-out-quart);
-}
-
-/* Expanded sidebar: SharedLayoutBg pill is the sole hover affordance.
-   No transform, no background — the pill handles everything. */
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:hover,
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:focus-visible {
-  background-color: transparent !important;
-  transform: none !important;
-}
-
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:active {
-  transform: none !important;
-}
-
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:hover .dashboard-sidebar-action-icon,
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:focus-visible .dashboard-sidebar-action-icon,
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:hover .dashboard-sidebar-action-label,
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action:focus-visible .dashboard-sidebar-action-label {
-  transform: none !important;
-}
-
-/* Active button hovered: show a slightly stronger lime tint instead of the zinc pill */
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action[aria-current="page"]:hover,
-.dashboard-sidebar:not(.dashboard-sidebar-collapsed) .dashboard-sidebar-action[aria-current="page"]:focus-visible {
-  background-color: oklch(30% 0.35 115 / 0.35) !important;
-}
-
-.dashboard-sidebar-tooltip:not(.dashboard-sidebar-action-label) {
-  display: none !important;
-}
-
-@media (min-width: 1024px) {
-
-  .dashboard-sidebar-collapsed .dashboard-sidebar-tooltip {
-    position: absolute !important;
-    left: calc(100% + 1rem) !important;
-    top: 50% !important;
-    z-index: 60 !important;
-    display: block !important;
-    width: max-content !important;
-    max-width: 11rem !important;
-    padding: 0.375rem 0.75rem !important;
-    border: 1px solid color-mix(in oklch, oklch(100% 0 0) 14%, transparent) !important;
-    border-radius: var(--radius-md) !important;
-    background: oklch(0% 0 0) !important;
-    color: oklch(100% 0 0) !important;
-    box-shadow: 0 10px 24px oklch(0% 0 0 / 0.14) !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transform: translate3d(6px, -50%, 0) !important;
-    transition:
-      opacity 150ms var(--ease-out-quart),
-      transform 150ms var(--ease-out-quart) !important;
-    white-space: nowrap !important;
-  }
-
-  .dark .dashboard-sidebar-collapsed .dashboard-sidebar-tooltip {
-    border-color: color-mix(in oklch, oklch(100% 0 0) 14%, transparent) !important;
-    background: oklch(0% 0 0) !important;
-    color: oklch(100% 0 0) !important;
-    box-shadow: 0 10px 24px oklch(0% 0 0 / 0.14) !important;
-  }
-
-  .dashboard-sidebar-collapsed .dashboard-sidebar-action:hover .dashboard-sidebar-tooltip,
-  .dashboard-sidebar-collapsed .dashboard-sidebar-action:focus-visible .dashboard-sidebar-tooltip {
-    opacity: 1 !important;
-    transform: translate3d(0, -50%, 0) !important;
-  }
 }
 
 @utility chart-card {
@@ -1045,28 +917,17 @@
   min-width: 0;
 }
 
-/* Thin lime scrollbar matching the app's global one. The WebKit `::-webkit-
-   scrollbar` rules are already global, but `scrollbar-width` isn't inherited, so
-   scoped scrollers (tree, diffs) that want the thin treatment on Firefox must
-   opt in here. */
-.thin-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(70% 0.15 115 / 0.35) transparent;
-}
-.dark .thin-scroll {
-  scrollbar-color: oklch(94% 0.23 115 / 0.25) transparent;
-}
+/* `.thin-scroll` and `.auto-hide-scroll` are retained as no-op aliases: the
+   neutral, auto-hiding treatment is now global (see the Scrollbars block
+   above), so these classes need no rules of their own. Existing markup that
+   references them keeps working and matches everything else. */
 
-/* The tree's own scrollbar: thin lime, pinned so it never overlaps the panel's
-   rounded corners. */
+/* The diff-tree scroller only needs its functional traits; colour + auto-hide
+   come from the global rules. `scrollbar-gutter: stable` keeps it clear of the
+   panel's rounded corners. */
 .diff-tree-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(70% 0.15 115 / 0.35) transparent;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-}
-.dark .diff-tree-scroll {
-  scrollbar-color: oklch(94% 0.23 115 / 0.25) transparent;
 }
 
 @utility stat-label {
