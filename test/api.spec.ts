@@ -20,12 +20,17 @@ import type {
 import { createTestEnv, saveTestProviderApiKey } from './helpers';
 import { vi } from 'vitest';
 
-function mockGitHubProfile(login = 'devarshishimpi') {
+/**
+ * `githubUserId` is parameterised so a test that mutates the persisted
+ * account_settings row (display name, timezone) can use its own id and not leak
+ * into tests asserting a pristine record — the tests share one database.
+ */
+function mockGitHubProfile(login = 'devarshishimpi', githubUserId = 42) {
   return {
-    id: 42,
+    id: githubUserId,
     login,
     name: 'Devarshi Shimpi',
-    avatar_url: 'https://avatars.githubusercontent.com/u/42',
+    avatar_url: `https://avatars.githubusercontent.com/u/${githubUserId}`,
     email: null,
   };
 }
@@ -37,7 +42,7 @@ describe('Dashboard API Suite', () => {
     vi.restoreAllMocks();
   });
 
-  async function getAuthCookie(env = createTestEnv(), login = 'devarshishimpi') {
+  async function getAuthCookie(env = createTestEnv(), login = 'devarshishimpi', githubUserId = 42) {
     const originalFetch = globalThis.fetch;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -48,7 +53,7 @@ describe('Dashboard API Suite', () => {
       }
 
       if (url === 'https://api.github.com/user') {
-        return Response.json(mockGitHubProfile(login));
+        return Response.json(mockGitHubProfile(login, githubUserId));
       }
 
       return originalFetch(input, init);
@@ -319,7 +324,9 @@ describe('Dashboard API Suite', () => {
 
   it('persists and returns a durable account record with a unique account id', async () => {
     const env = createTestEnv();
-    const token = await getAuthCookie(env);
+    // Own github_user_id: this asserts a pristine record, so it must not share a
+    // row with the tests that rename it or set a timezone.
+    const token = await getAuthCookie(env, 'devarshishimpi', 4300);
 
     const response = await app.request('/api/auth/account', {
       headers: { Cookie: `codra_session=${token}` },
@@ -327,7 +334,7 @@ describe('Dashboard API Suite', () => {
 
     expect(response.status).toBe(200);
     const data = await response.json() as AccountResponse;
-    expect(data.account.githubUserId).toBe(42);
+    expect(data.account.githubUserId).toBe(4300);
     expect(data.account.githubUsername).toBe('devarshishimpi');
     expect(data.account.accountName).toBe('Devarshi Shimpi');
     expect(typeof data.account.id).toBe('string');
@@ -336,7 +343,8 @@ describe('Dashboard API Suite', () => {
 
   it('updates the editable account display name', async () => {
     const env = createTestEnv();
-    const token = await getAuthCookie(env);
+    // Own github_user_id: this test mutates the persisted row.
+    const token = await getAuthCookie(env, 'devarshishimpi', 4303);
 
     const response = await app.request('/api/auth/account', {
       method: 'PATCH',
@@ -347,7 +355,7 @@ describe('Dashboard API Suite', () => {
     expect(response.status).toBe(200);
     const data = await response.json() as AccountResponse;
     expect(data.account.accountName).toBe('Renamed Codra User');
-    expect(data.account.githubUserId).toBe(42);
+    expect(data.account.githubUserId).toBe(4303);
 
     // The change persists on subsequent reads.
     const followUp = await app.request('/api/auth/account', {
@@ -355,6 +363,67 @@ describe('Dashboard API Suite', () => {
     }, env);
     const followUpData = await followUp.json() as AccountResponse;
     expect(followUpData.account.accountName).toBe('Renamed Codra User');
+  });
+
+  it('persists a display time zone and clears it back to the default', async () => {
+    const env = createTestEnv();
+    // Own github_user_id: this test mutates the persisted row.
+    const token = await getAuthCookie(env, 'devarshishimpi', 4301);
+    const headers = {
+      Cookie: `codra_session=${token}`,
+      'content-type': 'application/json',
+      'x-requested-with': 'XMLHttpRequest',
+    };
+
+    const set = await app.request('/api/auth/account', {
+      method: 'PATCH', headers, body: JSON.stringify({ timezone: 'Asia/Kolkata' }),
+    }, env);
+    expect(set.status).toBe(200);
+    expect(((await set.json()) as AccountResponse).account.timezone).toBe('Asia/Kolkata');
+
+    // Persisted, not just echoed back.
+    const read = await app.request('/api/auth/account', { headers }, env);
+    expect(((await read.json()) as AccountResponse).account.timezone).toBe('Asia/Kolkata');
+
+    // null means "follow the browser".
+    const cleared = await app.request('/api/auth/account', {
+      method: 'PATCH', headers, body: JSON.stringify({ timezone: null }),
+    }, env);
+    expect(((await cleared.json()) as AccountResponse).account.timezone).toBeNull();
+  });
+
+  it('rejects an unknown time zone', async () => {
+    const env = createTestEnv();
+    const token = await getAuthCookie(env);
+
+    const response = await app.request('/api/auth/account', {
+      method: 'PATCH',
+      headers: { Cookie: `codra_session=${token}`, 'content-type': 'application/json', 'x-requested-with': 'XMLHttpRequest' },
+      body: JSON.stringify({ timezone: 'Mars/Olympus_Mons' }),
+    }, env);
+
+    expect(response.status).toBe(400);
+  });
+
+  it('keeps a user-set display name when the OAuth upsert runs again', async () => {
+    const env = createTestEnv();
+    // Own github_user_id: this test renames the persisted row.
+    const token = await getAuthCookie(env, 'devarshishimpi', 4302);
+    const headers = {
+      Cookie: `codra_session=${token}`,
+      'content-type': 'application/json',
+      'x-requested-with': 'XMLHttpRequest',
+    };
+
+    await app.request('/api/auth/account', {
+      method: 'PATCH', headers, body: JSON.stringify({ name: 'My Chosen Name' }),
+    }, env);
+
+    // Signing in again re-runs upsertAccountSettings with the GitHub profile name.
+    await getAuthCookie(env, 'devarshishimpi', 4302);
+
+    const read = await app.request('/api/auth/account', { headers }, env);
+    expect(((await read.json()) as AccountResponse).account.accountName).toBe('My Chosen Name');
   });
 
   it('rejects an empty account name', async () => {

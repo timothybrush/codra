@@ -62,7 +62,9 @@ function SidebarNavItem({
       onClick={onClick}
       className={cn(
         'dashboard-sidebar-action',
-        'group flex h-10 w-full items-center gap-3 rounded-md pl-4 pr-3.5 text-[13px] font-medium',
+        // `relative` anchors this row's own accent bar + skimmer overlay; the
+        // rest of the sidebar rows are positioned the same way.
+        'group relative flex h-10 w-full items-center gap-3 rounded-md pl-4 pr-3.5 text-[13px] font-medium',
         'outline-none transition-[color,background-color] duration-200 ease-[var(--ease-out-quart)]',
         'focus-visible:ring-2 focus-visible:ring-ring',
         isActive
@@ -152,7 +154,8 @@ function AccountMenu({ user }: { user: AuthSessionUser }) {
         style={{ transformOrigin: 'bottom center' }}
         className={cn(
           'absolute bottom-[calc(100%+0.5rem)] left-0 right-0 z-50',
-          'rounded-xl border border-ui-line bg-ui-base p-1.5',
+          // rounded-lg = the app's panel/dropdown radius token (11px).
+          'rounded-lg border border-ui-line bg-ui-base p-1.5',
           'shadow-[0_12px_32px_-10px_oklch(0%_0_0/0.22)] dark:shadow-[0_12px_32px_-10px_oklch(0%_0_0/0.7)]',
           'transition-[opacity,transform,visibility] duration-150 ease-[var(--ease-out-quart)]',
           open
@@ -165,9 +168,9 @@ function AccountMenu({ user }: { user: AuthSessionUser }) {
           to="/account"
           tabIndex={open ? 0 : -1}
           className={cn(
-            'group/item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium text-ui-default',
+            'group/item flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-[13px] font-medium text-ui-default',
             'outline-none transition-colors duration-150',
-            'hover:bg-ui-fill/70 focus-visible:bg-ui-fill/70',
+            'hover:bg-ui-fill hover:text-ui-strong focus-visible:bg-ui-fill focus-visible:text-ui-strong',
           )}
           onClick={() => setOpen(false)}
         >
@@ -182,9 +185,9 @@ function AccountMenu({ user }: { user: AuthSessionUser }) {
           rel="noopener noreferrer"
           tabIndex={open ? 0 : -1}
           className={cn(
-            'group/item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium text-ui-default',
+            'group/item flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-[13px] font-medium text-ui-default',
             'outline-none transition-colors duration-150',
-            'hover:bg-ui-fill/70 focus-visible:bg-ui-fill/70',
+            'hover:bg-ui-fill hover:text-ui-strong focus-visible:bg-ui-fill focus-visible:text-ui-strong',
           )}
           onClick={() => setOpen(false)}
         >
@@ -199,7 +202,7 @@ function AccountMenu({ user }: { user: AuthSessionUser }) {
           type="button"
           tabIndex={open ? 0 : -1}
           className={cn(
-            'group/item flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium text-ui-default',
+            'group/item flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-[13px] font-medium text-ui-default',
             'outline-none transition-colors duration-150',
             'hover:bg-danger-bg hover:text-danger focus-visible:bg-danger-bg focus-visible:text-danger',
           )}
@@ -394,7 +397,6 @@ export function AppShell() {
             href="https://github.com/devarshishimpi/codra"
             target="_blank"
             rel="noopener noreferrer"
-            title="Star on GitHub"
             className={cn(
               'dashboard-sidebar-action',
               'group relative flex h-10 w-full items-center gap-3 rounded-md pl-4 pr-3.5',
@@ -429,10 +431,11 @@ export function AppShell() {
         )}
       >
 
-        {/* Mobile topbar */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 lg:hidden">
+        {/* Mobile topbar — same ui-* tokens and control sizing as the sidebar
+            header, so the two read as one system when the drawer is open. */}
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-ui-line px-4 lg:hidden">
           <button
-            className="-ml-2 rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="-ml-2 rounded-md p-2 text-ui-default transition-colors hover:bg-ui-fill hover:text-ui-strong"
             onClick={() => setMobileMenuOpen(true)}
             aria-label="Open menu"
           >
@@ -440,10 +443,10 @@ export function AppShell() {
           </button>
           <button
             onClick={toggleTheme}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-ui-line bg-ui-base text-ui-default transition-colors hover:bg-ui-fill"
             aria-label="Toggle theme"
           >
-            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
         </header>
 

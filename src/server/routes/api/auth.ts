@@ -2,16 +2,37 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { jsonError } from '@server/core/http';
 import { getUpdatesEmailPreference, syncUpdatesEmail } from '@server/core/updates-email';
-import { getAccountSettings, updateAccountName, upsertAccountSettings } from '@server/db/accounts';
+import { getAccountSettings, updateAccountSettings, upsertAccountSettings } from '@server/db/accounts';
 import type { AppEnv } from '@server/env';
 
 const emailSchema = z.object({
   email: z.string().trim().email().max(254),
 }).strict();
 
+/**
+ * Both fields are optional so the client can PATCH either independently, but at
+ * least one must be present. `timezone: null` means "follow the browser"; a string
+ * must be a zone the runtime's Intl actually knows, so we never persist a value
+ * that would later throw at format time.
+ */
 const accountUpdateSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-}).strict();
+  name: z.string().trim().min(1).max(120).optional(),
+  timezone: z.string().trim().min(1).max(64).refine(isSupportedTimeZone, {
+    message: 'Unknown time zone.',
+  }).nullable().optional(),
+}).strict().refine(
+  (body) => body.name !== undefined || body.timezone !== undefined,
+  { message: 'Nothing to update.' },
+);
+
+function isSupportedTimeZone(zone: string) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function createAuthApiRouter() {
   const app = new Hono<AppEnv>();
@@ -55,7 +76,11 @@ export function createAuthApiRouter() {
     const body = await c.req.json().catch(() => null);
     const parsed = accountUpdateSchema.safeParse(body);
     if (!parsed.success) {
-      return jsonError('Enter a name (1–120 characters).', 400);
+      const issue = parsed.error.issues[0]?.message;
+      return jsonError(
+        issue && issue !== 'Invalid input' ? issue : 'Enter a name (1–120 characters).',
+        400,
+      );
     }
 
     // Ensure a row exists first (self-heal for pre-existing sessions), then update.
@@ -69,7 +94,10 @@ export function createAuthApiRouter() {
       });
     }
 
-    const account = await updateAccountName(c.env, sessionUser.githubUserId, parsed.data.name);
+    const account = await updateAccountSettings(c.env, sessionUser.githubUserId, {
+      accountName: parsed.data.name,
+      timezone: parsed.data.timezone,
+    });
     return c.json({ account });
   });
 

@@ -16,6 +16,17 @@ CREATE TABLE IF NOT EXISTS account_settings (
   github_username TEXT        NOT NULL,
   account_name    TEXT,
   account_email   TEXT,
+  -- IANA zone (e.g. 'Asia/Kolkata') used to render timestamps in the dashboard.
+  -- All timestamps are STORED as TIMESTAMPTZ (absolute, UTC) and this only affects
+  -- presentation. NULL means "not chosen", which the dashboard renders as UTC.
+  timezone        TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Separate idempotent ALTER so a database that applied an earlier revision of this
+-- migration (account_settings created without `timezone`) still picks the column up:
+-- the runner tracks applied migrations by FILENAME, so editing this file alone would
+-- otherwise be a no-op there. Harmless on a fresh database, where CREATE TABLE above
+-- already made the column.
+ALTER TABLE account_settings ADD COLUMN IF NOT EXISTS timezone TEXT;

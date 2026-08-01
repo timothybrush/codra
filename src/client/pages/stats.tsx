@@ -29,6 +29,7 @@ import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
 import { usePolling } from '@client/hooks/use-polling';
 import { api } from '@client/lib/api';
 import { cn, fmtNumber } from '@client/lib/utils';
+import { formatDayLabel } from '@client/lib/timezone';
 import type { StatsPayload } from '@shared/schema';
 
 const CHART = {
@@ -53,10 +54,13 @@ const TICK_COLORS_LIGHT = ['#3f3f46', '#ea580c', '#0891b2', '#2563eb', '#7c3aed'
 
 const MONO_STACK = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
+/**
+ * The server buckets days in the account's display zone and returns plain
+ * `YYYY-MM-DD` strings, so the label must be rendered verbatim — parsing it in the
+ * viewer's local zone used to shift it a day for negative UTC offsets.
+ */
 function formatDay(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return formatDayLabel(value);
 }
 
 function formatCompact(value: number) {

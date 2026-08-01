@@ -1,55 +1,163 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
+import { cn } from '@client/lib/utils';
 import { PageHeader } from '@client/components/layout/page-header';
-import { Button } from '@client/components/ui/button';
+import { Button, LinkButton } from '@client/components/ui/button';
 import { Input } from '@client/components/ui/input';
+import { Badge } from '@client/components/ui/badge';
+import { LayerCard } from '@client/components/ui/layer-card';
+import { Text } from '@client/components/ui/text';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { LoadError } from '@client/components/shared/load-error';
+import { Select } from '@client/components/ui/select';
 import { ExternalLink, Mail, Pencil, Check, X } from 'lucide-react';
 import { GithubMark } from '@client/components/shared/github-mark';
+import {
+  COMMON_TIME_ZONES,
+  DEFAULT_TIME_ZONE,
+  browserTimeZone,
+  formatDateTime,
+  getStoredTimeZone,
+  resolvedTimeZone,
+  setStoredTimeZone,
+  timeZoneOffsetLabel,
+} from '@client/lib/timezone';
 import type { AccountSettings, AuthSessionUser } from '@shared/api';
+
+/**
+ * Explicit zone list — no "Automatic". Timestamps default to UTC until a zone is
+ * chosen here, so they read identically for everyone out of the box. The viewer's
+ * own browser zone is folded in so it's always selectable.
+ */
+function zoneOptions() {
+  const zones = Array.from(new Set([DEFAULT_TIME_ZONE, ...COMMON_TIME_ZONES, browserTimeZone()]))
+    .sort((a, b) => a.localeCompare(b));
+  return zones.map((zone) => {
+    const offset = timeZoneOffsetLabel(zone);
+    return { value: zone, label: offset ? `${zone} · ${offset}` : zone };
+  });
+}
 
 /* ── Section wrapper (matches the settings page chrome) ───────────────────── */
 function SectionCard({
   title,
-  description,
   children,
 }: {
   title: string;
-  description: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="ui-panel min-w-0 overflow-hidden">
       <div className="border-b border-ui-line px-5 py-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">{title}</h2>
-        <p className="mt-0.5 text-xs text-ui-subtle">{description}</p>
       </div>
       {children}
     </section>
   );
 }
 
-/* ── One key/value detail row ─────────────────────────────────────────────── */
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+/* ── A captioned group of key/value rows ──────────────────────────────────── */
+function DetailGroup({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <span className="shrink-0 text-[13px] font-medium text-ui-subtle">{label}</span>
-      <span className="min-w-0 truncate text-right text-[13px] font-semibold text-ui-strong">{children}</span>
+    <div className="min-w-0">
+      <p className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
+        {caption}
+      </p>
+      <LayerCard className="divide-y divide-ui-line rounded-lg">{children}</LayerCard>
+    </div>
+  );
+}
+
+/* ── A value that stays blurred until clicked, with a hover tooltip ───────── */
+function RevealOnClick({ label, children }: { label: string; children: React.ReactNode }) {
+  const [revealed, setRevealed] = useState(false);
+  const hint = revealed ? 'Click to hide' : 'Click to reveal';
+
+  return (
+    // `group` drives the tooltip; `inline-flex` keeps the row's right alignment.
+    <span className="group relative inline-flex max-w-full justify-end">
+      <button
+        type="button"
+        onClick={() => setRevealed((v) => !v)}
+        aria-pressed={revealed}
+        aria-label={`${hint} ${label}`}
+        className={cn(
+          'max-w-full cursor-pointer truncate rounded-[4px] align-middle outline-none',
+          // `filter` is the animated property, so the blur eases in/out on toggle.
+          'transition-[filter,opacity] duration-300 ease-[var(--ease-out-quart)]',
+          'focus-visible:ring-2 focus-visible:ring-ring',
+          // `select-none` while hidden so the value can't be copied out of a blur.
+          !revealed && 'select-none blur-[5px] hover:opacity-70',
+        )}
+      >
+        {children}
+      </button>
+
+      {/* Tooltip — shown on hover/focus of the group. `pointer-events-none` so it
+          can never sit between the cursor and the button underneath it. */}
+      <span
+        role="tooltip"
+        className={cn(
+          'pointer-events-none absolute bottom-[calc(100%+0.4rem)] right-0 z-20 w-max',
+          'rounded-md border border-ui-line bg-ui-base px-2 py-1',
+          'text-[11px] font-medium text-ui-default shadow-sm',
+          'opacity-0 translate-y-0.5 transition-[opacity,transform] duration-150 ease-[var(--ease-out-quart)]',
+          'group-hover:opacity-100 group-hover:translate-y-0',
+          'group-focus-within:opacity-100 group-focus-within:translate-y-0',
+        )}
+      >
+        {hint}
+      </span>
+    </span>
+  );
+}
+
+/* ── One key/value detail row ─────────────────────────────────────────────── */
+function DetailRow({
+  label,
+  mono,
+  loading,
+  skeletonWidth = 130,
+  children,
+}: {
+  label: string;
+  /** Render the value as an identifier (Geist Mono + tabular figures). */
+  mono?: boolean;
+  loading?: boolean;
+  skeletonWidth?: number;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      {/* Label is secondary: near-black in light, recessed in dark. */}
+      <Text variant="body" size="sm" bold as="span" className="shrink-0 text-[13px] dark:text-ui-subtle">
+        {label}
+      </Text>
+      {loading ? (
+        <Skeleton height={11} width={skeletonWidth} borderRadius={4} className="max-w-[45%]" />
+      ) : (
+        <span
+          className={cn(
+            'min-w-0 truncate text-right text-[13px] font-medium text-ui-strong',
+            mono && 'ui-font-mono text-xs tabular-nums',
+          )}
+        >
+          {children}
+        </span>
+      )}
     </div>
   );
 }
 
 function formatDate(value: string) {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString(undefined, {
+  return formatDateTime(value, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZoneName: 'short',
   });
 }
 
@@ -62,6 +170,10 @@ export function AccountPage() {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [savingZone, setSavingZone] = useState(false);
+  // The picker is driven by state, not by reading localStorage during render —
+  // a render-time read isn't reactive, so the control never reflected a save.
+  const [zonePref, setZonePref] = useState<string | null>(() => getStoredTimeZone());
 
   const load = async () => {
     setError(null);
@@ -72,6 +184,13 @@ export function AccountPage() {
       ]);
       setUser(session.user);
       setAccount(accountRes?.account ?? null);
+      // Mirror the server's choice locally so every other page formats in the
+      // same zone without waiting on this request. Only when the account actually
+      // loaded — a failed fetch must not silently reset the local preference.
+      if (accountRes?.account) {
+        setStoredTimeZone(accountRes.account.timezone ?? null);
+        setZonePref(accountRes.account.timezone ?? null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load your account.');
     } finally {
@@ -79,9 +198,40 @@ export function AccountPage() {
     }
   };
 
+  const saveTimezone = async (zone: string) => {
+    const previous = zonePref;
+    // Optimistic: the control reflects the choice immediately, and reverts if the
+    // server rejects it, so it never sits on a value that wasn't persisted.
+    setZonePref(zone);
+    setStoredTimeZone(zone);
+    setSavingZone(true);
+    try {
+      const res = await api.updateAccountTimezone(zone);
+      setAccount(res.account);
+      setStoredTimeZone(res.account.timezone ?? null);
+      setZonePref(res.account.timezone ?? null);
+      toast.success('Time zone updated', {
+        description: `Timestamps now show in ${resolvedTimeZone()}.`,
+      });
+    } catch (e) {
+      setZonePref(previous);
+      setStoredTimeZone(previous);
+      toast.error('Could not update time zone', {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setSavingZone(false);
+    }
+  };
+
   useEffect(() => {
     void load();
   }, []);
+
+  // Built once: a fresh array each render gave the Select a new `options` identity
+  // every pass, which re-fired its highlight/measure effects and made the open
+  // panel jitter.
+  const zoneOpts = useMemo(() => zoneOptions(), []);
 
   // The editable display name is the persisted account name, falling back to
   // the GitHub profile name (then login) until the user sets their own.
@@ -116,6 +266,10 @@ export function AccountPage() {
     }
   };
 
+  // Skeletons stand in for content only — card chrome, section titles and row
+  // labels stay rendered so the page doesn't reflow when data lands.
+  const pending = loading || !user;
+
   return (
     <section className="page-enter flex flex-col gap-5 pb-20">
       <PageHeader
@@ -133,117 +287,191 @@ export function AccountPage() {
         />
       )}
 
-      {loading ? (
-        <>
-          <div className="ui-panel flex items-center gap-4 p-6">
-            <Skeleton width={64} height={64} className="rounded-full" />
-            <div className="flex-1 space-y-2">
-              <Skeleton height={18} width="40%" />
-              <Skeleton height={13} width="28%" />
-            </div>
-          </div>
-          <Skeleton height={200} />
-        </>
-      ) : user ? (
+      {(loading || user) && (
         <>
           {/* ── Identity ─────────────────────────────────────────────────── */}
-          <section className="ui-panel overflow-hidden">
-            <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-              {user.avatarUrl ? (
+          <section className="ui-panel min-w-0 overflow-hidden">
+            <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+              {pending ? (
+                <Skeleton width={56} height={56} className="shrink-0 rounded-full" />
+              ) : user!.avatarUrl ? (
                 <img
-                  src={user.avatarUrl}
+                  src={user!.avatarUrl}
                   alt=""
-                  className="h-16 w-16 shrink-0 rounded-full object-cover ring-1 ring-ui-line"
+                  className="h-14 w-14 shrink-0 rounded-full object-cover ring-1 ring-ui-line"
                 />
               ) : (
-                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-ui-fill text-2xl font-semibold text-ui-strong ring-1 ring-ui-line">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-ui-fill text-xl font-semibold text-ui-strong ring-1 ring-ui-line">
                   {initial}
                 </span>
               )}
+
               <div className="min-w-0 flex-1">
-                {editingName ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={nameDraft}
-                      onChange={(e) => setNameDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void saveName();
-                        if (e.key === 'Escape') setEditingName(false);
-                      }}
-                      autoFocus
-                      maxLength={120}
-                      aria-label="Account name"
-                      className="h-9 w-full max-w-xs"
-                    />
-                    <div className="flex items-center gap-1.5">
-                      <Button size="sm" onClick={saveName} loading={savingName} icon={<Check size={14} />}>
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingName(false)}
-                        disabled={savingName}
-                        icon={<X size={14} />}
-                      >
-                        Cancel
-                      </Button>
+                {pending ? (
+                  <div className="space-y-2.5">
+                    <Skeleton height={17} width={190} borderRadius={5} />
+                    <Skeleton height={12} width={120} borderRadius={4} />
+                  </div>
+                ) : editingName ? (
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        value={nameDraft}
+                        onChange={(e) => setNameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void saveName();
+                          if (e.key === 'Escape') setEditingName(false);
+                        }}
+                        autoFocus
+                        maxLength={120}
+                        aria-label="Account name"
+                        className="h-9 w-full max-w-xs"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={saveName}
+                          loading={savingName}
+                          icon={<Check size={13} />}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditingName(false)}
+                          disabled={savingName}
+                          icon={<X size={13} />}
+                          className="text-ui-subtle hover:text-ui-default"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
+                    <p className="mt-2 text-[11px] text-ui-subtle">
+                      Enter to save · Esc to cancel — this name is used across Codra.
+                    </p>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-lg font-bold text-ui-strong">{displayName}</h2>
-                    <button
-                      type="button"
-                      onClick={startEditName}
-                      aria-label="Edit account name"
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill hover:text-ui-default"
-                    >
-                      <Pencil size={13} />
-                    </button>
-                  </div>
+                  <>
+                    <div className="group/name flex min-w-0 items-center gap-1.5">
+                      <h2
+                        className="truncate text-lg font-bold text-ui-strong"
+                        style={{ letterSpacing: '-0.01em' }}
+                      >
+                        {displayName}
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={startEditName}
+                        aria-label="Edit account name"
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill hover:text-ui-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="truncate text-[13px] text-ui-default dark:text-ui-subtle">
+                        @{user!.login}
+                      </span>
+                      <Badge variant="secondary" className="shrink-0 gap-1.5">
+                        <GithubMark size={11} />
+                        GitHub
+                      </Badge>
+                    </div>
+                  </>
                 )}
-                <p className="mt-0.5 truncate text-sm text-ui-subtle">@{user.login}</p>
               </div>
-              <a
-                href={profileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex shrink-0 items-center gap-2 self-start rounded-md border border-ui-line bg-ui-base px-3 py-2 text-[13px] font-semibold text-ui-default transition-colors hover:bg-ui-fill sm:self-auto"
-              >
-                <GithubMark size={15} />
-                View on GitHub
-                <ExternalLink size={13} className="text-ui-subtle" />
-              </a>
+
+              {pending ? (
+                <Skeleton width={148} height={32} borderRadius={6} className="shrink-0" />
+              ) : (
+                <LinkButton
+                  href={profileUrl}
+                  external
+                  variant="secondary"
+                  size="sm"
+                  icon={<GithubMark size={14} />}
+                  className="shrink-0 self-start sm:self-auto"
+                >
+                  View on GitHub
+                  <ExternalLink size={12} className="text-ui-subtle" />
+                </LinkButton>
+              )}
             </div>
           </section>
 
           {/* ── Details ──────────────────────────────────────────────────── */}
-          <SectionCard title="Details" description="Your account details.">
-            <div className="divide-y divide-ui-line">
-              {account && (
-                <DetailRow label="Account ID"><span className="ui-font-mono text-xs">{account.id}</span></DetailRow>
-              )}
-              <DetailRow label="Name">{displayName}</DetailRow>
-              <DetailRow label="GitHub username">@{user.login}</DetailRow>
-              <DetailRow label="GitHub user ID"><span className="ui-font-mono">{user.githubUserId}</span></DetailRow>
-              <DetailRow label="Email">
-                {user.email ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Mail size={13} className="text-ui-subtle" />
-                    {user.email}
-                  </span>
-                ) : (
-                  <span className="text-ui-subtle">Not provided</span>
+          <SectionCard
+            title="Details"
+          >
+            <div className="space-y-4 p-5">
+              <DetailGroup caption="Profile">
+                <DetailRow label="Name" loading={pending} skeletonWidth={140}>
+                  {displayName}
+                </DetailRow>
+                <DetailRow label="Email" loading={pending} skeletonWidth={170}>
+                  {user?.email ? (
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Mail size={13} className="shrink-0 text-ui-subtle" />
+                      <span className="truncate">{user.email}</span>
+                    </span>
+                  ) : (
+                    <span className="font-normal text-ui-subtle">Not provided</span>
+                  )}
+                </DetailRow>
+              </DetailGroup>
+
+              <DetailGroup caption="GitHub">
+                <DetailRow label="GitHub username" loading={pending} skeletonWidth={120}>
+                  @{user?.login}
+                </DetailRow>
+                <DetailRow label="GitHub user ID" mono loading={pending} skeletonWidth={80}>
+                  {user?.githubUserId}
+                </DetailRow>
+              </DetailGroup>
+
+              <DetailGroup caption="Codra account">
+                {(pending || account) && (
+                  <DetailRow label="Account ID" mono loading={pending} skeletonWidth={230}>
+                    <RevealOnClick label="account ID">{account?.id}</RevealOnClick>
+                  </DetailRow>
                 )}
-              </DetailRow>
-              <DetailRow label="Signed in">
-                <span className="ui-font-mono text-ui-default">{formatDate(user.signedInAt)}</span>
-              </DetailRow>
+                <DetailRow label="Signed in" mono loading={pending} skeletonWidth={190}>
+                  {user ? formatDate(user.signedInAt) : null}
+                </DetailRow>
+
+                {/* Display time zone. Timestamps are stored absolute (UTC); this only
+                    controls how they're rendered across the dashboard. */}
+                <div className="flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="min-w-0 shrink-0">
+                    <Text variant="body" size="sm" bold as="span" className="text-[13px] dark:text-ui-subtle">
+                      Date &amp; time zone
+                    </Text>
+                    <span className="mt-0.5 block text-[11px] leading-tight text-ui-subtle">
+                      Stored in UTC, shown in {resolvedTimeZone()}
+                    </span>
+                  </span>
+                  {pending ? (
+                    <Skeleton height={32} width={200} borderRadius={7} />
+                  ) : (
+                    <div className="w-[15rem] shrink-0">
+                      <Select
+                        value={zonePref ?? DEFAULT_TIME_ZONE}
+                        onValueChange={(v) => { if (!savingZone) void saveTimezone(v); }}
+                        options={zoneOpts}
+                        variant="card"
+                        triggerClassName="h-8 px-2.5 text-[13px]"
+                      />
+                    </div>
+                  )}
+                </div>
+              </DetailGroup>
             </div>
           </SectionCard>
         </>
-      ) : null}
+      )}
     </section>
   );
 }

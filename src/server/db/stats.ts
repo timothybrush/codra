@@ -3,15 +3,33 @@ import { queryRows } from './client';
 import { statsSchema, jobStatuses, reviewTriggers, reviewSeverities, reviewCategories } from '@shared/schema';
 import { getModelUsageStats } from './file-reviews';
 
+/** Guard the zone before it reaches SQL, so an unknown name can't error the query. */
+function isSupportedTimeZone(zone: string) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const jobStatusSet = new Set<string>(jobStatuses);
 const reviewTriggerSet = new Set<string>(reviewTriggers);
 const reviewSeveritySet = new Set<string>(reviewSeverities);
 const reviewCategorySet = new Set<string>(reviewCategories);
 
-export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30) {
+/**
+ * Day buckets are grouped in `timeZone` so the trend lines up with the timestamps
+ * shown elsewhere in the dashboard. `created_at` is `timestamptz` (absolute), and
+ * `AT TIME ZONE <zone>` converts it to wall-clock time in that zone before
+ * truncating, so a job at 03:00 IST lands on the IST day rather than the UTC one.
+ * Defaults to UTC, matching the client's default display zone.
+ */
+export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30, timeZone = 'UTC') {
   const parsedDays = Number(days);
   const safeDays = Number.isFinite(parsedDays) ? Math.trunc(parsedDays) : 30;
   const clampedDays = Math.min(Math.max(safeDays, 1), 365);
+  const zone = isSupportedTimeZone(timeZone) ? timeZone : 'UTC';
   const [[totals], dailyRows, verdictRows, topRepos, modelRows, statusRows, triggerRows, severityRows, categoryRows, [performanceRow]] = await Promise.all([
     queryRows<{
       jobs: number;
@@ -35,17 +53,17 @@ export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30) 
       env,
       `
         SELECT
-          TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS day,
+          TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE $2), 'YYYY-MM-DD') AS day,
           COUNT(*)::int AS jobs,
           COALESCE(SUM(total_input_tokens), 0)::int AS input_tokens,
           COALESCE(SUM(total_output_tokens), 0)::int AS output_tokens,
           COALESCE(SUM(comment_count), 0)::int AS comments
         FROM jobs
         WHERE created_at >= now() - ($1::int * interval '1 day')
-        GROUP BY DATE_TRUNC('day', created_at)
+        GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE $2)
         ORDER BY day ASC
       `,
-      [clampedDays],
+      [clampedDays, zone],
     ),
     queryRows<{ verdict: 'approve' | 'comment' | null; count: number }>(
       env,

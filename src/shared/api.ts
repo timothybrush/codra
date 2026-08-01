@@ -30,6 +30,12 @@ export type AccountSettings = {
   githubUsername: string;
   accountName: string | null;
   accountEmail: string | null;
+  /**
+   * IANA zone (e.g. 'Asia/Kolkata') used to render timestamps in the dashboard.
+   * Timestamps are always stored absolute (TIMESTAMPTZ/UTC); this is presentation
+   * only. `null` means "follow the viewer's browser timezone".
+   */
+  timezone: string | null;
 };
 
 export type AccountResponse = {

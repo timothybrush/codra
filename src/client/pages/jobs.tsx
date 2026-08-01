@@ -8,7 +8,7 @@ import { Select } from '@client/components/ui/select';
 import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { usePolling } from '@client/hooks/use-polling';
-import { Activity, ChevronLeft, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, ListFilter, RefreshCw, Search } from 'lucide-react';
 import type { JobSummary } from '@shared/schema';
 
 export function JobsPage() {
@@ -87,9 +87,12 @@ export function JobsPage() {
           available height so the table body scrolls internally and the page /
           content card never needs a scrollbar. ─── */}
       <div className="ui-panel flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* Filter toolbar */}
-        <div className="flex shrink-0 flex-col gap-2 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
+        {/* Filter bar — one row of compact 36px bordered controls (search field
+            plus two searchable-looking selects), wrapping only when there is
+            genuinely no room. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ui-line px-4 py-2.5">
+          {/* Search takes all the slack left by the two fixed-width selects. */}
+          <div className="relative basis-full sm:min-w-[10rem] sm:flex-1 sm:basis-auto">
             <Search
               size={13}
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ui-subtle"
@@ -97,49 +100,50 @@ export function JobsPage() {
             <Input
               type="text"
               id="job-search"
-              size="sm"
-              placeholder="Title or #number..."
+              placeholder="Search jobs"
               value={filters.search}
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
-              className="pl-8"
+              className="rounded-[7px] pl-[1.9rem] pr-2.5 text-[13px]"
               aria-label="Search jobs by title or number"
             />
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="w-full sm:w-40">
-              <Select
-                value={filters.status}
-                onValueChange={(v) => setFilters((f) => ({ ...f, status: v, page: 1 }))}
-                placeholder="All statuses"
-                options={[
-                  { value: '', label: 'All statuses' },
-                  { value: 'queued', label: 'Queued' },
-                  { value: 'running', label: 'Running' },
-                  { value: 'done', label: 'Done' },
-                  { value: 'failed', label: 'Failed' },
-                  { value: 'superseded', label: 'Superseded' },
-                  { value: 'cancelled', label: 'Cancelled' }
-                ]}
-                triggerClassName="h-8 text-xs"
-              />
-            </div>
-            <div className="w-full sm:w-40">
-              <Select
-                value={filters.verdict}
-                onValueChange={(v) => setFilters((f) => ({ ...f, verdict: v, page: 1 }))}
-                placeholder="All verdicts"
-                options={[
-                  { value: '', label: 'All verdicts' },
-                  { value: 'approve', label: 'Approve' },
-                  { value: 'comment', label: 'Comment' }
-                ]}
-                triggerClassName="h-8 text-xs"
-              />
-            </div>
+
+          <div className="min-w-[8rem] flex-1 sm:w-[9.5rem] sm:flex-none">
+            <Select
+              value={filters.status}
+              onValueChange={(v) => setFilters((f) => ({ ...f, status: v, page: 1 }))}
+              placeholder="All statuses"
+              leadingIcon={<ListFilter size={13} className="text-ui-subtle" />}
+              options={[
+                { value: '', label: 'All statuses' },
+                { value: 'queued', label: 'Queued' },
+                { value: 'running', label: 'Running' },
+                { value: 'done', label: 'Done' },
+                { value: 'failed', label: 'Failed' },
+                { value: 'superseded', label: 'Superseded' },
+                { value: 'cancelled', label: 'Cancelled' }
+              ]}
+              triggerClassName="gap-1.5 px-2.5 text-[13px]"
+            />
+          </div>
+
+          <div className="min-w-[8rem] flex-1 sm:w-[9.5rem] sm:flex-none">
+            <Select
+              value={filters.verdict}
+              onValueChange={(v) => setFilters((f) => ({ ...f, verdict: v, page: 1 }))}
+              placeholder="All verdicts"
+              leadingIcon={<ListFilter size={13} className="text-ui-subtle" />}
+              options={[
+                { value: '', label: 'All verdicts' },
+                { value: 'approve', label: 'Approve' },
+                { value: 'comment', label: 'Comment' }
+              ]}
+              triggerClassName="gap-1.5 px-2.5 text-[13px]"
+            />
           </div>
         </div>
 
-        <JobsTable jobs={jobs} loading={loading} fill columns={['repo', 'pr', 'status', 'verdict', 'created', 'action']} />
+        <JobsTable jobs={jobs} loading={loading} fill />
 
         {!loading && jobs.length === 0 && (
           <EmptyState
@@ -160,15 +164,20 @@ export function JobsPage() {
 
         {/* ── Pagination footer ─── */}
         {total > 0 && (
-          <div className="flex shrink-0 flex-col gap-2.5 border-t border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-ui-subtle">
-              Showing <span className="text-ui-default">{rangeStart}–{rangeEnd}</span> of{' '}
-              <span className="text-ui-default">{total.toLocaleString()}</span> jobs
+          <div className="flex shrink-0 flex-col gap-2.5 border-t border-ui-line px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-ui-default dark:text-ui-subtle">
+              Showing{' '}
+              <span className="tabular-nums text-ui-strong">
+                {rangeStart}–{rangeEnd}
+              </span>{' '}
+              of <span className="tabular-nums text-ui-strong">{total.toLocaleString()}</span> jobs
             </p>
 
-            <div className="flex items-center justify-between gap-4 sm:justify-end">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-ui-subtle">Rows per page</span>
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-xs text-ui-default dark:text-ui-subtle">
+                  Rows per page
+                </span>
                 <Select
                   value={String(itemsPerPage)}
                   onValueChange={(v) => {
@@ -177,30 +186,32 @@ export function JobsPage() {
                   }}
                   options={[10, 20, 50, 100].map(n => ({ value: String(n), label: String(n) }))}
                   variant="card"
-                  triggerClassName="h-7 w-[4.5rem] px-2 py-1 text-xs"
+                  triggerClassName="h-8 w-[4.25rem] gap-1 px-2.5 text-xs tabular-nums"
                 />
               </div>
 
               <div className="flex items-center gap-1">
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
+                  shape="square"
                   disabled={filters.page === 1}
                   onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
-                  className="h-7 w-7 p-0"
+                  className="rounded-[7px]"
                   aria-label="Previous page"
                 >
                   <ChevronLeft size={14} />
                 </Button>
-                <span className="min-w-[3.5rem] text-center text-xs tabular-nums text-ui-subtle">
+                <span className="min-w-[3.5rem] text-center text-xs tabular-nums text-ui-default dark:text-ui-subtle">
                   {filters.page} / {Math.max(totalPages, 1)}
                 </span>
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
+                  shape="square"
                   disabled={filters.page >= totalPages}
                   onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
-                  className="h-7 w-7 p-0"
+                  className="rounded-[7px]"
                   aria-label="Next page"
                 >
                   <ChevronRight size={14} />

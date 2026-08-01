@@ -9,6 +9,8 @@ export type AccountSettingsRecord = {
   githubUsername: string;
   accountName: string | null;
   accountEmail: string | null;
+  /** IANA zone for rendering timestamps; null = follow the viewer's browser. */
+  timezone: string | null;
 };
 
 export type AccountSettingsInput = {
@@ -24,9 +26,10 @@ type Row = {
   github_username: string;
   account_name: string | null;
   account_email: string | null;
+  timezone: string | null;
 };
 
-const COLUMNS = 'id, github_user_id, github_username, account_name, account_email';
+const COLUMNS = 'id, github_user_id, github_username, account_name, account_email, timezone';
 
 function mapRow(row: Row): AccountSettingsRecord {
   return {
@@ -37,6 +40,7 @@ function mapRow(row: Row): AccountSettingsRecord {
     githubUsername: row.github_username,
     accountName: row.account_name,
     accountEmail: row.account_email,
+    timezone: row.timezone,
   };
 }
 
@@ -51,7 +55,10 @@ export async function upsertAccountSettings(
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (github_user_id) DO UPDATE SET
        github_username = EXCLUDED.github_username,
-       account_name    = EXCLUDED.account_name,
+       -- COALESCE, not EXCLUDED: this upsert runs on every sign-in, so assigning
+       -- the GitHub profile name unconditionally would wipe a display name the
+       -- user set on the account page. Keep theirs; only backfill when unset.
+       account_name    = COALESCE(account_settings.account_name, EXCLUDED.account_name),
        account_email   = EXCLUDED.account_email,
        updated_at      = now()
      RETURNING ${COLUMNS}`,
@@ -72,19 +79,37 @@ export async function getAccountSettings(
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-/** Update the user-editable display name. Returns null if no row exists. */
-export async function updateAccountName(
+/**
+ * Update the user-editable fields. Only keys present in `patch` are written, so a
+ * name change can't clobber the timezone and vice versa. `timezone: null` is a
+ * meaningful value ("follow the browser"), hence the `!== undefined` checks.
+ * Returns null if no row exists for this user.
+ */
+export async function updateAccountSettings(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   githubUserId: number,
-  accountName: string,
+  patch: { accountName?: string; timezone?: string | null },
 ): Promise<AccountSettingsRecord | null> {
+  const assignments: string[] = [];
+  const params: unknown[] = [githubUserId];
+
+  if (patch.accountName !== undefined) {
+    params.push(patch.accountName);
+    assignments.push(`account_name = $${params.length}`);
+  }
+  if (patch.timezone !== undefined) {
+    params.push(patch.timezone);
+    assignments.push(`timezone = $${params.length}`);
+  }
+  if (assignments.length === 0) return getAccountSettings(env, githubUserId);
+
   const rows = await queryRows<Row>(
     env,
     `UPDATE account_settings
-     SET account_name = $2, updated_at = now()
+     SET ${assignments.join(', ')}, updated_at = now()
      WHERE github_user_id = $1
      RETURNING ${COLUMNS}`,
-    [githubUserId, accountName],
+    params,
   );
   return rows[0] ? mapRow(rows[0]) : null;
 }

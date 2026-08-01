@@ -751,9 +751,14 @@ export function JobDiffs({ job }: JobDiffsProps) {
   }
 
   return (
-    <div className="flex min-w-0 items-start gap-4">
-      {/* File tree — sticky, scrolls independently so it stays reachable in huge PRs. */}
-      <aside className="ui-panel sticky top-4 hidden max-h-[calc(100vh-2rem)] w-72 shrink-0 flex-col overflow-hidden lg:flex xl:w-80">
+    /* This row fills the height the page hands it, so the tree is full height by
+       construction. A fixed viewport calc can't work here: the row starts below the
+       header and tabs, so `100svh - <constant>` overshot the bottom and forced the
+       whole page to scroll even for three files. */
+    <div className="flex min-h-0 min-w-0 flex-1 gap-4">
+      {/* File tree — full height, scrolling independently so it stays reachable
+          in huge PRs. */}
+      <aside className="ui-panel hidden h-full w-72 shrink-0 flex-col overflow-hidden lg:flex xl:w-80">
         <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3">
           <FileDiffIcon size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Files</h2>
@@ -794,8 +799,9 @@ export function JobDiffs({ job }: JobDiffsProps) {
         </div>
       </aside>
 
-      {/* Diff column */}
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
+      {/* Diff column — scrolls itself rather than growing the page, which is what
+          keeps the tree beside it full height. */}
+      <div className="auto-hide-scroll flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
         {/* Large-PR banner */}
         {isLargePr && (
           <div className="ui-panel flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">

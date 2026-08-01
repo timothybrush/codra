@@ -1,24 +1,27 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowUpRight,
-  FileText,
-  Zap,
+  CheckCircle2,
+  FolderGit2,
+  GitCommitHorizontal,
+  GitPullRequest,
+  MessageSquare,
 } from 'lucide-react';
-import { StatusBadge } from '@client/components/ui/badge';
 import { Skeleton } from '@client/components/shared/skeleton';
-import { cn, fmtNumber } from '@client/lib/utils';
+import { cn } from '@client/lib/utils';
+import { formatDateTime } from '@client/lib/timezone';
 
 import type { JobSummary } from '@shared/schema';
 
 type Column =
-  | 'repo'
-  | 'pr'
+  | 'title'
   | 'status'
   | 'verdict'
-  | 'files'
-  | 'tokens'
-  | 'created'
-  | 'action';
+  | 'repo'
+  | 'commit'
+  | 'pr'
+  | 'updated'
+  | 'author';
 
 interface JobsTableProps {
   jobs: JobSummary[];
@@ -26,60 +29,77 @@ interface JobsTableProps {
   /** Columns to show. Defaults to all. */
   columns?: Column[];
   /**
-   * Fill the parent's height and scroll the table body internally (sticky
-   * header), instead of growing to fit all rows. Used on the Jobs page so the
-   * page / content card never needs its own scrollbar.
+   * Fill the parent's height and scroll the table body internally, instead of
+   * growing to fit all rows. Used on the Jobs page so the page / content card
+   * never needs its own scrollbar.
    */
   fill?: boolean;
 }
 
 const DEFAULT_COLUMNS: Column[] = [
-  'pr',
-  'repo',
+  'title',
   'status',
   'verdict',
-  'created',
-  'action',
+  'repo',
+  'commit',
+  'pr',
+  'updated',
+  'author',
 ];
 
-const thCls =
-  'border-b border-ui-line px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle select-none';
-
+/* Deployment-table layout: the title takes all the slack and every other cell
+   is a fixed-width, single-line metadata chip sized to its widest realistic
+   content. Secondary metadata drops off first on narrow viewports so a row
+   never wraps and the title never collapses to nothing. */
 const COLUMN_CLASSES: Record<Column, string> = {
-  repo: 'w-[190px] max-w-[190px]',
-  pr: 'max-w-[480px]',
-  status: 'w-[150px]',
-  verdict: 'w-[120px]',
-  files: 'hidden md:table-cell w-[76px]',
-  tokens: 'hidden lg:table-cell w-[96px]',
-  created: 'hidden sm:table-cell w-[150px]',
-  action: 'w-[64px]',
+  title: 'min-w-0 pl-4',
+  status: 'w-[156px]',
+  verdict: 'hidden xl:table-cell w-[108px]',
+  repo: 'hidden md:table-cell w-[176px]',
+  commit: 'hidden 2xl:table-cell w-[96px]',
+  pr: 'hidden xl:table-cell w-[76px]',
+  updated: 'w-[84px]',
+  author: 'w-12 pr-4',
 };
 
-const COLUMN_HEADERS: Record<Column, string> = {
-  repo: 'Repository',
-  pr: 'Title',
-  status: 'Status',
-  verdict: 'Verdict',
-  files: 'Files',
-  tokens: 'Tokens',
-  created: 'Last Updated',
-  action: '',
+/** Dot tone per job status — mirrors the semantic tokens used by StatusBadge. */
+const STATUS_DOT: Record<string, string> = {
+  done: 'bg-success',
+  running: 'bg-info',
+  queued: 'bg-warning',
+  failed: 'bg-danger',
+  superseded: 'bg-ui-subtle',
+  cancelled: 'bg-ui-subtle',
+  stopped: 'bg-ui-subtle',
 };
 
-const SKELETON_WIDTHS: Record<Column, number | string> = {
-  repo: 112,
-  pr: '78%',
-  status: 82,
-  verdict: 78,
-  files: 28,
-  tokens: 58,
-  created: 88,
-  action: 28,
-};
+function statusLabel(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+/** Wall-clock run time: start → finish, or start → now while still running. */
+function jobDuration(job: JobSummary) {
+  if (!job.startedAt) return null;
+  const start = new Date(job.startedAt).getTime();
+  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return formatDuration(end - start);
+}
 
 function formatDate(value: JobSummary['createdAt']) {
-  return new Date(value).toLocaleString(undefined, {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  // Rendered in the account's display time zone (falls back to the browser's).
+  return formatDateTime(date, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -87,289 +107,357 @@ function formatDate(value: JobSummary['createdAt']) {
   });
 }
 
+/**
+ * Compact "15h ago" / "3d ago" relative stamp. Deliberately terser than
+ * Intl.RelativeTimeFormat's "16 minutes ago" so the column stays narrow and
+ * the row reads like a deployment list.
+ */
 function formatRelativeDate(value: JobSummary['createdAt']) {
-  const date = new Date(value).getTime();
-  const diffSeconds = Math.round((date - Date.now()) / 1000);
-  const absSeconds = Math.abs(diffSeconds);
-  const divisions: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ['year', 31_536_000],
-    ['month', 2_592_000],
-    ['week', 604_800],
-    ['day', 86_400],
-    ['hour', 3_600],
-    ['minute', 60],
-  ];
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-  for (const [unit, seconds] of divisions) {
-    if (absSeconds >= seconds) {
-      return formatter.format(Math.round(diffSeconds / seconds), unit);
-    }
-  }
-
-  return 'just now';
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return '—';
+  const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
 }
 
-function NumericMetric({
-  icon: Icon,
-  value,
-  label,
-  strong = false,
-}: {
-  icon: typeof FileText;
-  value: string | number;
-  label: string;
-  strong?: boolean;
-}) {
+/* ── Row pieces ───────────────────────────────────────────────────────────── */
+
+/** Coloured dot + status word + run duration (e.g. "● Done  1m 36s"). */
+function StatusCell({ job }: { job: JobSummary }) {
+  const duration = jobDuration(job);
+  const isRunning = job.status === 'running';
+
   return (
-    <span
-      className={cn(
-        'ui-font-mono inline-flex min-w-0 items-center justify-end gap-1.5 text-xs tabular-nums',
-        strong ? 'text-ui-default' : 'text-ui-subtle',
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className={cn(
+          'h-[7px] w-[7px] shrink-0 rounded-full',
+          STATUS_DOT[job.status] ?? 'bg-ui-subtle',
+          isRunning && 'animate-pulse',
+        )}
+        aria-hidden
+      />
+      <span className="truncate text-[13px] leading-none text-ui-default">
+        {statusLabel(job.status)}
+      </span>
+      {duration && (
+        <span className="ui-font-mono shrink-0 text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+          {duration}
+        </span>
       )}
-      title={label}
-    >
-      <Icon size={12} className="text-ui-subtle" />
-      {value}
     </span>
   );
 }
 
-function JobMobileCard({ job, columns }: { job: JobSummary; columns: Column[] }) {
-  const show = (column: Column) => columns.includes(column);
-  const tokenTotal = job.totalInputTokens + job.totalOutputTokens;
+/** Bordered verdict pill with a tinted icon (the "environment" slot). */
+function VerdictPill({ verdict }: { verdict: NonNullable<JobSummary['verdict']> }) {
+  const approved = verdict === 'approve';
+  const Icon = approved ? CheckCircle2 : MessageSquare;
 
+  return (
+    <span className="inline-flex h-[22px] max-w-full items-center gap-1.5 rounded-full border border-ui-line px-2 text-[11px] font-medium leading-none text-ui-default">
+      <Icon
+        size={11}
+        strokeWidth={2.25}
+        className={cn('shrink-0', approved ? 'text-success' : 'text-warning')}
+      />
+      <span className="truncate capitalize">{verdict}</span>
+    </span>
+  );
+}
+
+/** Icon-prefixed metadata text (repository, commit, PR). */
+function MetaCell({
+  icon: Icon,
+  children,
+  mono = false,
+  title,
+}: {
+  icon: typeof FolderGit2;
+  children: React.ReactNode;
+  mono?: boolean;
+  title?: string;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={title}>
+      <Icon size={13} strokeWidth={2} className="shrink-0 text-ui-subtle" />
+      <span
+        className={cn(
+          'truncate leading-none text-ui-default dark:text-ui-subtle',
+          mono ? 'ui-font-mono text-[11px] tabular-nums' : 'text-xs',
+        )}
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
+
+function AuthorAvatar({ login }: { login: string | null }) {
+  // `github.com/<login>.png` only 302-redirects to the real avatar host, and that
+  // hop can fail (blockers, offline). Hit avatars.githubusercontent.com directly —
+  // it serves the image with a 200 — and fall back to an initial if it still fails,
+  // so a row never shows a broken-image glyph.
+  const [failed, setFailed] = useState(false);
+
+  if (!login || failed) {
+    return (
+      <span
+        className="flex h-5 w-5 items-center justify-center rounded-full bg-ui-fill text-[9px] font-semibold uppercase text-ui-default ring-1 ring-ui-line"
+        title={login ? `@${login}` : undefined}
+      >
+        {login?.charAt(0) ?? ''}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={`https://avatars.githubusercontent.com/${login}?size=40`}
+      alt=""
+      /* No `loading="lazy"`: these are 20px images and intersection detection is
+         unreliable inside the table's own scroll container, which left avatars
+         blank. Eager loading is cheaper than the bug. */
+      title={`@${login}`}
+      onError={() => setFailed(true)}
+      className="h-5 w-5 rounded-full bg-ui-fill object-cover ring-1 ring-ui-line"
+    />
+  );
+}
+
+/* ── Mobile card ──────────────────────────────────────────────────────────── */
+
+function JobMobileCard({ job }: { job: JobSummary }) {
   return (
     <Link
       to={`/jobs/${job.id}`}
-      className="group block border-b border-ui-line px-4 py-4 transition-colors last:border-b-0 hover:bg-ui-fill/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40 focus-visible:ring-offset-2"
+      className="group block border-b border-ui-line px-4 py-3.5 transition-colors last:border-b-0 hover:bg-ui-fill/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          {show('repo') && (
-            <p className="truncate text-xs font-semibold text-ui-default dark:text-ui-subtle">
-              {job.owner}/{job.repo}
-            </p>
-          )}
-          {show('pr') && (
-            <div className="mt-1 flex min-w-0 items-start gap-2">
-              <span className="mt-0.5 shrink-0 ui-font-mono rounded bg-ui-fill/50 px-1.5 py-0.5 text-[11px] font-semibold text-ui-default dark:text-ui-subtle">
-                #{job.prNumber}
-              </span>
-              <p className="line-clamp-2 text-sm font-semibold leading-5 text-ui-strong">
-                {job.prTitle ?? 'Untitled PR'}
-              </p>
-            </div>
-          )}
-        </div>
-        {show('action') && (
-          <ArrowUpRight
-            size={15}
-            className="mt-0.5 shrink-0 text-ui-subtle transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ui-brand"
-          />
-        )}
+        <p className="line-clamp-2 min-w-0 text-[13px] font-medium leading-5 text-ui-strong">
+          {job.prTitle ?? 'Untitled PR'}
+        </p>
+        <span className="shrink-0 text-xs text-ui-default dark:text-ui-subtle">
+          {formatRelativeDate(job.createdAt)}
+        </span>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {show('status') && <StatusBadge label={job.status} job={job} />}
-        {show('verdict') &&
-          (job.verdict ? (
-            <StatusBadge label={job.verdict} />
-          ) : (
-            <span className="text-xs text-ui-subtle">No verdict</span>
-          ))}
+      <div className="mt-2.5 flex items-center gap-3">
+        <StatusCell job={job} />
+        {job.verdict && <VerdictPill verdict={job.verdict} />}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ui-default dark:text-ui-subtle">
-        {show('files') && (
-          <div className="flex items-center gap-1.5">
-            <FileText size={13} />
-            <span>{job.fileCount.toLocaleString()} files</span>
-          </div>
-        )}
-        {show('tokens') && (
-          <div className="flex items-center gap-1.5">
-            <Zap size={13} />
-            <span>{fmtNumber(tokenTotal)} tokens</span>
-          </div>
-        )}
-        {show('created') && (
-          <span>{formatRelativeDate(job.createdAt)}</span>
-        )}
+      <div className="mt-2.5 flex items-center gap-4">
+        <MetaCell icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
+          {job.owner}/{job.repo}
+        </MetaCell>
+        <MetaCell icon={GitPullRequest}>#{job.prNumber}</MetaCell>
       </div>
     </Link>
   );
 }
 
+/* ── Table ────────────────────────────────────────────────────────────────── */
+
+/* Fixed cell height (not vertical padding) keeps every row exactly 48px tall,
+   whether or not it carries a verdict pill — padding-based rows grew ~6px on
+   pill rows and broke the vertical rhythm. */
+const CELL = 'h-12 border-t border-ui-line px-2.5 align-middle';
+
+/* Row dividers sit between rows only: the first row's top border goes
+   transparent (rather than 0-width) so it can't double up with the border of
+   whatever sits above the table — the filter toolbar or the card header —
+   without changing the row's height. */
+const ROW_DIVIDERS = 'first:[&>td]:border-transparent';
+
 export function JobsTable({ jobs, loading, columns, fill = false }: JobsTableProps) {
   const cols: Column[] = columns ?? DEFAULT_COLUMNS;
-  const tableMinWidth = cols.length > 7 ? 'min-w-[980px]' : 'min-w-[720px]';
+  const show = (column: Column) => cols.includes(column);
 
   return (
-    <div className={cn('min-w-0 max-w-full', fill ? 'flex min-h-0 flex-1 flex-col' : 'overflow-hidden')}>
+    <div
+      className={cn(
+        'min-w-0 max-w-full',
+        fill ? 'flex min-h-0 flex-1 flex-col' : 'overflow-hidden',
+      )}
+    >
+      {/* Mobile: stacked cards */}
       <div className={cn('sm:hidden', fill && 'auto-hide-scroll min-h-0 flex-1 overflow-y-auto')}>
         {loading && jobs.length === 0
-          ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="border-b border-ui-line px-4 py-4 last:border-b-0">
-                <Skeleton width="42%" height={12} />
-                <div className="mt-2 flex items-center gap-2">
-                  <Skeleton width={42} height={22} />
-                  <Skeleton width="72%" height={18} />
+          ? Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="border-b border-ui-line px-4 py-3.5 last:border-b-0">
+                <Skeleton width="70%" height={14} />
+                <div className="mt-3 flex gap-3">
+                  <Skeleton width={110} height={13} />
+                  <Skeleton width={84} height={22} borderRadius={999} />
                 </div>
-                <div className="mt-3 flex gap-2">
-                  <Skeleton width={82} height={24} />
-                  <Skeleton width={72} height={24} />
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <Skeleton width="70%" height={14} />
-                  <Skeleton width="62%" height={14} />
+                <div className="mt-3 flex gap-4">
+                  <Skeleton width="45%" height={12} />
+                  <Skeleton width={44} height={12} />
                 </div>
               </div>
             ))
-          : jobs.map((job) => <JobMobileCard key={job.id} job={job} columns={cols} />)}
+          : jobs.map((job) => <JobMobileCard key={job.id} job={job} />)}
       </div>
 
+      {/* Desktop: header-less deployment rows */}
       <div
         className={cn(
           'hidden max-w-full sm:block',
           fill ? 'auto-hide-scroll min-h-0 flex-1 overflow-auto' : 'overflow-x-auto',
         )}
       >
-        <table className={cn('w-full border-separate border-spacing-0 text-sm', tableMinWidth)}>
-          <thead>
-            <tr className="ui-well">
-              {cols.map((col) => (
-                <th
-                  key={col}
-                  className={cn(
-                    thCls,
-                    COLUMN_CLASSES[col],
-                    // Sticky header when the body scrolls internally; the well
-                    // background keeps rows from showing through underneath.
-                    fill && 'ui-well sticky top-0 z-10',
-                    (col === 'files' || col === 'tokens') && 'text-right',
-                    col === 'action' && 'text-center',
-                  )}
-                >
-                  {COLUMN_HEADERS[col]}
-                </th>
-              ))}
-            </tr>
-          </thead>
+        <table className="w-full min-w-[560px] table-fixed border-separate border-spacing-0 text-sm">
           <tbody>
             {loading && jobs.length === 0
-              ? Array.from({ length: 7 }).map((_, i) => (
-                  <tr key={i}>
-                    {cols.map((col) => (
-                      <td
-                        key={col}
-                        className={cn('border-t border-ui-line px-4 py-3.5', COLUMN_CLASSES[col])}
-                      >
-                        <Skeleton width={SKELETON_WIDTHS[col]} />
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i} className={ROW_DIVIDERS}>
+                    {show('title') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.title)}>
+                        <Skeleton width="72%" height={13} />
                       </td>
-                    ))}
+                    )}
+                    {show('status') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.status)}>
+                        <span className="flex items-center gap-2">
+                          <Skeleton width={7} height={7} borderRadius={999} />
+                          <Skeleton width={54} height={13} />
+                          <Skeleton width={40} height={11} />
+                        </span>
+                      </td>
+                    )}
+                    {show('verdict') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.verdict)}>
+                        <Skeleton width={84} height={22} borderRadius={999} />
+                      </td>
+                    )}
+                    {show('repo') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.repo)}>
+                        <Skeleton width="82%" height={12} />
+                      </td>
+                    )}
+                    {show('commit') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.commit)}>
+                        <Skeleton width={76} height={12} />
+                      </td>
+                    )}
+                    {show('pr') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.pr)}>
+                        <Skeleton width={46} height={12} />
+                      </td>
+                    )}
+                    {show('updated') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.updated)}>
+                        <span className="flex justify-end">
+                          <Skeleton width={58} height={12} />
+                        </span>
+                      </td>
+                    )}
+                    {show('author') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.author)}>
+                        <span className="flex justify-end">
+                          <Skeleton width={20} height={20} borderRadius={999} />
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 ))
-              : jobs.map((job) => {
-                  const tokenTotal = job.totalInputTokens + job.totalOutputTokens;
+              : jobs.map((job) => (
+                  <tr
+                    key={job.id}
+                    className={cn(
+                      'group relative transition-colors hover:bg-ui-fill/40',
+                      ROW_DIVIDERS,
+                    )}
+                  >
+                    {show('title') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.title, 'overflow-hidden')}>
+                        {/* `after:` stretches this link across the whole row, so the
+                            entire row is one click target (like Vercel's rows). */}
+                        <Link
+                          to={`/jobs/${job.id}`}
+                          className="block truncate text-[13px] font-medium leading-none text-ui-strong outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline"
+                          title={job.prTitle ?? undefined}
+                        >
+                          {job.prTitle ?? 'Untitled PR'}
+                        </Link>
+                      </td>
+                    )}
 
-                  // Flat single-line rows (Cloudflare-dashboard table style):
-                  // mono data columns, pills for status, no avatars or icons.
-                  return (
-                    <tr
-                      key={job.id}
-                      className="group relative transition-colors hover:bg-ui-fill/40"
-                    >
-                      {cols.includes('repo') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.repo)}>
-                          <Link
-                            to={`/jobs/${job.id}`}
-                            className="ui-font-mono block truncate text-xs text-ui-default hover:text-ui-brand"
-                            title={`${job.owner}/${job.repo}`}
-                          >
-                            {job.owner}/{job.repo}
-                          </Link>
-                        </td>
-                      )}
+                    {show('status') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.status)}>
+                        <StatusCell job={job} />
+                      </td>
+                    )}
 
-                      {cols.includes('pr') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle overflow-hidden', COLUMN_CLASSES.pr)}>
-                          <div className="flex min-w-0 items-baseline gap-2">
-                            <span className="ui-font-mono shrink-0 text-[11px] text-ui-default dark:text-ui-subtle">
-                              #{job.prNumber}
-                            </span>
-                            <Link
-                              to={`/jobs/${job.id}`}
-                              className="block truncate text-sm text-ui-default group-hover:text-ui-strong"
-                              title={job.prAuthor ? `opened by ${job.prAuthor}` : undefined}
-                            >
-                              {job.prTitle ?? 'Untitled PR'}
-                            </Link>
-                          </div>
-                        </td>
-                      )}
+                    {show('verdict') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.verdict)}>
+                        {job.verdict && <VerdictPill verdict={job.verdict} />}
+                      </td>
+                    )}
 
-                      {cols.includes('status') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.status)}>
-                          <StatusBadge label={job.status} job={job} />
-                        </td>
-                      )}
+                    {show('repo') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.repo)}>
+                        <MetaCell icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
+                          {job.owner}/{job.repo}
+                        </MetaCell>
+                      </td>
+                    )}
 
-                      {cols.includes('verdict') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.verdict)}>
-                          {job.verdict ? (
-                            <StatusBadge label={job.verdict} />
-                          ) : (
-                            <span className="text-ui-subtle">-</span>
-                          )}
-                        </td>
-                      )}
+                    {show('commit') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.commit)}>
+                        {job.commitSha ? (
+                          <MetaCell icon={GitCommitHorizontal} mono title={job.commitSha}>
+                            {job.commitSha.slice(0, 7)}
+                          </MetaCell>
+                        ) : (
+                          <span className="text-xs text-ui-subtle">—</span>
+                        )}
+                      </td>
+                    )}
 
-                      {cols.includes('files') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 text-right align-middle', COLUMN_CLASSES.files)}>
-                          <NumericMetric
-                            icon={FileText}
-                            value={job.fileCount.toLocaleString()}
-                            label="Files reviewed"
-                          />
-                        </td>
-                      )}
+                    {show('pr') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.pr)}>
+                        <MetaCell icon={GitPullRequest} mono>
+                          #{job.prNumber}
+                        </MetaCell>
+                      </td>
+                    )}
 
-                      {cols.includes('tokens') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 text-right align-middle', COLUMN_CLASSES.tokens)}>
-                          <NumericMetric
-                            icon={Zap}
-                            value={fmtNumber(tokenTotal)}
-                            label={`${tokenTotal.toLocaleString()} total tokens`}
-                          />
-                        </td>
-                      )}
+                    {show('updated') && (
+                      <td
+                        className={cn(
+                          CELL,
+                          COLUMN_CLASSES.updated,
+                          'whitespace-nowrap text-right',
+                        )}
+                      >
+                        <span
+                          className="text-xs leading-none text-ui-default dark:text-ui-subtle"
+                          title={formatDate(job.createdAt)}
+                        >
+                          {formatRelativeDate(job.createdAt)}
+                        </span>
+                      </td>
+                    )}
 
-                      {cols.includes('created') && (
-                        <td className={cn('whitespace-nowrap border-t border-ui-line px-4 py-3 align-middle', COLUMN_CLASSES.created)}>
-                          <span
-                            className="ui-font-mono text-xs tabular-nums text-ui-default dark:text-ui-subtle"
-                            title={formatRelativeDate(job.createdAt)}
-                          >
-                            {formatDate(job.createdAt)}
-                          </span>
-                        </td>
-                      )}
-
-                      {cols.includes('action') && (
-                        <td className={cn('border-t border-ui-line px-4 py-3 text-center align-middle', COLUMN_CLASSES.action)}>
-                          <Link
-                            to={`/jobs/${job.id}`}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill hover:text-ui-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40"
-                            aria-label={`Open job for ${job.owner}/${job.repo} pull request ${job.prNumber}`}
-                          >
-                            <ArrowUpRight size={14} />
-                          </Link>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
+                    {show('author') && (
+                      <td className={cn(CELL, COLUMN_CLASSES.author)}>
+                        <span className="flex justify-end">
+                          <AuthorAvatar login={job.prAuthor} />
+                        </span>
+                      </td>
+                    )}
+                  </tr>
+                ))}
           </tbody>
         </table>
       </div>

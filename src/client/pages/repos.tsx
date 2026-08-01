@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@client/lib/utils';
+import { formatDateTime } from '@client/lib/timezone';
 import type { RepoConfig, RepoConfigRecord } from '@shared/schema';
 import {
   describeModelRoute,
@@ -116,7 +117,8 @@ function getRepoRoute(repo: RepoConfigRecord, globalConfig: GlobalModelConfig | 
 
 function formatLastActivity(value: string | Date | null) {
   if (!value) return null;
-  return new Date(value).toLocaleDateString();
+  // Rendered in the account's display time zone (UTC unless changed in settings).
+  return formatDateTime(value, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 interface RepoRowProps {

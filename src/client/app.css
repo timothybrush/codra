@@ -90,7 +90,6 @@
   /* Radius */
   --radius: 0.75rem;
   --sidebar-width: 240px;
-  --sidebar-collapsed-width: 72px;
 
   /* Semantic palette */
   --success:        oklch(64%   0.24  115);
@@ -720,21 +719,6 @@
 }
 .dark .recharts-default-tooltip {
   box-shadow: 0 8px 32px oklch(0% 0 0 / 0.5) !important;
-}
-
-@utility nav-item {
-  @apply flex items-center gap-[0.625rem] px-3 py-[0.45rem] rounded-md text-[0.875rem] font-medium text-muted-foreground transition-colors tracking-[0.005em] cursor-pointer w-full text-left border-none bg-none outline-none no-underline;
-
-  &:hover {
-    @apply text-foreground bg-secondary;
-  }
-
-  &.active {
-    @apply text-primary bg-[color-mix(in_oklch,var(--primary)_10%,transparent)] font-semibold;
-    .dark & {
-      @apply bg-[color-mix(in_oklch,var(--primary)_16%,transparent)];
-    }
-  }
 }
 
 /* Sidebar is flat against the page canvas; its chrome (nav rows, controls,

@@ -37,7 +37,7 @@ export function JobProgress({ job }: JobProgressProps) {
             {isQueued ? 'Waiting in queue' : 'Reviewing files'}
           </span>
         </div>
-        <span className="ui-font-mono shrink-0 text-xs tabular-nums text-ui-subtle">
+        <span className="ui-font-mono shrink-0 text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
           {isQueued ? '—' : `${finishedCount} / ${total}`}
         </span>
       </div>
@@ -63,14 +63,14 @@ export function JobProgress({ job }: JobProgressProps) {
           <div className="mt-2.5 flex items-baseline justify-between gap-4">
             <div className="ui-font-mono flex min-w-0 items-baseline gap-0 truncate text-[11px] text-ui-subtle">
               {prefixPath && (
-                <span className="hidden shrink-0 opacity-60 sm:inline">{prefixPath}</span>
+                <span className="hidden shrink-0 sm:inline">{prefixPath}</span>
               )}
               {displayPath
                 ? <span className="text-ui-default">{displayPath}</span>
-                : <span>{Math.max(total - finishedCount, 0)} {total - finishedCount === 1 ? 'file' : 'files'} remaining</span>
+                : <span className="text-ui-default dark:text-ui-subtle">{Math.max(total - finishedCount, 0)} {total - finishedCount === 1 ? 'file' : 'files'} remaining</span>
               }
             </div>
-            <span className="ui-font-mono shrink-0 text-xs tabular-nums text-ui-subtle">{pct}%</span>
+            <span className="ui-font-mono shrink-0 text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">{pct}%</span>
           </div>
         )}
       </div>

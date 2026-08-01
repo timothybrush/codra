@@ -2,10 +2,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
-import { ClipboardList } from 'lucide-react';
-import { Badge } from '@client/components/ui/badge';
+import { CheckCircle2, ClipboardList, TriangleAlert } from 'lucide-react';
 import type { JobDetail } from '@shared/schema';
 import { reviewSeverities } from '@shared/schema';
+import { OutlinePill } from './job-chips';
 
 const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
 
@@ -49,27 +49,35 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
           <ClipboardList size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Review overview</h2>
         </div>
+        {/* Correctness and confidence read as chips, like a table row's trailing
+            metadata: neutral border, colour only in the leading icon. */}
         <div className="flex items-center gap-3">
-          {job.overallCorrectness && (
-            <Badge
-              variant={job.overallCorrectness.toLowerCase().includes('incorrect') ? 'danger' : 'success'}
-              className="uppercase tracking-wider"
-            >
-              {job.overallCorrectness}
-            </Badge>
-          )}
+          {job.overallCorrectness && (() => {
+            const incorrect = job.overallCorrectness.toLowerCase().includes('incorrect');
+            return (
+              <OutlinePill
+                icon={incorrect ? TriangleAlert : CheckCircle2}
+                tone={incorrect ? 'text-danger' : 'text-success'}
+              >
+                <span className="capitalize">{job.overallCorrectness}</span>
+              </OutlinePill>
+            );
+          })()}
           {(job.overallConfidenceScore !== undefined && job.overallConfidenceScore !== null) && (
-            <div className="flex flex-col items-end">
-              <span className="mb-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-ui-subtle">Confidence</span>
-              <span className="ui-font-mono text-sm leading-none tabular-nums text-ui-strong">{(Number(job.overallConfidenceScore) * 100).toFixed(0)}%</span>
-            </div>
+            <span className="flex items-center gap-1.5">
+              <span className="text-xs leading-none text-ui-default dark:text-ui-subtle">Confidence</span>
+              <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+                {(Number(job.overallConfidenceScore) * 100).toFixed(0)}%
+              </span>
+            </span>
           )}
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="px-4 py-5 sm:px-5">
-        <div className="prose max-w-none">
+      {/* Summary — the markdown's own leading/trailing block margins are zeroed so
+          the card padding alone controls the gap (they used to stack on top of it). */}
+      <div className="px-4 pb-4 pt-3 sm:px-5">
+        <div className="prose max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins}>
             {renderSummary()}
           </ReactMarkdown>
@@ -79,7 +87,7 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
       {/* Severity Triage */}
       <div className="ui-well border-t border-ui-line px-4 py-3 sm:px-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">Priority triage</p>
+          <p className="text-xs leading-none text-ui-default dark:text-ui-subtle">Priority triage</p>
           {reviewSeverities.map((sev) => {
             const count = sevCounts[sev] || 0;
             if (count === 0 && sev !== 'nit') return null;
@@ -87,7 +95,9 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
             return (
               <div key={sev} className="flex items-center gap-1.5">
                 <span className={`severity-tag ${sev} ${count === 0 ? 'opacity-40' : ''}`}>{sev}</span>
-                <span className="ui-font-mono text-sm tabular-nums text-ui-default">{count}</span>
+                <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+                  {count}
+                </span>
               </div>
             );
           })}

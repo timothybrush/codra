@@ -39,7 +39,14 @@ export function JobDetailPage() {
   }
 
   return (
-    <section className="ui-font-sans flex flex-col gap-5">
+    <section
+      className={cn(
+        'ui-font-sans flex flex-col gap-5',
+        // Files changed fills the viewport so the tree can be full height and the
+        // diff pane scrolls itself; Overview keeps normal page flow.
+        tab === 'files' && 'min-h-0 flex-1',
+      )}
+    >
       <JobHeader
         job={job}
         isRerunning={isRerunning}

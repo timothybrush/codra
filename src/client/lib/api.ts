@@ -13,6 +13,7 @@ import type {
   UpdatesEmailResponse,
 } from '@shared/api';
 import type { LlmApiFormat, LlmProvider, RepoConfig, ReviewSettings } from '@shared/schema';
+import { resolvedTimeZone } from '@client/lib/timezone';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -135,6 +136,13 @@ export const api = {
       body: JSON.stringify({ name }),
     });
   },
+  /** `null` = follow the viewer's browser timezone. */
+  updateAccountTimezone(timezone: string | null) {
+    return request<AccountResponse>('/api/auth/account', {
+      method: 'PATCH',
+      body: JSON.stringify({ timezone }),
+    });
+  },
   logout() {
     return request<{ ok: boolean }>('/auth/logout', {
       method: 'POST',
@@ -208,8 +216,11 @@ export const api = {
     return request<RepoConfigResponse>(`/api/repos/${pathSegment(owner)}/${pathSegment(repo)}/config`);
   },
   getStats(days?: number) {
-    const query = days ? `?days=${days}` : '';
-    return request<StatsResponse>(`/api/stats${query}`);
+    // Send the display zone so day buckets are grouped the same way timestamps are
+    // rendered (UTC unless changed in account settings).
+    const params = new URLSearchParams({ tz: resolvedTimeZone() });
+    if (days) params.set('days', String(days));
+    return request<StatsResponse>(`/api/stats?${params.toString()}`);
   },
   syncRepos() {
     return request<SyncReposResponse>('/api/repos/sync', {

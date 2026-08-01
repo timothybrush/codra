@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { FileText } from 'lucide-react';
 import type { JobDetail } from '@shared/schema';
 import { reviewSeverities } from '@shared/schema';
-import { Badge } from '@client/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@client/components/motion/tabs';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';
@@ -10,6 +9,29 @@ import { severityConfig } from './constants';
 
 interface JobFindingsListProps {
   job: JobDetail;
+}
+
+/** Group panel header: icon + name on the left, mono count on the right. */
+function GroupHeader({
+  children,
+  count,
+  icon,
+}: {
+  children: ReactNode;
+  count: number;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="flex h-12 items-center justify-between gap-3 border-b border-ui-line px-4 sm:px-5">
+      <div className="flex min-w-0 items-center gap-2">
+        {icon}
+        <span className="truncate text-[13px] font-medium text-ui-default">{children}</span>
+      </div>
+      <span className="ui-font-mono shrink-0 text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+        {count}
+      </span>
+    </div>
+  );
 }
 
 export function JobFindingsList({ job }: JobFindingsListProps) {
@@ -21,16 +43,23 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
     (f) => f.parsedComments.length > 0 || f.fileStatus === 'failed',
   );
 
+  const failedFiles = job.files.filter((f) => f.fileStatus === 'failed');
+
   return (
     <div className="ui-font-sans">
       {/* Section header */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <FileText size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Findings</h2>
+          {filesWithIssues.length > 0 && (
+            <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+              {filesWithIssues.length}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">View by</span>
+          <span className="text-xs leading-none text-ui-default dark:text-ui-subtle">View by</span>
           <Tabs value={viewBy} onValueChange={(v) => setViewBy(v as 'files' | 'severity')} variant="segment">
             <TabsList className="bg-secondary">
               <TabsTrigger value="files" className="text-xs">
@@ -50,31 +79,27 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
             <div className="ui-panel flex flex-col items-center justify-center py-16 text-center">
               <FileText size={32} className="mb-3 text-ui-subtle/30" />
               <p className="text-sm font-medium text-ui-default">No findings</p>
-              <p className="mt-1 text-xs text-ui-subtle">Codra didn't flag any issues in the reviewed files.</p>
+              <p className="mt-1 text-xs text-ui-default dark:text-ui-subtle">
+                Codra didn't flag any issues in the reviewed files.
+              </p>
             </div>
           ) : (
-            filesWithIssues.map((file) => (
-              <FileFinding key={file.id} file={file} />
-            ))
+            filesWithIssues.map((file) => <FileFinding key={file.id} file={file} />)
           )}
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {job.files.some((f) => f.fileStatus === 'failed') && (
+          {failedFiles.length > 0 && (
             <div className="ui-panel min-w-0 overflow-hidden">
-              {/* Group header */}
-              <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
-                <FileText size={14} strokeWidth={2} className="shrink-0 text-danger" />
-                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">
-                  Failed files
-                </span>
-                <Badge variant="danger">
-                  {job.files.filter((f) => f.fileStatus === 'failed').length}
-                </Badge>
-              </div>
+              <GroupHeader
+                count={failedFiles.length}
+                icon={<FileText size={14} strokeWidth={2} className="shrink-0 text-danger" />}
+              >
+                Failed files
+              </GroupHeader>
               {/* Failed files list */}
               <div className="flex flex-col gap-3 p-4 sm:p-5">
-                {job.files.filter((f) => f.fileStatus === 'failed').map((file) => (
+                {failedFiles.map((file) => (
                   <FileFinding key={file.id} file={file} />
                 ))}
               </div>
@@ -94,18 +119,18 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
 
             return (
               <div key={groupName} className="ui-panel min-w-0 overflow-hidden">
-                {/* Group header */}
-                <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
-                  {sev?.svg ? (
-                    <img src={sev.svg} alt={groupName} className="h-[15px] w-[15px]" />
-                  ) : (
-                    <GroupIcon size={14} strokeWidth={2} className={sev?.iconColor ?? 'text-ui-subtle'} />
-                  )}
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">
-                    {groupName}
-                  </span>
-                  <Badge variant="neutral">{comments.length}</Badge>
-                </div>
+                <GroupHeader
+                  count={comments.length}
+                  icon={
+                    sev?.svg ? (
+                      <img src={sev.svg} alt="" className="h-[15px] w-[15px] shrink-0" />
+                    ) : (
+                      <GroupIcon size={14} strokeWidth={2} className={sev?.iconColor ?? 'text-ui-subtle'} />
+                    )
+                  }
+                >
+                  {groupName}
+                </GroupHeader>
                 {/* Comment list */}
                 <div className="flex flex-col gap-3 p-4 sm:p-5">
                   {comments.map((comment, index) => (
