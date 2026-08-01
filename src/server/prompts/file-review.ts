@@ -76,6 +76,10 @@ export function buildFileReviewPrompts(input: {
     languageGuidelines,
     `Custom rules:\n${rules}`,
     'Review ONLY the diff shown below. You cannot see the rest of the file or repository — do not report something as undefined, unimported, unused, or missing just because it is not in the diff. If the diff note says it was truncated, do not infer issues from omitted lines.',
+    // Each diff line is printed as "<old> <new> <+/-/ >content". `line` is posted
+    // straight to GitHub as a comment anchor, so it must be the NEW-file number and
+    // must exist in the diff, otherwise GitHub rejects the whole review.
+    'Line numbers: every diff line below is prefixed with two columns — the OLD file line number, then the NEW file line number. Always report `line` (and `line_range`) using the NEW (second, right-hand) number, and only ever cite a line that appears in the diff. For a removed line, cite the nearest NEW line number shown next to it.',
     'Prioritize correctness, security, and production-impacting bugs. Prefer no finding over a speculative one, and avoid subjective style feedback.',
     '',
     `## Output JSON Schema (STRICTLY REQUIRED)`,

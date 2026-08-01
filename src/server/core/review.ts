@@ -1453,8 +1453,13 @@ async function runFinalizePhase(
     commitSha: pr.head.sha,
     event: formatter.toReviewEvent(verdictSummary.verdict),
     body: formattedSummary,
+    // `line` is what the model actually reports (a file line number); `position`
+    // (a diff offset) is nothing the pipeline computes, so sending only that meant
+    // every inline comment was discarded before it reached GitHub.
     comments: finalComments.map(comment => ({
       path: comment.path,
+      line: comment.line ?? undefined,
+      side: 'RIGHT' as const,
       position: comment.position ?? undefined,
       body: formatter.formatInlineComment(comment),
     })),

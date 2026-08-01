@@ -88,6 +88,15 @@ type PullRequestRecord = {
 
 export type GitHubReviewComment = {
   path: string;
+  /**
+   * Line number in the file to attach the comment to, paired with `side`. This is
+   * the modern review-comment addressing scheme and the one the review pipeline
+   * uses — the model reports file line numbers, never diff offsets.
+   */
+  line?: number;
+  /** 'RIGHT' = the head (post-change) file, which is where findings live. */
+  side?: 'LEFT' | 'RIGHT';
+  /** Legacy diff-offset addressing. Kept for callers that already compute it. */
   position?: number;
   body: string;
 };
@@ -569,17 +578,43 @@ export class GitHubClient {
     },
   ) {
     return withRetry(`createReview ${owner}/${repo}#${pullNumber}`, async () => {
+      // Address each comment by `line` + `side` (the file line the model reported),
+      // falling back to a legacy diff `position` if a caller supplied one. Before
+      // this, comments were kept ONLY when they had `position` — which nothing ever
+      // computed — so every inline comment was silently dropped and reviews posted
+      // with just the summary body.
+      const mapped = input.comments.map((comment) => {
+        if (typeof comment.line === 'number' && comment.line > 0) {
+          return {
+            path: comment.path,
+            line: comment.line,
+            side: comment.side ?? 'RIGHT',
+            body: comment.body,
+          };
+        }
+        if (typeof comment.position === 'number' && comment.position > 0) {
+          return { path: comment.path, position: comment.position, body: comment.body };
+        }
+        return null;
+      });
+
+      const comments = mapped.filter((c): c is NonNullable<typeof c> => c !== null);
+      const unaddressable = mapped.length - comments.length;
+      if (unaddressable > 0) {
+        logger.warn('Dropping review comments with no usable line/position', {
+          owner,
+          repo,
+          pullNumber,
+          unaddressable,
+          total: mapped.length,
+        });
+      }
+
       const body = {
         commit_id: input.commitSha,
         event: input.event,
         body: input.body,
-        comments: input.comments
-          .filter((comment) => comment.position)
-          .map((comment) => ({
-            path: comment.path,
-            position: comment.position,
-            body: comment.body,
-          })),
+        comments,
       };
 
       const reviewPath = `${repoApiPath(owner, repo)}/pulls/${pullNumber}/reviews`;
@@ -592,10 +627,16 @@ export class GitHubClient {
       });
 
       if (response.status === 422 && body.comments.length > 0) {
+        // Log GitHub's reason: a 422 here almost always means a comment pointed at a
+        // line that isn't part of the diff. Without the response text this failure
+        // is invisible and the review silently loses every inline comment.
+        const reason = await response.clone().text().catch(() => '<unreadable>');
         logger.warn(`GitHub review creation failed with 422, retrying without inline comments`, {
           owner,
           repo,
           pullNumber,
+          droppedComments: body.comments.length,
+          reason: reason.slice(0, 500),
         });
         response = await this.request(reviewPath, {
           method: 'POST',
