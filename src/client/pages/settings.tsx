@@ -56,7 +56,12 @@ const PROVIDER_PRESETS = [
   { value: 'custom-google', label: 'Custom Google-style API', apiFormat: 'gemini' as const, baseUrl: '', name: 'Custom Google', exampleUrl: 'https://generativelanguage.googleapis.com/v1beta' },
 ];
 
-const FIXED_PROVIDER_NAMES = new Set(['OpenAI', 'OpenRouter', 'Anthropic', 'Google', 'Cloudflare']);
+const FIXED_PROVIDER_NAMES = new Set(['OpenAI', 'OpenRouter', 'Anthropic', 'Google', 'Cloudflare', 'xAI']);
+
+function providerKeyPlaceholder(providerName: string) {
+  if (providerName === 'xAI') return 'xai-…';
+  return 'sk-…';
+}
 
 const CONCURRENCY_LEVEL_ORDER: ReviewConcurrencyLevel[] = ['low', 'medium', 'high', 'max'];
 const CONCURRENCY_LEVEL_LABEL: Record<ReviewConcurrencyLevel, string> = {
@@ -946,7 +951,7 @@ export function SettingsPage() {
                                 type="password"
                                 autoComplete="new-password"
                                 spellCheck={false}
-                                placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : 'sk-…'}
+                                placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : providerKeyPlaceholder(provider.name)}
                                 value={provider.apiKey}
                                 onChange={e => {
                                   const apiKey = e.target.value;

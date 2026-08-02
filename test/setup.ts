@@ -2,6 +2,9 @@ import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+// Disable telemetry during unit/integration tests to prevent polluting production metrics
+process.env.TELEMETRY_DISABLED = 'true';
+
 const TEST_ENV_FILES = ['.env.test', '.env.local', '.env', '.dev.vars', '.env.test.example'];
 const REQUIRED_TEST_ENV_KEYS = [
   'GITHUB_APP_SLUG',

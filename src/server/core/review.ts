@@ -75,7 +75,7 @@ const RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS = [30, 2 * 60, 5 * 60];
 // long enough to force hibernation so each continuation starts with a clean budget. It is only
 // applied when a fresh budget is actually needed (multi-chunk reviews, budget-pressured finalize),
 // so small PRs that fit in a single invocation stay fast.
-const FRESH_INVOCATION_YIELD_SECONDS = 60;
+const FRESH_INVOCATION_YIELD_SECONDS = 2;
 // Delay between polls of an in-flight Workers AI async batch review. Batches typically complete
 // within a few minutes, so poll on a short cadence; a stuck batch is bounded by the shared
 // MAX_JOB_CONTINUATIONS ceiling (each poll reschedule counts as a no-progress continuation).
@@ -1235,15 +1235,28 @@ async function sendReviewTelemetry(
     // inherited reviews with null token counts would silently deflate the reported totals.
     const doneReviews = reviews.filter((r) => r.file_status === 'done');
 
+    const cleanModels = Array.from(
+      new Set(
+        doneReviews
+          .map((r) => bareModelId(r.model_used))
+          .filter(Boolean)
+          .filter((m) => !m.toLowerCase().includes('test')),
+      ),
+    );
+
+    const extractExtension = (filePath: string): string => {
+      const name = filePath.split('/').pop() || filePath;
+      const dotIndex = name.lastIndexOf('.');
+      if (dotIndex <= 0) return '';
+      return name.slice(dotIndex + 1).toLowerCase();
+    };
+
     await sendTelemetryEvent(env, {
       linesReviewed: files.reduce((sum, file) => sum + file.lineCount, 0),
       inputTokens: doneReviews.reduce((sum, r) => sum + (r.input_tokens ?? 0), 0),
       outputTokens: doneReviews.reduce((sum, r) => sum + (r.output_tokens ?? 0), 0),
-      modelsUsed: Array.from(new Set(doneReviews.map((r) => r.model_used).filter(Boolean))),
-      fileExtensions: Array.from(new Set(files.map((f) => {
-        const parts = f.path.split('.');
-        return parts.length > 1 ? parts.pop() || '' : '';
-      }).filter(Boolean))),
+      modelsUsed: cleanModels,
+      fileExtensions: Array.from(new Set(files.map((f) => extractExtension(f.path)).filter(Boolean))),
       triggerType: job.trigger,
       reviewDurationMs: Math.max(0, Date.now() - new Date(job.createdAt).getTime()),
       filesReviewed: files.length,

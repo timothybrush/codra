@@ -261,7 +261,8 @@ async function ensureModelCatalog() {
       ('Google', 'gemini', 'https://generativelanguage.googleapis.com/v1beta', FALSE),
       ('OpenAI', 'openai', 'https://api.openai.com/v1', FALSE),
       ('Anthropic', 'anthropic', 'https://api.anthropic.com/v1', FALSE),
-      ('OpenRouter', 'openai', 'https://openrouter.ai/api/v1', FALSE)
+      ('OpenRouter', 'openai', 'https://openrouter.ai/api/v1', FALSE),
+      ('xAI', 'openai', 'https://api.x.ai/v1', FALSE)
     ON CONFLICT (name) DO UPDATE SET
       api_format = EXCLUDED.api_format,
       base_url = EXCLUDED.base_url,
