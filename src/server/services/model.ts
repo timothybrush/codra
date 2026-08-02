@@ -3,14 +3,14 @@ import { reviewWithGoogle } from '../models/google';
 import { reviewWithCloudflare, submitCloudflareBatch, pollCloudflareBatch } from '../models/cloudflare';
 import { reviewWithOpenAI } from '../models/openai';
 import { reviewWithAnthropic } from '../models/anthropic';
-import { buildFileReviewPrompts } from '../prompts/file-review';
+import { buildFileReviewPrompts, buildReviewResponseSchema } from '../prompts/file-review';
 import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '../prompts/summary';
-import { buildVerifyPrompt, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '../prompts/verify';
+import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '../prompts/verify';
 import { parseFileReviewResponse } from '../core/model-output';
 import { truncateFileDiff, chunkFileDiff } from '../core/diff';
 import type { RepoConfig } from '@shared/schema';
 import type { TokenTracker } from '../core/token-tracker';
-import { UnparseableModelResponseError, type ModelResponse } from '../models/types';
+import { UnparseableModelResponseError, type ModelInput, type ModelResponse } from '../models/types';
 import { logger } from '../core/logger';
 import { normalizeModelId } from '@shared/schema';
 import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
@@ -24,6 +24,20 @@ const MODEL_ALIASES: Record<string, string> = {
   'gemma-4-31b': 'gemma-4-31b-it',
   'gemma-4-26b': 'gemma-4-26b-a4b-it',
 };
+
+/**
+ * Whether the provider actually constrains decoding to the `responseSchema` we send, rather than
+ * merely being asked nicely in the prompt.
+ *
+ * This is the difference between "the model omitted a required field" (a defect worth acting on)
+ * and "this provider was never able to guarantee the field" (not the model's fault). Downstream
+ * gates that exclude findings for a missing `confidence_score`, `priority`, or `evidence` may only
+ * do so when this is true -- otherwise a provider that ignores schemas would have every one of its
+ * findings deleted.
+ */
+function providerEnforcesResponseSchema(apiFormat: ResolvedModelConfig['apiFormat']): boolean {
+  return apiFormat === 'cloudflare-workers-ai';
+}
 
 export class RetryableModelError extends Error {
   readonly retryable = true;
@@ -248,7 +262,7 @@ export class ModelService {
 
   private async callResolvedModel(
     config: ResolvedModelConfig,
-    input: { systemPrompt: string; userPrompt: string },
+    input: ModelInput,
     timeoutMs?: number,
   ): Promise<ModelResponse> {
     // Resolve credentials *before* taking a gate slot so slow KV/crypto work never occupies a
@@ -300,7 +314,7 @@ export class ModelService {
     );
   }
 
-  private async callModel(model: string, input: { systemPrompt: string; userPrompt: string }, timeoutMs?: number): Promise<ModelResponse> {
+  private async callModel(model: string, input: ModelInput, timeoutMs?: number): Promise<ModelResponse> {
     return this.callResolvedModel(await this.resolveModel(model), input, timeoutMs);
   }
 
@@ -412,7 +426,12 @@ export class ModelService {
 
     try {
       const requestId = await this.callGate.run(() =>
-        submitCloudflareBatch(this.env, resolved.modelName, { systemPrompt, userPrompt }, this.tracker),
+        submitCloudflareBatch(
+          this.env,
+          resolved.modelName,
+          { systemPrompt, userPrompt, responseSchema: buildReviewResponseSchema(params.config.review.max_comments) },
+          this.tracker,
+        ),
       );
       return { requestId, model: resolved.modelName };
     } catch (error) {
@@ -453,7 +472,9 @@ export class ModelService {
       if (this.tracker) {
         this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
       }
-      const parsed = parseFileReviewResponse(response.rawText, params.file);
+      const parsed = parseFileReviewResponse(response.rawText, params.file, {
+        schemaEnforced: providerEnforcesResponseSchema(resolved.apiFormat),
+      });
       return {
         status: 'done',
         response: {
@@ -482,6 +503,7 @@ export class ModelService {
       file: params.file,
       config: params.config.review,
     });
+    const responseSchema = buildReviewResponseSchema(params.config.review.max_comments);
 
     const { primary, fallbacks } = this.selectModel({
       totalLineCount: params.totalLineCount,
@@ -555,13 +577,15 @@ export class ModelService {
       // outage is handled by deferring the whole file to a fresh invocation), so on failure we just
       // fall through to the next model in the fallback chain.
       try {
-        const response = await this.callResolvedModel(resolved, { systemPrompt, userPrompt }, timeoutMs);
+        const response = await this.callResolvedModel(resolved, { systemPrompt, userPrompt, responseSchema }, timeoutMs);
 
         if (this.tracker) {
           this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
         }
 
-        const parsed = parseFileReviewResponse(response.rawText, params.file);
+        const parsed = parseFileReviewResponse(response.rawText, params.file, {
+          schemaEnforced: providerEnforcesResponseSchema(resolved.apiFormat),
+        });
         return {
           ...response,
           parsed,
@@ -674,9 +698,13 @@ export class ModelService {
   async verifyFindings(params: { candidates: VerifyCandidate[]; config: RepoConfig }): Promise<ModelResponse> {
     const { primary, fallbacks } = this.selectModel({ totalLineCount: 0, config: params.config });
     const modelsToTry = [primary, ...fallbacks];
-    const input = {
+    const input: ModelInput = {
       systemPrompt: VERIFY_SYSTEM_PROMPT,
       userPrompt: buildVerifyPrompt(params.candidates),
+      // The verify grammar, NOT the file-review one. Sending the review schema here (as this code
+      // used to, unconditionally, at the provider layer) makes strict decoding impossible to
+      // satisfy and silently turns the whole verification pass into a no-op.
+      responseSchema: VERIFY_RESPONSE_SCHEMA as unknown as ModelInput['responseSchema'],
     };
     // Scale the timeout with the number of findings under review (capped inside adaptiveModelTimeoutMs).
     const timeoutMs = adaptiveModelTimeoutMs(params.candidates.length * 8);

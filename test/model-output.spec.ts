@@ -121,22 +121,42 @@ unescaped newlines",
     expect(result.comments[1].severity).toBe('P3');
   });
 
-  it('handles findings targeting lines outside the diff by finding the closest line', () => {
+  it('snaps a slightly-off line onto the nearest diff line', () => {
     const rawOutput = `
 {
   "findings": [{
     "title": "Off-target",
-    "body": "Targeting line 10",
+    "body": "Targeting line 5",
     "priority": 2,
-    "code_location": { "absolute_file_path": "test.ts", "line": 8 }
+    "code_location": { "absolute_file_path": "test.ts", "line": 5 }
   }],
   "overall_correctness": "issues found",
   "overall_explanation": "explanation"
 }`;
 
     const result = parseFileReviewResponse(rawOutput, mockFile);
-    // Closest valid line to 8 in our mockFile (available are 1, 2, 3) is 3
+    // Valid lines are 1, 2, 3; line 5 is within MAX_LINE_SNAP_DISTANCE of 3, so it lands there.
     expect(result.comments[0].line).toBe(3);
+  });
+
+  it('drops a finding whose line is far outside the diff instead of relocating it', () => {
+    const rawOutput = `
+{
+  "findings": [{
+    "title": "Hallucinated location",
+    "body": "Targeting line 80",
+    "priority": 2,
+    "code_location": { "absolute_file_path": "test.ts", "line": 80 }
+  }],
+  "overall_correctness": "issues found",
+  "overall_explanation": "explanation"
+}`;
+
+    // A line this far out means the model was reasoning about code that isn't here. Relocating it
+    // onto line 3 would turn a hallucination into a confidently-anchored false positive.
+    const result = parseFileReviewResponse(rawOutput, mockFile);
+    expect(result.comments).toHaveLength(0);
+    expect(result.fileSummary).toContain('Additional Comments (Off-diff)');
   });
 
   it('does not treat reviewed source snippets as review JSON', () => {

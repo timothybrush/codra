@@ -251,6 +251,17 @@ export function findPositionForLine(file: FileDiff, lineNumber: number) {
   return undefined;
 }
 
+/**
+ * How far a reported line may be relocated to reach a real diff line.
+ *
+ * Small on purpose. A line number that is wildly outside the diff is the strongest available
+ * signal that the model was reasoning about code it invented, and relocating such a finding onto
+ * whatever real change happens to be nearby turns a hallucination into a confidently-anchored
+ * false positive -- worse than saying nothing. Beyond this distance the finding is dropped to the
+ * off-diff list instead. A few lines of tolerance still absorbs genuine off-by-one errors.
+ */
+export const MAX_LINE_SNAP_DISTANCE = 3;
+
 export function findClosestValidLine(file: FileDiff, targetLine: number): number | undefined {
   const validLines = Array.from(getValidNewLines(file)).sort((a, b) => a - b);
   if (validLines.length === 0) return undefined;
@@ -267,10 +278,7 @@ export function findClosestValidLine(file: FileDiff, targetLine: number): number
     }
   }
 
-  // If the closest line is too far away (e.g. > 10 lines), maybe don't use it?
-  // But for now, returning the closest is better than nothing if the model was close.
-  // Actually, let's limit it to a reasonable range to avoid confusing placement.
-  if (minDiff > 20) return undefined;
+  if (minDiff > MAX_LINE_SNAP_DISTANCE) return undefined;
 
   return closest;
 }

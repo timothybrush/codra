@@ -3,7 +3,7 @@ import { isSupportedGitHubWebhookEvent, type GitHubWebhookEventName, type GitHub
 import { defaultRepoConfig, normalizeModelId, type ParsedReviewComment, type RepoConfig, type ReviewJobMessage } from '@shared/schema';
 import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
 import type { AppBindings } from '@server/env';
-import { bulkInheritFileReviews, bulkMarkFilesFailed, getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
+import { bulkInheritFileReviews, bulkMarkFilesFailed, getFileReviewsForJobs, getSuppressedFindings, markCommentsPosted, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
 import { getResolvedModelConfig } from '@server/db/model-configs';
 import {
   claimJobLease,
@@ -1273,7 +1273,51 @@ async function sendReviewTelemetry(
 // How many top-ranked candidate findings to send to the verification pass. Anything below this
 // cutoff is left untouched — it sits below the max_comments cap and would be truncated anyway, so
 // spending prompt tokens verifying it is wasteful.
-const VERIFY_MAX_CANDIDATES = 40;
+/**
+ * Loads the fingerprints this job must not post, split by how they suppress.
+ *
+ * `posted` maps a fingerprint to the anchor hashes it was last seen at -- suppression requires BOTH
+ * to match, so an edit to the flagged line correctly re-raises the finding. `rejected` (a human
+ * deleted the comment) suppresses on fingerprint alone, repository-wide.
+ *
+ * Best-effort: suppression is an improvement, not a correctness requirement, and a DB hiccup here
+ * must not fail a review that is otherwise ready to post.
+ */
+async function loadSuppressedFingerprints(env: AppBindings, jobId: string) {
+  const posted = new Map<string, Set<string>>();
+  const rejected = new Set<string>();
+
+  try {
+    for (const row of await getSuppressedFindings(env, jobId)) {
+      if (!row.anchored) {
+        rejected.add(row.fingerprint);
+        continue;
+      }
+      if (!row.anchor_hash) continue;
+      const anchors = posted.get(row.fingerprint) ?? new Set<string>();
+      anchors.add(row.anchor_hash);
+      posted.set(row.fingerprint, anchors);
+    }
+  } catch (error) {
+    logger.warn('Could not load suppressed findings; posting without cross-run dedupe', {
+      jobId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return { posted, rejected };
+}
+
+/**
+ * How many findings the verification pass will look at.
+ *
+ * Scaled to what can actually be posted rather than fixed at 40: verification runs BEFORE the
+ * max_comments cap, so a fixed ceiling spends context (and wall clock, on a call already pinned at
+ * the model timeout maximum) judging findings that would be sliced off regardless.
+ */
+function verifyCandidateLimit(effectiveMaxComments: number) {
+  return Math.min(40, Math.max(10, effectiveMaxComments * 2));
+}
 
 /**
  * Best-effort verification pass: one consolidated model call re-checks the top candidate findings
@@ -1286,37 +1330,70 @@ export async function verifyFindings(params: {
   files: FileDiff[];
   comments: ParsedReviewComment[];
   model: Pick<ModelService, 'verifyFindings'>;
+  maxCandidates?: number;
 }): Promise<ParsedReviewComment[]> {
   const { comments, files, model, config, job } = params;
   if (comments.length === 0) return comments;
 
-  const toVerify = comments.slice(0, VERIFY_MAX_CANDIDATES);
-  const passthrough = comments.slice(VERIFY_MAX_CANDIDATES);
+  const limit = verifyCandidateLimit(params.maxCandidates ?? config.review.max_comments);
+  const toVerify = comments.slice(0, limit);
+  const passthrough = comments.slice(limit);
 
   const fileByPath = new Map(files.map((file) => [file.path, file]));
-  const candidates: VerifyCandidate[] = toVerify.map((comment, index) => ({
-    index,
-    path: comment.path,
-    line: comment.line ?? null,
-    title: comment.title,
-    body: comment.body,
+  const prepared = toVerify.map((comment) => ({
+    comment,
     snippet: renderDiffSnippet(fileByPath.get(comment.path), comment.line ?? undefined),
+  }));
+
+  // A candidate we can show no context for cannot be judged. Sending it anyway would ask the model
+  // to rule on a claim it has no way to check, and a strict verifier drops what it can't confirm --
+  // so a path-normalization mismatch between the diff and the stored comment would silently wipe
+  // out every finding in that file. Pass those through unverified instead: an infrastructure miss
+  // must never look like a model verdict.
+  const verifiable = prepared.filter((entry) => entry.snippet !== '' || entry.comment.evidence);
+  const unverifiable = prepared.filter((entry) => entry.snippet === '' && !entry.comment.evidence);
+  if (verifiable.length === 0) return comments;
+
+  const candidates: VerifyCandidate[] = verifiable.map((entry, index) => ({
+    index,
+    path: entry.comment.path,
+    line: entry.comment.line ?? null,
+    title: entry.comment.title,
+    body: entry.comment.body,
+    snippet: entry.snippet,
+    evidence: entry.comment.evidence ?? null,
   }));
 
   try {
     const response = await model.verifyFindings({ candidates, config });
     const results = parseVerifyResponse(response.rawText);
+
+    // The drop set is keyed on model-supplied indices, so a model that renumbers or returns a short
+    // list would silently delete the WRONG findings. Only honor a result set that is a complete,
+    // in-range answer; anything else falls back to keep-all, the same as an outright failure.
+    const inRange = results.every((result) => result.index >= 0 && result.index < candidates.length);
+    if (results.length !== candidates.length || !inRange) {
+      logger.warn('Verification returned an unusable result set; keeping all findings', {
+        jobId: job.id,
+        candidates: candidates.length,
+        results: results.length,
+        inRange,
+      });
+      return comments;
+    }
+
     const dropped = new Set<number>();
     for (const result of results) {
       if (result.verdict === 'drop') dropped.add(result.index);
     }
-    const kept = toVerify.filter((_, index) => !dropped.has(index));
+    const kept = verifiable.filter((_, index) => !dropped.has(index)).map((entry) => entry.comment);
     logger.info('Verification pass complete', {
       jobId: job.id,
-      candidates: toVerify.length,
-      dropped: toVerify.length - kept.length,
+      candidates: candidates.length,
+      dropped: candidates.length - kept.length,
+      unverifiable: unverifiable.length,
     });
-    return [...kept, ...passthrough];
+    return [...kept, ...unverifiable.map((entry) => entry.comment), ...passthrough];
   } catch (error) {
     logger.warn('Verification pass failed; posting pre-verification findings', {
       jobId: job.id,
@@ -1414,17 +1491,44 @@ async function runFinalizePhase(
 
   // 1. Severity + confidence gates. A finding with an explicit confidence below the threshold is
   //    dropped as too speculative; findings without a confidence score are kept (the model didn't
-  //    provide one) but rank lowest in the confidence tiebreak below.
+  //    provide one) but rank lowest in the confidence tiebreak below. Where the provider enforced
+  //    our schema the parser already substitutes 0 for an omitted score, so the gate still bites.
   let finalComments = reviewedComments.filter((c) => {
     if ((severityRanks[c.severity] ?? 4) > minRank) return false;
     if (typeof c.confidenceScore === 'number' && c.confidenceScore < minConfidence) return false;
     return true;
   });
 
-  // 2. Collapse duplicate findings repeated across files (e.g. the same "Use of any" N times).
+  // 2. Cross-run suppression: don't re-post a finding this PR has already seen on an earlier
+  //    commit (unless its line changed), or one a human deleted in this repo. Runs BEFORE dedupe
+  //    so a suppressed finding can't be elected as the representative of a title group and take a
+  //    genuinely-new sibling down with it -- and before verification, so we don't spend model
+  //    tokens re-judging comments that will never be posted.
+  const suppressed = await loadSuppressedFingerprints(env, job.id);
+  const suppressedComments: ParsedReviewComment[] = [];
+  if (suppressed.rejected.size > 0 || suppressed.posted.size > 0) {
+    finalComments = finalComments.filter((c) => {
+      if (!c.fingerprint) return true;
+      if (suppressed.rejected.has(c.fingerprint)) {
+        suppressedComments.push(c);
+        return false;
+      }
+      // Only suppress when the anchored code is also unchanged: a different anchor hash means the
+      // developer edited that line, so the finding is legitimately raised again.
+      const anchors = suppressed.posted.get(c.fingerprint);
+      if (anchors && c.anchorHash && anchors.has(c.anchorHash)) {
+        suppressedComments.push(c);
+        return false;
+      }
+      return true;
+    });
+  }
+  const droppedBySuppression = suppressedComments.length;
+
+  // 3. Collapse duplicate findings repeated across files (e.g. the same "Use of any" N times).
   finalComments = dedupeFindings(finalComments);
 
-  // 3. Order by severity (most severe first), then by confidence, so the max_comments cap keeps the
+  // 4. Order by severity (most severe first), then by confidence, so the max_comments cap keeps the
   //    strongest findings rather than whichever happened to be first in file order.
   finalComments.sort((a, b) => {
     const rankDiff = (severityRanks[a.severity] ?? 4) - (severityRanks[b.severity] ?? 4);
@@ -1432,10 +1536,10 @@ async function runFinalizePhase(
     return (b.confidenceScore ?? 0) - (a.confidenceScore ?? 0);
   });
 
-  // 4. Verification pass: one consolidated model call re-checks the surviving candidates against the
+  // 5. Verification pass: one consolidated model call re-checks the surviving candidates against the
   //    actual diff and drops false positives. Best-effort — on any failure we keep the filtered set.
   const beforeVerify = finalComments.length;
-  finalComments = await verifyFindings({ job, config, files, comments: finalComments, model });
+  finalComments = await verifyFindings({ job, config, files, comments: finalComments, model, maxCandidates: effectiveMaxComments });
   const droppedByVerification = beforeVerify - finalComments.length;
 
   const beforeCap = finalComments.length;
@@ -1444,19 +1548,24 @@ async function runFinalizePhase(
   }
   const droppedByCap = beforeCap - finalComments.length;
   const omittedCount = reviewedComments.length - finalComments.length;
-  // Everything removed before verification: severity/confidence gates + dedupe.
-  const droppedByFilters = omittedCount - droppedByVerification - droppedByCap;
+  // Everything removed before verification, minus suppression: severity/confidence gates + dedupe.
+  const droppedByFilters = omittedCount - droppedBySuppression - droppedByVerification - droppedByCap;
 
   logger.info('Finding pipeline outcome', {
     jobId: job.id,
     parsed: reviewedComments.length,
     droppedByFilters,
+    droppedBySuppression,
     droppedByVerification,
     droppedByCap,
     posted: finalComments.length,
   });
 
-  const verdictSummary = formatter.summarizeVerdict(finalComments, hasFailures);
+  // Verdict is computed from the findings that are STILL OPEN on this PR, not just the ones being
+  // posted right now. A finding suppressed because we already commented on it in an earlier commit
+  // is still unaddressed -- approving the PR (and applying the green label) while an unresolved P0
+  // comment sits on the diff would be actively misleading.
+  const verdictSummary = formatter.summarizeVerdict([...finalComments, ...suppressedComments], hasFailures);
   await updateJobStep(env, job.id, 'Generating Summary', { status: 'done' });
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
@@ -1469,6 +1578,7 @@ async function runFinalizePhase(
     // 10, where verification was what removed them.
     const reasons: string[] = [];
     if (droppedByFilters > 0) reasons.push(`${droppedByFilters} filtered as low-confidence, below the severity threshold, or duplicates`);
+    if (droppedBySuppression > 0) reasons.push(`${droppedBySuppression} already reported on an earlier commit of this PR, or previously dismissed`);
     if (droppedByVerification > 0) reasons.push(`${droppedByVerification} dropped by the verification pass as unconfirmed against the diff`);
     if (droppedByCap > 0) reasons.push(`${droppedByCap} over the \`max_comments\` cap (${effectiveMaxComments})`);
 
@@ -1483,7 +1593,7 @@ async function runFinalizePhase(
     (step) => step.name === 'Completing' && (step.status === 'running' || step.status === 'done'),
   );
   await updateJobStep(env, job.id, 'Completing', { status: 'running' });
-  const existingReview = finalizeRetriedPastPost
+  const existingReview: { id: number; postedIndices?: number[] } | null = finalizeRetriedPastPost
     ? await github.findBotReviewForCommit(job.owner, job.repo, job.prNumber, pr.head.sha, env.BOT_USERNAME)
     : null;
   const review = existingReview ?? await github.createReview(job.owner, job.repo, job.prNumber, {
@@ -1501,6 +1611,18 @@ async function runFinalizePhase(
       body: formatter.formatInlineComment(comment),
     })),
   });
+
+  // Record which findings GitHub actually accepted, so later commits on this PR can suppress them.
+  // `postedIndices` -- not `finalComments` -- because the 422 fallback re-posts with zero inline
+  // comments and unaddressable comments are dropped client-side; marking those posted would hide
+  // them permanently without anyone having seen them. On the resume path we have no per-comment
+  // correspondence at all, so we mark nothing and accept a possible duplicate over a silent loss.
+  if (review.postedIndices && review.postedIndices.length > 0) {
+    const postedFingerprints = review.postedIndices
+      .map((index) => finalComments[index]?.fingerprint)
+      .filter((fingerprint): fingerprint is string => Boolean(fingerprint));
+    await markCommentsPosted(env, job.id, postedFingerprints);
+  }
 
   const fileInputTokens = reviews.reduce((sum, review) => sum + (review.input_tokens ?? 0), 0);
   const fileOutputTokens = reviews.reduce((sum, review) => sum + (review.output_tokens ?? 0), 0);

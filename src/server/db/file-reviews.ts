@@ -78,15 +78,19 @@ export async function insertFileReview(
       const bodies = input.parsedComments.map(c => c.body);
       const codeSuggestions = input.parsedComments.map(c => c.codeSuggestion ?? null);
       const confidenceScores = input.parsedComments.map(c => c.confidenceScore ?? null);
+      const evidences = input.parsedComments.map(c => c.evidence ?? null);
+      const fingerprints = input.parsedComments.map(c => c.fingerprint ?? null);
+      const anchorHashes = input.parsedComments.map(c => c.anchorHash ?? null);
 
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
+            evidence, fingerprint, anchor_hash
           )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[])
+          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[])
         `,
-        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions, confidenceScores]
+        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions, confidenceScores, evidences, fingerprints, anchorHashes]
       );
     }
   });
@@ -190,9 +194,10 @@ export async function upsertFileReview(
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
+            evidence, fingerprint, anchor_hash
           )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[])
+          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[])
         `,
         [
           review.id,
@@ -205,6 +210,9 @@ export async function upsertFileReview(
           input.parsedComments.map(c => c.body),
           input.parsedComments.map(c => c.codeSuggestion ?? null),
           input.parsedComments.map(c => c.confidenceScore ?? null),
+          input.parsedComments.map(c => c.evidence ?? null),
+          input.parsedComments.map(c => c.fingerprint ?? null),
+          input.parsedComments.map(c => c.anchorHash ?? null),
         ],
       );
     }
@@ -319,12 +327,16 @@ export async function bulkInheritFileReviews(
 
     if (inserted.length > 0) {
       // Re-attach each inherited review's comments, mapping the parent's rows to the new ids by path.
+      // Identity (fingerprint/anchor_hash/evidence) carries over, but `posted` is explicitly reset:
+      // it means "THIS job showed this comment on GitHub", which an inheriting job has not done.
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
+            evidence, fingerprint, anchor_hash, posted
           )
-          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score
+          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score,
+                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE
           FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
           JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
           JOIN review_comments rc ON rc.file_review_id = pf.id
@@ -429,7 +441,10 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
                 'title', rc.title,
                 'body', rc.body,
                 'codeSuggestion', rc.code_suggestion,
-                'confidenceScore', rc.confidence_score
+                'confidenceScore', rc.confidence_score,
+                'evidence', rc.evidence,
+                'fingerprint', rc.fingerprint,
+                'anchorHash', rc.anchor_hash
               )
             ORDER BY rc.id ASC
             ) FROM review_comments rc WHERE rc.file_review_id = fr.id
@@ -447,4 +462,89 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
     ...row,
     parsed_comments: parseJsonColumn(row.parsed_comments, []),
   }));
+}
+
+export type SuppressedFinding = {
+  fingerprint: string;
+  /** Null for repo-wide rejections, which suppress regardless of what the code now says. */
+  anchor_hash: string | null;
+  /** True when this came from an earlier posted comment rather than from human rejection. */
+  anchored: boolean;
+};
+
+/**
+ * Findings that must not be posted again for this job's pull request.
+ *
+ * Two sources, one round trip:
+ *   - already posted on an EARLIER COMMIT of this PR, and the anchored line is unchanged. Without
+ *     this every push re-posts the same unfixed comment.
+ *   - rejected by a human anywhere in this repository (they deleted the comment).
+ *
+ * `j.commit_sha <> me.commit_sha` is load-bearing: the retry API and mention-triggered re-reviews
+ * both reuse the SAME head commit, so without it a manual re-review would match every fingerprint
+ * the previous run posted and produce an empty, summary-only review.
+ *
+ * The join is driven from `jobs`, so jobs_repo_idx -> file_reviews_job_idx ->
+ * review_comments_file_idx already cover it.
+ */
+export async function getSuppressedFindings(
+  env: Pick<AppBindings, 'HYPERDRIVE'>,
+  jobId: string,
+): Promise<SuppressedFinding[]> {
+  return queryRows<SuppressedFinding>(
+    env,
+    `
+      WITH me AS (
+        SELECT repository_id, pr_number, commit_sha FROM jobs WHERE id = $1::uuid
+      ),
+      already_posted AS (
+        SELECT DISTINCT rc.fingerprint, rc.anchor_hash
+        FROM me
+        JOIN jobs            j  ON j.repository_id = me.repository_id AND j.pr_number = me.pr_number
+        JOIN file_reviews    fr ON fr.job_id = j.id
+        JOIN review_comments rc ON rc.file_review_id = fr.id
+        WHERE j.id <> $1::uuid
+          AND j.commit_sha <> me.commit_sha
+          AND rc.posted
+          AND rc.fingerprint IS NOT NULL
+      ),
+      rejected AS (
+        SELECT DISTINCT cf.fingerprint, NULL::text AS anchor_hash
+        FROM me
+        JOIN comment_feedback cf ON cf.repository_id = me.repository_id
+        WHERE cf.outcome = 'deleted' AND cf.fingerprint IS NOT NULL
+      )
+      SELECT fingerprint, anchor_hash, TRUE  AS anchored FROM already_posted
+      UNION ALL
+      SELECT fingerprint, anchor_hash, FALSE AS anchored FROM rejected
+    `,
+    [jobId],
+  );
+}
+
+/**
+ * Record which findings actually reached GitHub, so later commits on the same PR can suppress them.
+ *
+ * Only the fingerprints GitHub genuinely accepted may be passed here. Marking a finding posted when
+ * it was silently dropped (the 422 fallback re-posts a review with zero inline comments, and
+ * comments with no usable line anchor are filtered client-side) would hide it forever.
+ */
+export async function markCommentsPosted(
+  env: Pick<AppBindings, 'HYPERDRIVE'>,
+  jobId: string,
+  fingerprints: string[],
+): Promise<void> {
+  if (fingerprints.length === 0) return;
+  await queryRows(
+    env,
+    `
+      UPDATE review_comments rc
+      SET posted = TRUE
+      FROM file_reviews fr
+      WHERE fr.id = rc.file_review_id
+        AND fr.job_id = $1::uuid
+        AND rc.fingerprint = ANY($2::text[])
+    `,
+    [jobId, fingerprints],
+  );
 }

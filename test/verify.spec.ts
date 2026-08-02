@@ -59,9 +59,15 @@ describe('renderDiffSnippet', () => {
     expect(renderDiffSnippet(undefined, 3)).toBe('');
   });
 
-  it('falls back to the start when the line cannot be located', () => {
-    const snippet = renderDiffSnippet(file, 999, 1);
-    expect(snippet.length).toBeGreaterThan(0);
+  // It used to fall back to the top of the file's diff, which made the verifier judge the claim
+  // against unrelated code. Returning nothing lets the caller pass the candidate through
+  // unverified instead of manufacturing a verdict from the wrong context.
+  it('returns empty string when the line cannot be located', () => {
+    expect(renderDiffSnippet(file, 999, 1)).toBe('');
+  });
+
+  it('returns empty string when no line is supplied', () => {
+    expect(renderDiffSnippet(file, undefined, 1)).toBe('');
   });
 });
 

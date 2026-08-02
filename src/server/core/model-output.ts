@@ -2,8 +2,16 @@ import { fileReviewModelOutputSchema, parsedReviewCommentSchema, summaryModelOut
 import { z } from 'zod';
 import { logger } from './logger';
 import { findClosestValidLine, findPositionForLine, getValidNewLines, getValidPositions } from './diff';
-import type { FileDiff } from './diff';
+import type { DiffLine, FileDiff } from './diff';
+import { buildAnchorHash, buildFindingFingerprint, normalizeDiffText, normalizeFindingTitle } from './fingerprint';
 import { jsonrepair } from 'jsonrepair';
+
+/**
+ * An `evidence` string shorter than this can't discriminate -- `}`, `);`, `return` and friends
+ * match dozens of lines in any diff. Below the threshold we fall back to line-based anchoring and
+ * never exclude the finding, because a non-match tells us nothing.
+ */
+const MIN_DISCRIMINATING_EVIDENCE_CHARS = 8;
 
 const MAX_LOGGED_JSON_CHARS = 2_000;
 
@@ -162,7 +170,8 @@ function coerceReviewNumber(value: unknown) {
 function normalizeFinding(finding: unknown) {
   if (!finding || typeof finding !== 'object') return null;
   const f = finding as Record<string, unknown>;
-  if (isPlaceholderString(f.title) || isPlaceholderString(f.body)) return null;
+  // A model echoing the schema template back (`"<evidence>"`) has produced no finding at all.
+  if (isPlaceholderString(f.title) || isPlaceholderString(f.body) || isPlaceholderString(f.evidence)) return null;
 
   const location = f.code_location && typeof f.code_location === 'object' ? (f.code_location as Record<string, unknown>) : {};
   const line = coerceReviewNumber(location.line);
@@ -186,7 +195,10 @@ function normalizeFinding(finding: unknown) {
   return {
     ...f,
     title: f.title || 'Code finding',
-    priority: priority === undefined ? undefined : Math.max(0, Math.min(3, Math.trunc(priority as number))),
+    // Clamp to 4, matching `fileReviewModelOutputSchema.priority` and the JSON grammar. This runs
+    // BEFORE Zod sees the value, so a tighter clamp here than in the schema is unreachable -- and a
+    // looser one throws for the entire file's review rather than the single bad finding.
+    priority: priority === undefined ? undefined : Math.max(0, Math.min(4, Math.trunc(priority as number))),
     code_location: codeLocation,
     confidence_score: typeof f.confidence_score === 'number'
       ? Math.max(0, Math.min(1, f.confidence_score > 1 ? f.confidence_score / 10 : f.confidence_score))
@@ -252,12 +264,113 @@ function withSuggestion(body: string, codeSuggestion?: string) {
   return `${cleanBody}\n\n\`\`\`suggestion\n${cleanSuggestion}\n\`\`\``;
 }
 
-export function parseFileReviewResponse(raw: string, file: FileDiff): {
+type EvidenceIndex = {
+  byContent: Map<string, DiffLine[]>;
+  lines: { normalized: string; line: DiffLine }[];
+};
+
+/**
+ * Indexes a file's diff by normalized line content so evidence quotes can be resolved in one pass
+ * per file rather than re-scanning every line for every finding (findings x lines gets expensive
+ * fast inside a CPU-bounded Worker).
+ *
+ * Deleted lines ARE indexed, but they resolve to the nearest postable line instead of themselves.
+ * A finding about removed code is perfectly legitimate, yet `findPositionForLine` refuses `del`
+ * lines, so anchoring to one guarantees the comment is dropped. Leaving them out of the index
+ * entirely is no better: the quote would then match nothing and be excluded as a hallucination.
+ */
+function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
+  const byContent = new Map<string, DiffLine[]>();
+  const lines: { normalized: string; line: DiffLine }[] = [];
+
+  for (const hunk of file.hunks) {
+    const postable = hunk.lines.filter((line) => line.kind !== 'del' && line.newLineNumber !== undefined);
+    if (postable.length === 0) continue;
+
+    hunk.lines.forEach((line, lineIndex) => {
+      const normalized = normalizeDiffText(line.content);
+      if (!normalized) return;
+
+      let anchor = line;
+      if (line.kind === 'del' || line.newLineNumber === undefined) {
+        // Nearest postable line at or after the deletion, falling back to the one before it.
+        anchor = hunk.lines.slice(lineIndex + 1).find((l) => l.kind !== 'del' && l.newLineNumber !== undefined)
+          ?? [...hunk.lines.slice(0, lineIndex)].reverse().find((l) => l.kind !== 'del' && l.newLineNumber !== undefined)
+          ?? postable[0];
+      }
+
+      lines.push({ normalized, line: anchor });
+      const existing = byContent.get(normalized);
+      if (existing) existing.push(anchor);
+      else byContent.set(normalized, [anchor]);
+    });
+  }
+
+  return { byContent, lines };
+}
+
+type EvidenceResolution =
+  | { status: 'absent' }
+  /** Present but too short to prove anything either way. */
+  | { status: 'weak' }
+  | { status: 'matched'; line: DiffLine }
+  /** Present, discriminating, and matching nothing in the diff -- the hallucination signal. */
+  | { status: 'unmatched' };
+
+function resolveEvidence(
+  evidence: unknown,
+  index: EvidenceIndex,
+  reportedLine: number | undefined,
+): EvidenceResolution {
+  if (typeof evidence !== 'string') return { status: 'absent' };
+
+  // Multi-line quotes are common; the first substantive line is the one we anchor to.
+  const firstLine = evidence.split('\n').map(normalizeDiffText).find((l) => l.length > 0);
+  if (!firstLine) return { status: 'absent' };
+  if (firstLine.length < MIN_DISCRIMINATING_EVIDENCE_CHARS) return { status: 'weak' };
+
+  const nearest = (candidates: DiffLine[]) => {
+    if (reportedLine === undefined) return candidates[0];
+    return candidates.reduce((best, candidate) =>
+      Math.abs((candidate.newLineNumber ?? 0) - reportedLine) < Math.abs((best.newLineNumber ?? 0) - reportedLine)
+        ? candidate
+        : best,
+    );
+  };
+
+  const exact = index.byContent.get(firstLine);
+  if (exact && exact.length > 0) return { status: 'matched', line: nearest(exact) };
+
+  // The model may have quoted a fragment of the line, or included trailing context. Accept
+  // containment in either direction before giving up.
+  const contained = index.lines
+    .filter(({ normalized }) => normalized.includes(firstLine) || firstLine.includes(normalized))
+    .map(({ line }) => line);
+  if (contained.length > 0) return { status: 'matched', line: nearest(contained) };
+
+  return { status: 'unmatched' };
+}
+
+export function parseFileReviewResponse(
+  raw: string,
+  file: FileDiff,
+  options?: {
+    /**
+     * True when the provider constrained decoding to our JSON schema, i.e. `evidence`,
+     * `confidence_score` and `priority` were REQUIRED and the model could not have omitted them.
+     * Only then is a missing or unmatched field the model's fault and safe to act on. On providers
+     * that ignore schemas this stays false and grounding degrades to anchoring-only, so we never
+     * empty out a review just because the provider can't enforce a grammar.
+     */
+    schemaEnforced?: boolean;
+  },
+): {
   comments: ParsedReviewComment[];
   verdict: 'approve' | 'comment';
   fileSummary: string;
   overallCorrectness?: string;
   confidenceScore?: number;
+  evidenceStats: { total: number; matched: number; unmatched: number; absent: number };
 } {
   let extracted = '';
   try {
@@ -352,6 +465,9 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
 
   const validLines = getValidNewLines(file);
   const validPositions = getValidPositions(file);
+  const evidenceIndex = buildEvidenceIndex(file);
+  const schemaEnforced = options?.schemaEnforced === true;
+  const evidenceStats = { total: 0, matched: 0, unmatched: 0, absent: 0 };
 
   const orphanedComments: string[] = [];
   const comments = (parsed.findings || [])
@@ -359,17 +475,35 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
       // Codex style findings use start/end or line
       let line = finding.code_location.line || finding.code_location.line_range?.start;
       let position: number | undefined;
+      let anchorLine: DiffLine | undefined;
 
-      // Try to find position for the line
-      if (line !== undefined) {
-        // Find if the line exists in the diff
+      // Evidence first: a verbatim quote that actually appears in the diff is a far stronger
+      // anchor than a line number the model may have invented, and it is the only signal we can
+      // check deterministically.
+      evidenceStats.total += 1;
+      const evidence = resolveEvidence(finding.evidence, evidenceIndex, line);
+      if (evidence.status === 'matched') evidenceStats.matched += 1;
+      else if (evidence.status === 'unmatched') evidenceStats.unmatched += 1;
+      else if (evidence.status === 'absent') evidenceStats.absent += 1;
+
+      if (evidence.status === 'unmatched' && schemaEnforced) {
+        // The model was REQUIRED to quote real code and quoted something that isn't in the diff.
+        // That is the clearest hallucination signal available, so the finding doesn't get posted.
+        // It still shows in the dashboard's off-diff list, which keeps it debuggable.
+        orphanedComments.push(`- **[unverified] ${finding.title}:** ${finding.body}`);
+        return null;
+      }
+
+      if (evidence.status === 'matched') {
+        anchorLine = evidence.line;
+        line = evidence.line.newLineNumber;
+        position = findPositionForLine(file, line!);
+      } else if (line !== undefined) {
+        // No usable evidence: fall back to the model's line number, snapping only a short distance
+        // to absorb genuine off-by-one errors.
         if (!validLines.has(line)) {
           const closest = findClosestValidLine(file, line);
-          if (closest !== undefined) {
-            line = closest;
-          } else {
-            line = undefined;
-          }
+          line = closest;
         }
 
         if (line !== undefined) {
@@ -388,11 +522,15 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
         0: 'P0',
         1: 'P1',
         2: 'P2',
-        3: 'P3'
+        3: 'P3',
+        4: 'nit',
       };
-      // A missing priority means the model didn't bother to rank it — treat as low (P3),
-      // not mid (P2), so speculative/unranked findings sort to the bottom and get gated out.
-      const severity = finding.priority !== undefined ? priorityMap[finding.priority] || 'P3' : 'P3';
+      // A missing priority means the model didn't bother to rank it. Where the schema REQUIRED it,
+      // omitting it is a defect and the finding is treated as a nit so the severity gate can act on
+      // it; elsewhere fall back to P3 so a provider that can't enforce the field isn't punished.
+      const severity = finding.priority !== undefined
+        ? priorityMap[finding.priority] || 'P3'
+        : schemaEnforced ? 'nit' : 'P3';
 
       const cleanText = (text: string) => {
         let current = text.trim();
@@ -416,6 +554,19 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
         body = cleanText(body.slice(body.split('\n')[0].length));
       }
 
+      // Anchor on the resolved line's actual content so the hash tracks the code, not the line
+      // number: an edit above the finding shifts the number but must not re-raise the comment,
+      // while an edit TO the line must.
+      const anchorContent = anchorLine?.content
+        ?? file.hunks.flatMap((h) => h.lines).find((l) => l.newLineNumber === line)?.content
+        ?? '';
+
+      // Where the schema required a confidence score, its absence is a model defect and must not
+      // silently bypass the min_confidence gate downstream -- 0 fails it, as intended.
+      const confidenceScore = typeof finding.confidence_score === 'number'
+        ? finding.confidence_score
+        : schemaEnforced ? 0 : undefined;
+
       return parsedReviewCommentSchema.parse({
         path: file.path,
         line: line,
@@ -425,7 +576,10 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
         title,
         body: withSuggestion(body, finding.code_suggestion),
         codeSuggestion: finding.code_suggestion,
-        confidenceScore: typeof finding.confidence_score === 'number' ? finding.confidence_score : undefined,
+        confidenceScore,
+        evidence: typeof finding.evidence === 'string' && finding.evidence.trim() ? finding.evidence.trim() : undefined,
+        fingerprint: buildFindingFingerprint(file.path, title),
+        anchorHash: anchorContent ? buildAnchorHash(anchorContent) : undefined,
       });
     })
     .filter((comment): comment is ParsedReviewComment => Boolean(comment));
@@ -443,14 +597,11 @@ export function parseFileReviewResponse(raw: string, file: FileDiff): {
     fileSummary: fileSummary,
     overallCorrectness: parsed.overall_correctness,
     confidenceScore: parsed.overall_confidence_score,
+    evidenceStats,
   };
 }
 
 const SEVERITY_RANK: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit: 4 };
-
-function normalizeFindingTitle(title: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
 
 /**
  * Collapses near-duplicate findings. The same issue (e.g. "Use of any") is frequently reported

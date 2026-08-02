@@ -9,6 +9,7 @@ export type VerifyCandidate = {
   title: string;
   body: string;
   snippet: string;
+  evidence?: string | null;
 };
 
 export const verifyResultSchema = z.object({
@@ -16,6 +17,9 @@ export const verifyResultSchema = z.object({
     .array(
       z.object({
         index: z.number().int(),
+        // `.optional()` and NOT `.default()`: a default would materialize the key on every parsed
+        // result, which changes the object shape callers (and tests) compare against.
+        reason: z.string().optional(),
         verdict: z.enum(['keep', 'drop']),
         confidence: z.number().min(0).max(1).optional(),
       }),
@@ -25,22 +29,54 @@ export const verifyResultSchema = z.object({
 
 export type VerifyResult = z.infer<typeof verifyResultSchema>['results'][number];
 
-export const VERIFY_SYSTEM_PROMPT = `You are a meticulous senior engineer validating candidate code-review findings against the actual diff.
-Another reviewer produced these findings from the diff alone (without seeing the whole file/repo), so many are false positives — speculative, stylistic, or based on code that is simply not visible in the diff.
+/**
+ * Grammar for the verification response. Field order matters for providers that decode against
+ * the schema: `reason` precedes `verdict` so the model commits to a justification BEFORE the
+ * decision token, rather than rationalizing a verdict it already emitted.
+ */
+export const VERIFY_RESPONSE_SCHEMA = {
+  name: 'codra_verify_findings',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['results'],
+    properties: {
+      results: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['index', 'reason', 'verdict'],
+          properties: {
+            index: { type: 'integer', minimum: 0 },
+            reason: { type: 'string', maxLength: 200 },
+            verdict: { type: 'string', enum: ['keep', 'drop'] },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
-For EACH finding decide:
-- "keep": the finding describes a real, correct defect that is clearly supported by the diff shown.
-- "drop": the finding is a false positive, speculative, a subjective style preference, or depends on code not present in the diff (e.g. claims a symbol is undefined/unimported/missing when that cannot be confirmed from the diff).
+export const VERIFY_SYSTEM_PROMPT = `You are a meticulous senior engineer checking whether each candidate code-review finding is actually supported by the code it points at.
 
+For EACH finding you are given the claim and the diff context it was anchored to. Decide:
+- "keep": the quoted/anchored code genuinely exhibits the problem the claim describes.
+- "drop": the claim is not supported by the code shown — it describes something that isn't there, it is speculative, it is a subjective style preference, or confirming it would require code that is not visible.
+
+Judge the CLAIM against the CODE. Do not defer to the claim's confidence or phrasing; a well-written claim about code that doesn't do what it says is still a drop.
 Be strict: when in doubt, "drop". It is better to drop a borderline finding than to keep a wrong one.
+
+Give a "reason" of at most 15 words BEFORE the verdict, then the verdict.
 
 Output MUST be valid JSON, exactly one object, no prose before or after:
 {
   "results": [
-    { "index": <number>, "verdict": "keep" | "drop", "confidence": <float 0.0-1.0> }
+    { "index": <number>, "reason": "<max 15 words>", "verdict": "keep" | "drop", "confidence": <float 0.0-1.0> }
   ]
 }
-Include one result object for every finding index provided.`;
+Include exactly one result object for every finding index provided, and use the same index numbers you were given.`;
 
 export function buildVerifyPrompt(candidates: VerifyCandidate[]): string {
   const blocks = candidates.map((c) => {
@@ -50,6 +86,7 @@ export function buildVerifyPrompt(candidates: VerifyCandidate[]): string {
       `Location: ${location}`,
       `Title: ${c.title}`,
       `Claim: ${c.body}`,
+      ...(c.evidence ? [`Code the claim cites: ${c.evidence}`] : []),
       'Relevant diff:',
       c.snippet || '(no diff context available for this location)',
     ].join('\n');
@@ -63,20 +100,22 @@ export function buildVerifyPrompt(candidates: VerifyCandidate[]): string {
 }
 
 /**
- * Renders a small window of the diff around a finding's line so the verifier can judge it in
- * context without re-sending the whole file. Falls back to the first hunk when the exact line
- * can't be located (line numbers from the model are occasionally approximate).
+ * Renders a window of the diff around a finding's line so the verifier can judge it in context
+ * without re-sending the whole file.
+ *
+ * Returns '' when the line can't be located. It used to fall back to `anchor = 0` -- the TOP of
+ * the file's diff -- which meant the verifier silently judged the claim against completely
+ * unrelated code. An empty string lets the caller pass the candidate through unverified instead,
+ * so an infrastructure miss never masquerades as a model verdict.
  */
-export function renderDiffSnippet(file: FileDiff | undefined, line: number | undefined, radius = 6): string {
+export function renderDiffSnippet(file: FileDiff | undefined, line: number | undefined, radius = 12): string {
   if (!file) return '';
   const flat = file.hunks.flatMap((hunk) => hunk.lines);
   if (flat.length === 0) return '';
 
-  let anchor = -1;
-  if (line != null) {
-    anchor = flat.findIndex((l) => l.newLineNumber === line || l.oldLineNumber === line);
-  }
-  if (anchor === -1) anchor = 0;
+  if (line == null) return '';
+  const anchor = flat.findIndex((l) => l.newLineNumber === line || l.oldLineNumber === line);
+  if (anchor === -1) return '';
 
   const start = Math.max(0, anchor - radius);
   const end = Math.min(flat.length, anchor + radius + 1);

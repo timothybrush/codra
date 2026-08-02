@@ -1,5 +1,32 @@
 import type { ParsedReviewComment } from '@shared/schema';
 
+/**
+ * Matches the identity marker appended to every inline comment. Kept next to the writer so the two
+ * can never drift.
+ */
+export const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)\s*-->/;
+
+/**
+ * An HTML comment carrying the finding's identity. Invisible in rendered markdown, echoed back
+ * verbatim by GitHub in review-comment and review-thread webhooks.
+ *
+ * This is how human feedback is matched back to a finding. The obvious alternative -- matching on
+ * (path, line) -- fails precisely where it matters most: GitHub nulls `line` when a comment goes
+ * outdated, i.e. when the developer edited the flagged code, which is the strongest signal in the
+ * dataset. The marker also survives file renames and force-pushes.
+ */
+export function formatFindingMarker(comment: Pick<ParsedReviewComment, 'fingerprint' | 'anchorHash'>) {
+  if (!comment.fingerprint) return '';
+  return `\n\n<!-- codra-fp:${comment.fingerprint}:${comment.anchorHash ?? ''} -->`;
+}
+
+export function parseFindingMarker(body: string | null | undefined) {
+  if (!body) return null;
+  const match = FINDING_MARKER_PATTERN.exec(body);
+  if (!match) return null;
+  return { fingerprint: match[1], anchorHash: match[2] || null };
+}
+
 export class FormatterService {
   constructor(private baseUrl: string) {}
 
@@ -47,7 +74,7 @@ export class FormatterService {
       body = body.slice(firstLine.length).replace(/^[\n\r]+/, '');
     }
 
-    return `${this.severityIcon(comment.severity)} <strong>${comment.title}</strong>\n\n${body}`;
+    return `${this.severityIcon(comment.severity)} <strong>${comment.title}</strong>\n\n${body}${formatFindingMarker(comment)}`;
   }
 
   summarizeVerdict(comments: ParsedReviewComment[], hasFailures: boolean) {

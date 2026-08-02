@@ -24,7 +24,8 @@ import { reviewWithGoogle } from '@server/models/google';
 import { reviewWithOpenAI } from '@server/models/openai';
 import { reviewWithAnthropic } from '@server/models/anthropic';
 import { listProviderModels } from '@server/models/catalog';
-import { ProviderRequestError } from '@server/models/types';
+import { ProviderRequestError, type ModelInput } from '@server/models/types';
+import { buildReviewResponseSchema } from '@server/prompts/file-review';
 
 const apiFormatSchema = z.enum(llmApiFormats);
 const positiveIntegerSchema = z.number().int().positive().finite();
@@ -321,9 +322,14 @@ export function createModelsRouter() {
     if (!config.providerEnabled) return jsonError('Provider is disabled.', 400);
 
     try {
-      const input = {
-        systemPrompt: 'Return only JSON.',
-        userPrompt: 'Return {"ok":true}.',
+      // Exercise the real review grammar, not a toy `{"ok":true}` prompt. On providers with
+      // constrained decoding this is the only preflight that proves the model can actually honor
+      // a strict json_schema -- without it, "Test connection" goes green for models that then
+      // fail every single review.
+      const input: ModelInput = {
+        systemPrompt: 'You are validating connectivity. Return only the JSON object.',
+        userPrompt: 'Return an empty review: no findings, overall_correctness "patch is correct".',
+        responseSchema: buildReviewResponseSchema(1),
       };
       let response;
       if (config.apiFormat === 'cloudflare-workers-ai') {

@@ -417,6 +417,9 @@ export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: 
                 'fileSummary', fr.file_summary,
                 'errorMessage', fr.error_msg,
                 'createdAt', fr.created_at,
+                'modelProvider', fr.model_provider,
+                'overallCorrectness', fr.overall_correctness,
+                'confidenceScore', fr.confidence_score,
                 'parsedComments', COALESCE(
                   (
                     SELECT JSON_AGG(
@@ -428,7 +431,11 @@ export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: 
                         'category', rc.category,
                         'title', rc.title,
                         'body', rc.body,
-                        'codeSuggestion', rc.code_suggestion
+                        'codeSuggestion', rc.code_suggestion,
+                        'confidenceScore', rc.confidence_score,
+                        'evidence', rc.evidence,
+                        'fingerprint', rc.fingerprint,
+                        'anchorHash', rc.anchor_hash
                       )
                       ORDER BY rc.id ASC
                     ) FROM review_comments rc WHERE rc.file_review_id = fr.id

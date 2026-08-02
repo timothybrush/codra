@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isRetryableModelError, ModelService } from '@server/services/model';
 import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
+import { buildReviewResponseSchema } from '@server/prompts/file-review';
+import { VERIFY_RESPONSE_SCHEMA } from '@server/prompts/verify';
 import { createTestEnv, saveTestProviderApiKey } from './helpers';
 import { defaultRepoConfig } from '@shared/schema';
 import { TokenTracker } from '@server/core/token-tracker';
@@ -136,6 +138,7 @@ describe('ModelService', () => {
     await reviewWithCloudflare(env, '@cf/zai-org/glm-4.7-flash', {
       systemPrompt: 'system',
       userPrompt: 'user',
+      responseSchema: buildReviewResponseSchema(10),
     });
 
     expect(inputs.response_format).toMatchObject({
@@ -145,10 +148,59 @@ describe('ModelService', () => {
         strict: true,
       },
     });
+    expect(inputs.response_format.json_schema.schema.properties.findings.maxItems).toBe(10);
     expect(inputs.messages[0].content).toContain('Return only the JSON object');
     expect(inputs.max_completion_tokens).toBe(8192);
     expect(inputs.chat_template_kwargs).toBeUndefined();
     expect(inputs.reasoning_effort).toBeUndefined();
+  });
+
+  // The grammar is per-call. Forcing the file-review schema onto every Workers AI request made the
+  // verification pass structurally impossible to satisfy, so it silently dropped nothing.
+  it('sends no response_format when the caller supplies no schema', async () => {
+    let inputs: any;
+    const env = createTestEnv({
+      AI: {
+        async run(_model: string, request: any) {
+          inputs = request;
+          return {
+            choices: [{ message: { content: '{"results":[]}' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          };
+        },
+      } as any,
+    });
+
+    await reviewWithCloudflare(env, '@cf/zai-org/glm-4.7-flash', {
+      systemPrompt: 'system',
+      userPrompt: 'user',
+    });
+
+    expect(inputs.response_format).toBeUndefined();
+  });
+
+  it('honors a non-review schema, so the verify pass is not forced to emit a file review', async () => {
+    let inputs: any;
+    const env = createTestEnv({
+      AI: {
+        async run(_model: string, request: any) {
+          inputs = request;
+          return {
+            choices: [{ message: { content: '{"results":[]}' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          };
+        },
+      } as any,
+    });
+
+    await reviewWithCloudflare(env, '@cf/zai-org/glm-4.7-flash', {
+      systemPrompt: 'system',
+      userPrompt: 'user',
+      responseSchema: VERIFY_RESPONSE_SCHEMA as any,
+    });
+
+    expect(inputs.response_format.json_schema.name).toBe('codra_verify_findings');
+    expect(inputs.response_format.json_schema.schema.properties.results).toBeDefined();
   });
 
   it('retries Google once for transient 524 edge timeouts', async () => {

@@ -6,6 +6,27 @@ export type ModelResponse = {
   provider: string;
 };
 
+/**
+ * A JSON Schema the provider should constrain decoding to. Only providers with real grammar
+ * support honor this (today: Workers AI via `response_format: json_schema`); the others ignore it
+ * and rely on the prompt alone.
+ */
+export type ModelResponseSchema = {
+  name: string;
+  schema: Record<string, unknown>;
+};
+
+/**
+ * One inference request. `responseSchema` is per-call on purpose: the file review, the
+ * verification pass and the summary each need a DIFFERENT output shape, and hardcoding one of
+ * them at the provider layer silently forces the others to emit the wrong object.
+ */
+export type ModelInput = {
+  systemPrompt: string;
+  userPrompt: string;
+  responseSchema?: ModelResponseSchema;
+};
+
 export class ProviderRequestError extends Error {
   constructor(
     public readonly provider: string,

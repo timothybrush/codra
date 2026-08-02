@@ -1,7 +1,7 @@
 import { logger } from '@server/core/logger';
 import type { AppBindings } from '@server/env';
 import { TimeoutError } from '@server/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, type ModelResponse } from './types';
+import { ProviderRequestError, UnparseableModelResponseError, type ModelInput, type ModelResponse } from './types';
 
 /**
  * Default max wall-clock time allowed for a single Workers-AI call when the caller doesn't
@@ -14,53 +14,6 @@ import { ProviderRequestError, UnparseableModelResponseError, type ModelResponse
 const CLOUDFLARE_TIMEOUT_MS = 45_000;
 const CLOUDFLARE_MAX_RETRIES = 0;
 const CLOUDFLARE_MAX_OUTPUT_TOKENS = 8192;
-const REVIEW_RESPONSE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['findings', 'overall_explanation', 'overall_correctness', 'overall_confidence_score'],
-  properties: {
-    findings: {
-      type: 'array',
-      maxItems: 10,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'body', 'priority', 'confidence_score', 'code_location'],
-        properties: {
-          title: { type: 'string', maxLength: 100 },
-          body: { type: 'string' },
-          confidence_score: { type: 'number', minimum: 0, maximum: 1 },
-          priority: { type: 'integer', minimum: 0, maximum: 3 },
-          code_location: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              absolute_file_path: { type: 'string' },
-              line: { type: 'integer', minimum: 1 },
-              line_range: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['start', 'end'],
-                properties: {
-                  start: { type: 'integer', minimum: 1 },
-                  end: { type: 'integer', minimum: 1 },
-                },
-              },
-            },
-            anyOf: [
-              { required: ['line'] },
-              { required: ['line_range'] },
-            ],
-          },
-          code_suggestion: { type: 'string' },
-        },
-      },
-    },
-    overall_explanation: { type: 'string' },
-    overall_correctness: { type: 'string', enum: ['patch is correct', 'patch is incorrect'] },
-    overall_confidence_score: { type: 'number', minimum: 0, maximum: 1 },
-  },
-} as const;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -171,8 +124,14 @@ function extractCloudflareUsage(result: unknown) {
 /**
  * The single-request inference payload sent to Workers AI. Shared by the synchronous path and
  * the asynchronous batch path so both send an identical prompt/schema/decoding configuration.
+ *
+ * The grammar comes from the CALLER. Hardcoding the file-review schema here used to apply it to
+ * every Workers-AI call -- including the verification pass, whose prompt asks for `{"results":[...]}`
+ * -- so strict decoding forced the verifier to emit a file-review object instead. `results` then
+ * defaulted to `[]`, the parse "succeeded", nothing was ever dropped, and the log cheerfully
+ * reported "dropped: 0". Verification was structurally dead.
  */
-function buildCloudflareInferenceRequest(input: { systemPrompt: string; userPrompt: string }) {
+function buildCloudflareInferenceRequest(input: ModelInput) {
   return {
     messages: [
       {
@@ -182,17 +141,21 @@ function buildCloudflareInferenceRequest(input: { systemPrompt: string; userProm
       { role: 'user', content: `${input.userPrompt}\n\nRespond with the required JSON object only.` },
     ],
     max_completion_tokens: CLOUDFLARE_MAX_OUTPUT_TOKENS,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'codra_file_review',
-        strict: true,
-        schema: REVIEW_RESPONSE_SCHEMA,
-      },
-    },
+    ...(input.responseSchema
+      ? {
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: input.responseSchema.name,
+              strict: true,
+              schema: input.responseSchema.schema,
+            },
+          },
+        }
+      : {}),
     temperature: 0,
     top_p: 0.1,
-  } as const;
+  };
 }
 
 /**
@@ -238,7 +201,7 @@ function extractBatchInnerResult(result: unknown): unknown {
 export async function submitCloudflareBatch(
   env: Pick<AppBindings, 'AI'>,
   model: string,
-  input: { systemPrompt: string; userPrompt: string },
+  input: ModelInput,
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<string> {
   if (tracker) tracker.incrementSubrequests(1);
@@ -295,7 +258,7 @@ export async function pollCloudflareBatch(
 export async function reviewWithCloudflare(
   env: Pick<AppBindings, 'AI'>,
   model: string,
-  input: { systemPrompt: string; userPrompt: string },
+  input: ModelInput,
   tracker?: { incrementSubrequests(count?: number): void },
   providerName = 'Cloudflare',
   options?: { timeoutMs?: number },

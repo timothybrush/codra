@@ -1,6 +1,69 @@
 import type { RepoConfig } from '@shared/schema';
 import type { FileDiff } from '@server/core/diff';
+import type { ModelResponseSchema } from '@server/models/types';
 import { getLanguageForFile } from './languages';
+
+/**
+ * Grammar for the file-review response, for providers that support constrained decoding.
+ *
+ * This lives next to the prose schema blocks below on purpose: the same contract is stated three
+ * times (system prompt, user prompt, this grammar) and they must agree. `maxItems` is derived from
+ * the repo's `max_comments` rather than hardcoded -- a fixed cap here silently overrides a repo
+ * configured for more findings, with no error anywhere.
+ */
+export function buildReviewResponseSchema(maxComments: number): ModelResponseSchema {
+  return {
+    name: 'codra_file_review',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['findings', 'overall_explanation', 'overall_correctness', 'overall_confidence_score'],
+      properties: {
+        findings: {
+          type: 'array',
+          maxItems: Math.max(1, maxComments),
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['title', 'body', 'priority', 'confidence_score', 'evidence', 'code_location'],
+            properties: {
+              title: { type: 'string', maxLength: 100 },
+              body: { type: 'string' },
+              confidence_score: { type: 'number', minimum: 0, maximum: 1 },
+              priority: { type: 'integer', minimum: 0, maximum: 4 },
+              evidence: { type: 'string' },
+              code_location: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  absolute_file_path: { type: 'string' },
+                  line: { type: 'integer', minimum: 1 },
+                  line_range: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['start', 'end'],
+                    properties: {
+                      start: { type: 'integer', minimum: 1 },
+                      end: { type: 'integer', minimum: 1 },
+                    },
+                  },
+                },
+                anyOf: [
+                  { required: ['line'] },
+                  { required: ['line_range'] },
+                ],
+              },
+              code_suggestion: { type: 'string' },
+            },
+          },
+        },
+        overall_explanation: { type: 'string' },
+        overall_correctness: { type: 'string', enum: ['patch is correct', 'patch is incorrect'] },
+        overall_confidence_score: { type: 'number', minimum: 0, maximum: 1 },
+      },
+    },
+  };
+}
 
 export const fileReviewSystemPromptBase = `You are a world-class software engineer performing a precise, high-signal code review.
 Your goal is to find REAL defects — bugs, security vulnerabilities, and performance problems — introduced by the diff. Accuracy matters far more than the number of findings.
@@ -16,10 +79,15 @@ Your goal is to find REAL defects — bugs, security vulnerabilities, and perfor
 - Do NOT report subjective preferences (naming, formatting, "cleaner" alternatives, "consider using X") unless they cause a concrete bug, security hole, or measurable performance problem.
 - Every finding MUST include a calibrated "confidence_score" (0.0–1.0). Use < 0.6 for anything you are not sure is a real problem, and reserve > 0.85 for defects you are certain about.
 
+### EVIDENCE (mandatory — a finding without it cannot be posted):
+- Every finding MUST include "evidence": the single line of code the finding is about, copied VERBATIM from the diff below.
+- Copy the code exactly as it appears. Do NOT include the two line-number columns or the +/- marker, do NOT paraphrase, reformat, shorten, or invent code.
+- If you cannot quote a specific line from the diff that exhibits the problem, you do not have a finding. Omit it.
+
 ### OUTPUT RULES:
 1. Output MUST be valid JSON — EXACTLY ONE object matching the schema below.
 2. DO NOT output any conversational text, source code, or diff hunks before or after the JSON.
-3. Prioritize by severity: 0 = P0 critical, 1 = P1 high, 2 = P2 medium, 3 = P3 low. Set priority honestly; do not inflate.
+3. Prioritize by severity: 0 = P0 critical, 1 = P1 high, 2 = P2 medium, 3 = P3 low, 4 = nit (cosmetic/trivial). Set priority honestly; do not inflate. Use 4 for anything a reviewer would prefix with "nit:".
 4. Return at most {{MAX_COMMENTS}} findings, most severe first. Keep each body under 160 words.
 5. If there are no material issues, return an empty findings array and a short explanation.
 
@@ -29,8 +97,9 @@ Your goal is to find REAL defects — bugs, security vulnerabilities, and perfor
     {
       "title": "<Plain title, NO tags/emoji>",
       "body": "<Explanation of the concrete defect and its impact>",
-      "priority": 0 | 1 | 2 | 3,
+      "priority": 0 | 1 | 2 | 3 | 4,
       "confidence_score": number (0 to 1),
+      "evidence": "<the exact line of code from the diff this finding is about>",
       "code_location": {
         "line": number,
         "line_range": { "start": number, "end": number }
@@ -80,6 +149,10 @@ export function buildFileReviewPrompts(input: {
     // straight to GitHub as a comment anchor, so it must be the NEW-file number and
     // must exist in the diff, otherwise GitHub rejects the whole review.
     'Line numbers: every diff line below is prefixed with two columns — the OLD file line number, then the NEW file line number. Always report `line` (and `line_range`) using the NEW (second, right-hand) number, and only ever cite a line that appears in the diff. For a removed line, cite the nearest NEW line number shown next to it.',
+    // The evidence string is matched against the diff verbatim (whitespace-insensitive) before the
+    // finding is allowed to post, so it must be the code only -- the gutter columns and the +/-
+    // marker are rendering, not source.
+    'Evidence: every finding must carry an `evidence` string containing the exact code of the line it is about, copied character-for-character from the diff below. Strip the two leading line-number columns and the +/-/space marker — quote only the code itself. A finding whose evidence does not appear in the diff will be discarded.',
     'Prioritize correctness, security, and production-impacting bugs. Prefer no finding over a speculative one, and avoid subjective style feedback.',
     '',
     `## Output JSON Schema (STRICTLY REQUIRED)`,
@@ -88,8 +161,9 @@ export function buildFileReviewPrompts(input: {
     {
       "title": "<Plain title>",
       "body": "<Technical explanation>",
-      "priority": <0|1|2|3>,
+      "priority": <0|1|2|3|4>,
       "confidence_score": <float 0.0-1.0>,
+      "evidence": "<exact line of code copied verbatim from the diff below, without the line-number columns or +/- marker>",
       "code_location": {
         "absolute_file_path": "${input.file.path}",
         "line": <int>,

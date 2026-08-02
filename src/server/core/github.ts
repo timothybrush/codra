@@ -598,6 +598,12 @@ export class GitHubClient {
         return null;
       });
 
+      // Track which of the caller's comments survived mapping. Only the caller knows what a
+      // comment *means*, and it needs to know exactly which ones GitHub received -- marking a
+      // finding as "posted" when it was silently dropped here would suppress it on every future
+      // commit without it ever having been shown to anyone.
+      let postedIndices = mapped.flatMap((c, index) => (c === null ? [] : [index]));
+
       const comments = mapped.filter((c): c is NonNullable<typeof c> => c !== null);
       const unaddressable = mapped.length - comments.length;
       if (unaddressable > 0) {
@@ -650,6 +656,8 @@ export class GitHubClient {
             comments: [],
           }),
         });
+        // The summary still posts, but not a single inline comment did.
+        postedIndices = [];
       }
 
       if (!response.ok) {
@@ -662,7 +670,8 @@ export class GitHubClient {
         );
       }
 
-      return (await response.json()) as { id: number };
+      const review = (await response.json()) as { id: number };
+      return { id: review.id, postedIndices };
     });
   }
 

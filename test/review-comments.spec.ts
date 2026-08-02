@@ -114,5 +114,29 @@ describe('createReview inline comment payload', () => {
     expect(sent[0].comments).toHaveLength(1);
     expect(sent[1].comments).toHaveLength(0);
     expect(sent[1].body).toBe('summary');
+    // Nothing was actually shown, so nothing may be recorded as posted -- otherwise the finding
+    // would be suppressed on every later commit without a human ever having seen it.
+    expect(review.postedIndices).toEqual([]);
+  });
+
+  it('reports which comments GitHub accepted, by caller index', async () => {
+    const client = new GitHubClient({} as never, '123');
+    vi.spyOn(client as any, 'request').mockResolvedValue(
+      new Response(JSON.stringify({ id: 42 }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+
+    const review = await client.createReview('o', 'r', 7, {
+      commitSha: 'abc123',
+      event: 'COMMENT',
+      body: 'summary',
+      comments: [
+        comment({ line: 3 }),
+        // Unaddressable: dropped before the request, so its index must not be reported.
+        comment({ line: 0, position: 0 }),
+        comment({ line: 9 }),
+      ],
+    });
+
+    expect(review.postedIndices).toEqual([0, 2]);
   });
 });

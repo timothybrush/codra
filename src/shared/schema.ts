@@ -29,6 +29,15 @@ export const parsedReviewCommentSchema = z.object({
   body: z.string().min(1),
   codeSuggestion: z.string().min(1).nullable().optional(),
   confidenceScore: z.number().min(0).max(1).nullable().optional(),
+  // The verbatim line of code the finding claims to be about, used to anchor the comment and to
+  // verify the claim is grounded in code that actually exists in the diff.
+  evidence: z.string().min(1).nullable().optional(),
+  // Stable identity of the finding (path + title), so the same issue can be recognized across
+  // re-reviews of the same PR.
+  fingerprint: z.string().min(1).nullable().optional(),
+  // Hash of the anchored line's content. When this changes the underlying code changed, so a
+  // previously-posted finding is legitimately raised again.
+  anchorHash: z.string().min(1).nullable().optional(),
 });
 
 export const fileReviewModelOutputSchema = z.object({
@@ -37,7 +46,11 @@ export const fileReviewModelOutputSchema = z.object({
       title: z.string().max(100),
       body: z.string().min(1),
       confidence_score: z.number().min(0).max(1).optional(),
-      priority: z.number().int().min(0).max(3).optional(),
+      // 4 = 'nit'. Kept in lockstep with the clamp in normalizeFinding and the JSON grammar in
+      // buildReviewResponseSchema -- if this is tighter than the clamp, a single out-of-range
+      // priority fails the parse for the ENTIRE file, not just that finding.
+      priority: z.number().int().min(0).max(4).optional(),
+      evidence: z.string().optional(),
       code_location: z.object({
         absolute_file_path: z.string(),
         line_range: z.object({
@@ -80,7 +93,11 @@ export const reviewConfigSchema = z.object({
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
   max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
   max_comments: z.number().int().min(1).max(150).default(10),
-  min_severity: z.enum(reviewSeverities).default('nit'),
+  // 'P3' and not 'nit': findings the model itself marks as cosmetic are exactly the "technically
+  // true, nobody cared" comments that make a review bot get ignored. NOTE this default only
+  // applies to repos seen for the first time -- syncRepoConfig materializes the whole config into
+  // repo_configs.parsed_json, so existing rows need a data migration (008) to move.
+  min_severity: z.enum(reviewSeverities).default('P3'),
   min_confidence: z.number().min(0).max(1).default(0.6),
   focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),
   custom_rules: z.array(z.string().min(1)).default([]),
@@ -113,7 +130,7 @@ export const repoConfigSchema = z.object({
     max_diff_lines_per_file: 800,
     max_total_diff_chars: 150_000,
     max_comments: 10,
-    min_severity: 'nit',
+    min_severity: 'P3',
     min_confidence: 0.6,
     focus: [...reviewCategories],
     custom_rules: [],
