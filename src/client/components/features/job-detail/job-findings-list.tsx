@@ -45,6 +45,11 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
 
   const failedFiles = job.files.filter((f) => f.fileStatus === 'failed');
 
+  // The badge counts FINDINGS, not files — it sat next to a "Findings" label while
+  // showing `filesWithIssues.length`, so a job with 9 findings spread over 7 files
+  // read "Findings 7" and disagreed with the priority triage totals right above it.
+  const findingCount = job.files.reduce((total, file) => total + file.parsedComments.length, 0);
+
   return (
     <div className="ui-font-sans">
       {/* Section header */}
@@ -52,9 +57,9 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
         <div className="flex items-center gap-2">
           <FileText size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Findings</h2>
-          {filesWithIssues.length > 0 && (
+          {findingCount > 0 && (
             <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
-              {filesWithIssues.length}
+              {findingCount}
             </span>
           )}
         </div>

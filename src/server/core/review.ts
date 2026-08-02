@@ -1434,12 +1434,27 @@ async function runFinalizePhase(
 
   // 4. Verification pass: one consolidated model call re-checks the surviving candidates against the
   //    actual diff and drops false positives. Best-effort — on any failure we keep the filtered set.
+  const beforeVerify = finalComments.length;
   finalComments = await verifyFindings({ job, config, files, comments: finalComments, model });
+  const droppedByVerification = beforeVerify - finalComments.length;
 
+  const beforeCap = finalComments.length;
   if (finalComments.length > effectiveMaxComments) {
     finalComments = finalComments.slice(0, effectiveMaxComments);
   }
+  const droppedByCap = beforeCap - finalComments.length;
   const omittedCount = reviewedComments.length - finalComments.length;
+  // Everything removed before verification: severity/confidence gates + dedupe.
+  const droppedByFilters = omittedCount - droppedByVerification - droppedByCap;
+
+  logger.info('Finding pipeline outcome', {
+    jobId: job.id,
+    parsed: reviewedComments.length,
+    droppedByFilters,
+    droppedByVerification,
+    droppedByCap,
+    posted: finalComments.length,
+  });
 
   const verdictSummary = formatter.summarizeVerdict(finalComments, hasFailures);
   await updateJobStep(env, job.id, 'Generating Summary', { status: 'done' });
@@ -1448,7 +1463,16 @@ async function runFinalizePhase(
   let formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.BOT_USERNAME);
 
   if (omittedCount > 0) {
-    formattedSummary += `\n\n> [!NOTE]\n> **${omittedCount} finding${omittedCount === 1 ? ' was' : 's were'} omitted** to reduce noise, low-confidence, duplicate, or unverified findings are filtered out, and the review is capped at \`max_comments\` (${effectiveMaxComments}). Showing the most critical issues.`;
+    // Attribute the drops to their actual cause. The old wording always blamed
+    // "noise ... and the review is capped at max_comments", which read as though the
+    // cap was the reason even when it never bound — e.g. 9 findings against a cap of
+    // 10, where verification was what removed them.
+    const reasons: string[] = [];
+    if (droppedByFilters > 0) reasons.push(`${droppedByFilters} filtered as low-confidence, below the severity threshold, or duplicates`);
+    if (droppedByVerification > 0) reasons.push(`${droppedByVerification} dropped by the verification pass as unconfirmed against the diff`);
+    if (droppedByCap > 0) reasons.push(`${droppedByCap} over the \`max_comments\` cap (${effectiveMaxComments})`);
+
+    formattedSummary += `\n\n> [!NOTE]\n> **${omittedCount} finding${omittedCount === 1 ? ' was' : 's were'} omitted** — ${reasons.join('; ')}.`;
   }
 
   // If a prior finalize attempt already reached the posting stage (the 'Completing' step was
