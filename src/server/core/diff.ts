@@ -283,15 +283,33 @@ export function findClosestValidLine(file: FileDiff, targetLine: number): number
   return closest;
 }
 
-export function filterReviewableFiles(files: FileDiff[], config: RepoConfig['review']) {
+/**
+ * Narrows a parsed diff to the files worth reviewing.
+ *
+ * `maxFiles` is passed in rather than read from the repo config: it is an instance-wide budget
+ * (see reviewSettingsSchema.maxFiles), because what it protects -- the per-invocation subrequest
+ * ceiling and the model provider's rate limit -- is shared across every repository.
+ *
+ * Returns `skipped`, the count discarded purely for exceeding the cap, so callers can say "100
+ * of 106" instead of silently reviewing part of a pull request and reporting it as complete.
+ */
+export function filterReviewableFiles(
+  files: FileDiff[],
+  config: RepoConfig['review'],
+  maxFiles: number,
+): { files: FileDiff[]; skipped: number } {
   const customMatchers = config.skip_files.map((pattern) => picomatch(pattern, { dot: true }));
 
-  return files
+  const reviewable = files
     .filter((file) => !file.isDeleted && !file.isBinary)
     .filter((file) => !defaultSkipMatchers.some((matcher) => matcher(file.path)))
     .filter((file) => !customMatchers.some((matcher) => matcher(file.path)))
-    .sort((left, right) => Number(left.isNew) - Number(right.isNew) || left.path.localeCompare(right.path))
-    .slice(0, config.max_files);
+    .sort((left, right) => Number(left.isNew) - Number(right.isNew) || left.path.localeCompare(right.path));
+
+  return {
+    files: reviewable.slice(0, maxFiles),
+    skipped: Math.max(0, reviewable.length - maxFiles),
+  };
 }
 
 export function truncateFileDiff(file: FileDiff, maxLines: number): FileDiff {

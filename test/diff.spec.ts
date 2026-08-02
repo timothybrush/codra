@@ -145,18 +145,32 @@ Binary files a/image.png and b/image.png differ
         skip_files: ['dist/**', '**/*.spec.ts'],
       };
 
-      const filtered = filterReviewableFiles(files, config);
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].path).toBe('src/main.ts');
+      const filtered = filterReviewableFiles(files, config, 150);
+      expect(filtered.files).toHaveLength(1);
+      expect(filtered.files[0].path).toBe('src/main.ts');
+      expect(filtered.skipped).toBe(0);
     });
 
-    it('respects max_files limit', () => {
+    it('respects the file limit and reports how many it left out', () => {
       const manyFiles = Array(20).fill(0).map((_, i) => ({
         path: `file${i}.ts`, isDeleted: false, isBinary: false, isNew: false, hunks: []
       })) as any;
 
-      const filtered = filterReviewableFiles(manyFiles, { ...defaultRepoConfig.review, max_files: 5 });
-      expect(filtered).toHaveLength(5);
+      const filtered = filterReviewableFiles(manyFiles, defaultRepoConfig.review, 5);
+      expect(filtered.files).toHaveLength(5);
+      // Callers need this to say "5 of 20" instead of silently reviewing part of a PR.
+      expect(filtered.skipped).toBe(15);
+    });
+
+    it('does not count files excluded by skip patterns as skipped-for-limit', () => {
+      const files = [
+        { path: 'src/main.ts', isDeleted: false, isBinary: false, isNew: false, hunks: [] },
+        { path: 'dist/bundle.js', isDeleted: false, isBinary: false, isNew: false, hunks: [] },
+      ] as any;
+
+      const filtered = filterReviewableFiles(files, defaultRepoConfig.review, 150);
+      expect(filtered.files).toHaveLength(1);
+      expect(filtered.skipped).toBe(0);
     });
   });
 });

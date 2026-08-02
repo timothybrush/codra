@@ -20,6 +20,16 @@ import { ModelCallGate, adaptiveModelTimeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS }
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
 const COMPACT_REVIEW_PROMPT_LINE_CAP = 400;
+/**
+ * How many models may report a quota/rate-limit failure for one file before the file is deferred
+ * instead of continuing down the fallback chain.
+ *
+ * Two, because each model has its own quota bucket -- a Google 429 names the specific model
+ * (`limit: 16000, model: gemma-4-31b`), so the next model in the chain genuinely has a fresh
+ * allowance and often succeeds. Beyond two, the odds drop and each further attempt is a
+ * subrequest spent learning nothing, on an invocation that only gets 50 of them.
+ */
+const MAX_QUOTA_FAILURES_PER_FILE = 2;
 const MODEL_ALIASES: Record<string, string> = {
   'gemma-4-31b': 'gemma-4-31b-it',
   'gemma-4-26b': 'gemma-4-26b-a4b-it',
@@ -518,6 +528,7 @@ export class ModelService {
     let lastError: unknown;
     let lastTransientError: unknown;
     let sawTransientFailure = false;
+    let quotaFailures = 0;
     const chainStartedAt = Date.now();
     for (const [modelIndex, currentModel] of modelsToTry.entries()) {
       // Always allow the first (primary) model a shot even if the shared job budget is
@@ -603,11 +614,30 @@ export class ModelService {
           await this.markProviderUnavailable(resolved.providerId, error instanceof Error ? error.message : String(error));
         }
 
+        const rateLimited = isGoogleRateLimitError(error);
+        if (rateLimited) quotaFailures += 1;
+
+        // A quota 429 means "come back later", not "try a different model". Walking a long chain
+        // in response is the single biggest way to blow the invocation's 50-subrequest cap: nine
+        // models x three attempts is 27 subrequests for ONE file, against a per-file estimate of 5.
+        // A couple of attempts is worth it -- each model has its own quota bucket, so the second
+        // one often succeeds -- but past that, defer. The file resumes in a fresh invocation with a
+        // fresh budget, by which time the bucket has refilled, which is the backoff that actually
+        // works.
+        const outOfQuotaBudget = quotaFailures >= MAX_QUOTA_FAILURES_PER_FILE;
+
         logger.warn(`Model ${currentModel} failed for ${params.file.path}`, {
           error: error instanceof Error ? error.message : String(error),
-          rateLimited: isGoogleRateLimitError(error),
-          willTryFallback: modelIndex < modelsToTry.length - 1,
+          rateLimited,
+          quotaFailures,
+          willTryFallback: !outOfQuotaBudget && modelIndex < modelsToTry.length - 1,
         });
+
+        if (outOfQuotaBudget) {
+          sawTransientFailure = true;
+          lastTransientError = error;
+          break;
+        }
         // Fall through to the next model in the fallback chain.
       }
     }

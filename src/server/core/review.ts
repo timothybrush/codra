@@ -39,7 +39,7 @@ import { loadRepoConfig } from './config';
 import { getWebhookDelivery } from '@server/db/webhook-deliveries';
 import { sendTelemetryEvent } from './telemetry';
 import { getReviewSettings } from '@server/db/app-settings';
-import { REVIEW_CONCURRENCY_LIMITS } from '@shared/schema';
+import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange } from '@shared/schema';
 
 type PersistedReviewJob = ReturnType<typeof mapJob>;
 
@@ -75,7 +75,13 @@ const RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS = [30, 2 * 60, 5 * 60];
 // long enough to force hibernation so each continuation starts with a clean budget. It is only
 // applied when a fresh budget is actually needed (multi-chunk reviews, budget-pressured finalize),
 // so small PRs that fit in a single invocation stay fast.
-const FRESH_INVOCATION_YIELD_SECONDS = 2;
+// Raised from 2s: Cloudflare documents no minimum sleep for a Workflow to be parked, and at 2s
+// large reviews began failing with "Too many subrequests" -- the signature of consecutive chunks
+// sharing one invocation (and therefore one 50-subrequest budget) while each chunk's TokenTracker
+// restarted at zero and believed the budget was untouched. 8s keeps nearly all of the speed win
+// over the original 60s (a 30-chunk review pays ~4 minutes here rather than ~30) while giving the
+// runtime a far more plausible window to actually hibernate.
+const FRESH_INVOCATION_YIELD_SECONDS = 8;
 // Delay between polls of an in-flight Workers AI async batch review. Batches typically complete
 // within a few minutes, so poll on a short cadence; a stuck batch is bounded by the shared
 // MAX_JOB_CONTINUATIONS ceiling (each poll reschedule counts as a no-progress continuation).
@@ -100,20 +106,27 @@ const MAX_FINALIZE_CONTINUATIONS = 3;
 // every prepare/review-chunk/finalize phase. 6h comfortably covers even a job that
 // hits every retryable-failure backoff (up to 15 min each, several times over).
 const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
-// Estimated subrequest cost of reviewing one file, used only to size how many files can
-// safely be reviewed concurrently in a chunk given the job's remaining subrequest budget for
-// this invocation (see budgetAwareChunkFileLimit below). A file walks a fallback chain of up
-// to ~3 models, but the per-model model-config lookup is now cached per invocation
-// (ModelService.resolveModel), so the recurring cost per file is ~1 provider call per model
-// tried plus the persisted-review write -- roughly 5 in the worst case rather than 9. Lower
-// estimate => more files reviewed in parallel per chunk within the same 50-subrequest cap.
+// Subrequest cost of reviewing one file, used to size how many files a chunk may review
+// concurrently against the invocation's remaining budget (see budgetAwareFileLimit below).
 //
-// Sized to the ~5 worst-case figure above (not padded higher): with the TokenTracker's
-// SAFE_MARGIN reserve of 25 the fresh-budget headroom is 25, and 25 / 5 == 5 keeps even the
-// highest configured concurrency level (max == 4) fully honored at a healthy budget. Padding
-// this to 8 would make floor(25 / 8) == 3 silently cap the "max" slider to 3 -- the exact
-// "concurrency slider is dead above medium" regression pinned by chunk-concurrency.spec.ts.
-const ESTIMATED_SUBREQUESTS_PER_FILE = 5;
+// This was a flat 5, on the assumption that a file walks ~3 models and the per-model config
+// lookup is invocation-cached. That holds while the primary model answers. It does not hold when
+// the primary is rate-limited and the chain is nine models deep, which is what blew the
+// 50-subrequest cap in production -- so the estimate is now derived from the configured chain.
+//
+// Keep the short-chain result at 5 or below: with the TokenTracker's SAFE_MARGIN reserve the
+// fresh-budget headroom is 25, and floor(25 / 5) == 5 keeps even the highest concurrency level
+// (max == 4) fully honored. An estimate of 8 would make floor(25 / 8) == 3 and silently cap the
+// "max" slider at 3 -- the "concurrency slider is dead above medium" regression pinned by
+// chunk-concurrency.spec.ts.
+/** Per-file cost that isn't the model call: the persisted-review write and its lookups. */
+const FILE_FIXED_SUBREQUESTS = 2;
+/**
+ * Ceiling on how many model attempts we budget for per file. Chains longer than this are common
+ * (nine is not unusual) but a file that needs more than four attempts is failing for a reason that
+ * a fifth won't fix, and budgeting for the full chain would collapse concurrency to one.
+ */
+const MAX_MODEL_ATTEMPTS_ESTIMATE = 4;
 
 /**
  * How many files a single review chunk may process concurrently: the configured concurrency
@@ -127,9 +140,28 @@ const ESTIMATED_SUBREQUESTS_PER_FILE = 5;
  * into the next chunk. The
  * chunk-file-limit-honors-configured-level invariant is pinned by a regression test.
  */
-export function budgetAwareFileLimit(remainingSafeBudget: number, configuredChunkFileLimit: number) {
-  const budgetLimit = Math.floor(remainingSafeBudget / ESTIMATED_SUBREQUESTS_PER_FILE);
+export function budgetAwareFileLimit(
+  remainingSafeBudget: number,
+  configuredChunkFileLimit: number,
+  modelChainLength = 1,
+) {
+  const budgetLimit = Math.floor(remainingSafeBudget / estimatedSubrequestsPerFile(modelChainLength));
   return Math.min(configuredChunkFileLimit, budgetLimit);
+}
+
+/**
+ * What one file can actually cost, given how many models it may walk through.
+ *
+ * The flat estimate of 5 assumed the primary model answers. With a long fallback chain and a
+ * rate-limited primary it doesn't: the file walks the chain, each attempt is a subrequest, and
+ * three files started on the strength of a 5-per-file estimate can spend far more than the
+ * invocation's whole budget. Quota failures are now capped, so the realistic worst case is a
+ * couple of quota attempts or a handful of genuine errors -- but with a nine-model chain that is
+ * still well above 5, and concurrency has to shrink to match rather than discover it by failing.
+ */
+export function estimatedSubrequestsPerFile(modelChainLength: number) {
+  const modelAttempts = Math.max(1, Math.min(modelChainLength, MAX_MODEL_ATTEMPTS_ESTIMATE));
+  return FILE_FIXED_SUBREQUESTS + modelAttempts;
 }
 
 function isRetryableFileReviewErrorMessage(message: string | null | undefined) {
@@ -688,7 +720,8 @@ async function runPreparePhase(
     await updateJobCheckRun(env, job.id, checkRun.id);
   }
 
-  const files = await getDiffFiles(env, job, github, config);
+  const { maxFiles } = await getReviewSettings(env);
+  const { files } = await getDiffFiles(env, job, github, config, maxFiles);
   await completePreparationStep(env, job.id, files.length);
   await heartbeatJobLease(env, job.id, leaseOwner, JOB_LEASE_SECONDS);
 
@@ -736,15 +769,22 @@ async function runReviewPhase(
     failureModelProviderPromise ??= resolveModelProviderName(env, failureModelId);
     return failureModelProviderPromise;
   };
-  const files = await getDiffFiles(env, job, github, config);
+  const { concurrencyLevel, maxFiles } = await getReviewSettings(env);
+  const { files } = await getDiffFiles(env, job, github, config, maxFiles);
   const totalLineCount = files.reduce((sum, file) => sum + file.lineCount, 0);
-  const { concurrencyLevel } = await getReviewSettings(env);
   const configuredChunkFileLimit = REVIEW_CONCURRENCY_LIMITS[concurrencyLevel];
   // Cap this chunk's concurrency by the invocation's remaining subrequest budget so a run of
   // model/provider failures can't push it over Cloudflare's per-invocation cap (Workers Free
   // plan: 50) -- but sized (see budgetAwareFileLimit) so the configured concurrency level is
   // honored in full at a healthy budget and only throttled once the budget is actually spent.
-  const reviewChunkFileLimit = budgetAwareFileLimit(tracker.remainingSafeBudget(), configuredChunkFileLimit);
+  // Size the chunk against the configured fallback chain, not a fixed guess: a nine-model chain
+  // costs far more per file than a one-model chain when the primary is rate-limited.
+  const modelChainLength = 1 + (config.model.fallbacks?.length ?? 0);
+  const reviewChunkFileLimit = budgetAwareFileLimit(
+    tracker.remainingSafeBudget(),
+    configuredChunkFileLimit,
+    modelChainLength,
+  );
   if (reviewChunkFileLimit <= 0) {
     throw new Error('Subrequest budget for this invocation was exhausted before starting the next review chunk.');
   }
@@ -1415,7 +1455,10 @@ async function runFinalizePhase(
 
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
-  const files = await getDiffFiles(env, job, github, config);
+  // Fetched here rather than further down so the same lookup supplies both the file ceiling
+  // below and the comment cap used when the findings are gated.
+  const reviewSettings = await getReviewSettings(env);
+  const { files, skipped: filesOverCap } = await getDiffFiles(env, job, github, config, reviewSettings.maxFiles);
   let reviews = await getFileReviewsForJobs(env, [job.id]);
 
   if (reviews.length < files.length) {
@@ -1461,7 +1504,6 @@ async function runFinalizePhase(
     verdict: review.file_status === 'failed' ? 'failed' : (review.verdict ?? 'comment'),
   }));
 
-  const reviewSettings = await getReviewSettings(env);
   const { concurrencyLevel, maxComments: globalMaxComments } = reviewSettings;
   const effectiveMaxComments = Math.min(config.review.max_comments, globalMaxComments);
   // retryCount: how many times this job has been retried (0 = first run, 1 = first retry, etc.)
@@ -1570,6 +1612,13 @@ async function runFinalizePhase(
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
   let formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.BOT_USERNAME);
+
+  // Say so when the pull request was larger than the file ceiling. Reviewing 100 of 106 files
+  // and reporting it as a finished review is indistinguishable from having found nothing wrong
+  // in the other six.
+  if (filesOverCap > 0) {
+    formattedSummary += `\n\n> [!WARNING]\n> **${filesOverCap} file${filesOverCap === 1 ? ' was' : 's were'} not reviewed.** This pull request has ${files.length + filesOverCap} reviewable files and the limit is ${reviewSettings.maxFiles}. Raise it in Settings to cover the whole diff.`;
+  }
 
   if (omittedCount > 0) {
     // Attribute the drops to their actual cause. The old wording always blamed
@@ -1750,7 +1799,10 @@ export async function getDiffFiles(
   job: Pick<PersistedReviewJob, 'id' | 'owner' | 'repo' | 'prNumber'>,
   github: Pick<GitHubService, 'getPullRequestDiff'>,
   config: RepoConfig,
-) {
+  // Instance-wide file ceiling. Passed in rather than read here so a single settings lookup can
+  // serve both this and the concurrency level in the same phase.
+  maxFiles: number = reviewMaxFilesRange.default,
+): Promise<{ files: FileDiff[]; skipped: number }> {
   const cacheKey = diffCacheKey(job.id);
   let rawDiff = await env.APP_KV.get(cacheKey);
 
@@ -1763,7 +1815,7 @@ export async function getDiffFiles(
     }
   }
 
-  return filterReviewableFiles(parseUnifiedDiff(rawDiff, config.review), config.review);
+  return filterReviewableFiles(parseUnifiedDiff(rawDiff, config.review), config.review, maxFiles);
 }
 
 /**

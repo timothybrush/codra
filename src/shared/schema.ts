@@ -88,7 +88,10 @@ export const reviewConfigSchema = z.object({
   skip_files: z
     .array(z.string().min(1))
     .default(['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**']),
-  max_files: z.number().int().min(1).max(150).default(150),
+  // NOTE: `max_files` used to live here. It is now an instance-wide setting
+  // (`reviewSettingsSchema.maxFiles`) because the limit it protects -- subrequest budget and
+  // provider rate limits -- is shared across repositories, not owned by any one of them.
+  // Stale `max_files` keys left in stored repo configs are simply ignored on parse.
   large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
   max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
@@ -125,7 +128,6 @@ export const repoConfigSchema = z.object({
     ignore_drafts: true,
     mention_trigger: '@codra-app',
     skip_files: ['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**'],
-    max_files: 150,
     large_file_threshold_lines: 200,
     max_diff_lines_per_file: 800,
     max_total_diff_chars: 150_000,
@@ -445,8 +447,19 @@ export const REVIEW_CONCURRENCY_LIMITS: Record<ReviewConcurrencyLevel, number> =
 
 export const reviewMaxCommentsOptions = [5, 10, 15, 20] as const;
 
+export const reviewMaxFilesRange = { min: 1, max: 500, default: 200 } as const;
+
 export const reviewSettingsSchema = z.object({
   concurrencyLevel: z.enum(reviewConcurrencyLevels).default('medium'),
   maxComments: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20)]).default(10),
+  // Instance-wide, not per-repo: the ceiling exists to bound one review's cost against the
+  // Workers subrequest budget and the model provider's rate limit, both of which are shared
+  // across every repository. A per-repo value could not express that.
+  maxFiles: z
+    .number()
+    .int()
+    .min(reviewMaxFilesRange.min)
+    .max(reviewMaxFilesRange.max)
+    .default(reviewMaxFilesRange.default),
 });
 export type ReviewSettings = z.infer<typeof reviewSettingsSchema>;

@@ -44,6 +44,18 @@ function retryAfterDelayMs(value: string | null) {
   return null;
 }
 
+/**
+ * Google states the cool-off in the response body ("Please retry in 56.158360628s.") rather than
+ * only in a `retry-after` header, so read it from there too -- otherwise a quota 429 looks
+ * indefinitely retryable and we burn every attempt on it.
+ */
+function requestedRetryDelayFromBody(message: string): number | null {
+  const match = /retry in ([\d.]+)s/i.exec(message);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) ? seconds * 1000 : null;
+}
+
 function isRetryableTransportError(error: unknown) {
   if (!(error instanceof Error)) return false;
   // Deliberately do NOT retry timeouts: the caller already grants a diff-size-aware budget (up to
@@ -148,18 +160,26 @@ export async function reviewWithGoogle(
     if (!response.ok) {
       const errorText = await response.text();
       const message = providerErrorMessage(errorText);
-      const isRetryable = isRetryableGeminiStatus(response.status);
+      const requestedDelayMs = response.status === 429
+        ? retryAfterDelayMs(response.headers.get('retry-after')) ?? requestedRetryDelayFromBody(message)
+        : null;
+      // A 429 whose cool-off is longer than we are willing to sleep cannot be retried usefully:
+      // we would wake up early and get the same 429, having spent another subrequest. On the Free
+      // tier Google routinely asks for 30-60s while our cap is 5s, so in-call retries were pure
+      // waste -- three attempts per model, every one of them guaranteed to fail. Give up
+      // immediately and let the caller defer the file to a fresh invocation instead.
+      const canHonorCoolOff = requestedDelayMs === null || requestedDelayMs <= GEMINI_MAX_RETRY_DELAY_MS;
+      const isRetryable = isRetryableGeminiStatus(response.status) && canHonorCoolOff;
       const retryDelayMs = Math.min(
         GEMINI_MAX_RETRY_DELAY_MS,
-        response.status === 429
-          ? retryAfterDelayMs(response.headers.get('retry-after')) ?? defaultRetryDelayMs(attempt)
-          : defaultRetryDelayMs(attempt),
+        requestedDelayMs ?? defaultRetryDelayMs(attempt),
       );
 
       const logData = {
         error: message,
         attempt,
         willRetry: isRetryable && attempt < maxRetries,
+        requestedDelayMs: requestedDelayMs ?? undefined,
         retryDelayMs: isRetryable && attempt < maxRetries ? retryDelayMs : undefined,
       };
       if (isRetryable && attempt < maxRetries) {

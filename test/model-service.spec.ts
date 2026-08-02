@@ -231,17 +231,16 @@ describe('ModelService', () => {
     expect(response.rawText).toContain('"findings"');
   });
 
-  it('caps the Retry-After sleep for Google 429 responses at the max in-call retry delay', async () => {
-    // A 429 carries retry-after: 7s, but the in-call sleep is capped at GEMINI_MAX_RETRY_DELAY_MS
-    // (5s) -- a longer cool-off is handled by deferring the file to a fresh invocation, not by
-    // pinning a gate slot in-call. So the retry must fire at 5s, not 7s.
+  it('honours a Retry-After it can actually wait out', async () => {
+    // retry-after: 3s is inside GEMINI_MAX_RETRY_DELAY_MS (5s), so the retry fires at exactly 3s
+    // -- the provider's own cool-off, not our default backoff.
     vi.useFakeTimers();
     try {
       const fetchMock = vi.spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(
           new Response(
             JSON.stringify({ error: { code: 429, message: 'Rate limited.' } }),
-            { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '7' } },
+            { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '3' } },
           ),
         )
         .mockResolvedValueOnce(
@@ -262,7 +261,7 @@ describe('ModelService', () => {
       promise.catch(() => {});
 
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-      await vi.advanceTimersByTimeAsync(4_999);
+      await vi.advanceTimersByTimeAsync(2_999);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1);
@@ -273,6 +272,23 @@ describe('ModelService', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // The counterpart: a cool-off we cannot honour is not worth a retry. Waking early just earns
+  // the same 429 and spends another subrequest out of the invocation's 50.
+  it('gives up immediately on a Retry-After longer than the in-call sleep cap', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: 429, message: 'Rate limited.' } }),
+        { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '56' } },
+      ),
+    );
+
+    await expect(
+      reviewWithGoogle({ apiKey: 'test-key' }, 'gemma-4-31b-it', { systemPrompt: 'system', userPrompt: 'user' }),
+    ).rejects.toThrow(/429/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry TypeErrors thrown after a successful Google response', async () => {
@@ -574,7 +590,6 @@ describe('ModelService', () => {
             ignore_drafts: true,
             mention_trigger: '@codra-app',
             skip_files: [],
-            max_files: 100,
             large_file_threshold_lines: 200,
             max_diff_lines_per_file: 800,
             max_total_diff_chars: 150_000,

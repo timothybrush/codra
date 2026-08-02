@@ -920,7 +920,9 @@ describe('Dashboard API Suite', () => {
       },
       body: JSON.stringify({
         review: {
-          max_files: 0,
+          // Below reviewConfigSchema's minimum of 1. (This used to use `max_files`, which has
+          // since moved to instance-wide settings and is no longer part of the repo config.)
+          max_comments: 0,
         },
       }),
     }, env);

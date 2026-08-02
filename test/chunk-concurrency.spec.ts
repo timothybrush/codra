@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { budgetAwareFileLimit } from '@server/core/review';
+import { budgetAwareFileLimit, estimatedSubrequestsPerFile } from '@server/core/review';
 import { TokenTracker } from '@server/core/token-tracker';
 import { REVIEW_CONCURRENCY_LIMITS, reviewConcurrencyLevels } from '@shared/schema';
 
@@ -28,12 +28,31 @@ describe('budgetAwareFileLimit', () => {
 
   it('throttles below the configured level only once the budget has actually been eaten into', () => {
     // Deep into a troubled invocation the cap should shrink to protect the 50-subrequest ceiling.
-    expect(budgetAwareFileLimit(4, maxLevel)).toBe(0);
     expect(budgetAwareFileLimit(0, maxLevel)).toBe(0);
+    expect(budgetAwareFileLimit(4, maxLevel)).toBeLessThan(maxLevel);
     expect(budgetAwareFileLimit(10, maxLevel)).toBeLessThan(maxLevel);
   });
 
   it('never exceeds the configured level even with a huge budget', () => {
     expect(budgetAwareFileLimit(10_000, 2)).toBe(2);
+  });
+
+  // A nine-model chain costs far more per file than a one-model chain when the primary is
+  // rate-limited. Budgeting a flat 5 for both is what let three files start on a budget that
+  // could not cover them, and the invocation died with "Too many subrequests".
+  it('budgets more per file for a longer fallback chain', () => {
+    expect(estimatedSubrequestsPerFile(9)).toBeGreaterThan(estimatedSubrequestsPerFile(1));
+  });
+
+  it('caps the per-file estimate so a long chain cannot collapse concurrency to nothing', () => {
+    // Beyond the attempt ceiling the estimate stops growing; a fresh budget must still honour
+    // the highest configured level even with a very long chain.
+    expect(estimatedSubrequestsPerFile(50)).toBe(estimatedSubrequestsPerFile(9));
+    const fresh = new TokenTracker().remainingSafeBudget();
+    expect(budgetAwareFileLimit(fresh, maxLevel, 9)).toBe(maxLevel);
+  });
+
+  it('shrinks the chunk sooner on a long chain than a short one at a degraded budget', () => {
+    expect(budgetAwareFileLimit(12, maxLevel, 9)).toBeLessThan(budgetAwareFileLimit(12, maxLevel, 1));
   });
 });

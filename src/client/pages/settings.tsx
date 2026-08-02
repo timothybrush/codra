@@ -27,7 +27,7 @@ import { LayerCard } from '@client/components/ui/layer-card';
 import { Text } from '@client/components/ui/text';
 import { Badge } from '@client/components/ui/badge';
 import type { LlmApiFormat, LlmProvider, ModelConfig, RepoConfig, ReviewSettings } from '@shared/schema';
-import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, type ReviewConcurrencyLevel } from '@shared/schema';
+import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, reviewMaxFilesRange, type ReviewConcurrencyLevel } from '@shared/schema';
 import type { ModelConfigsResponse } from '@shared/api';
 import {
   ModelRouteEditor,
@@ -227,6 +227,9 @@ export function SettingsPage() {
   const [reviewSettings, setReviewSettings] = useState<ReviewSettings | null>(null);
   const [savedReviewSettings, setSavedReviewSettings] = useState<ReviewSettings | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<{ field: 'concurrency' | 'comments'; value: number } | null>(null);
+  // Held as a string so the field can be mid-edit (empty, "2" on the way to "200") without the
+  // saved value flickering underneath the cursor.
+  const [maxFilesDraft, setMaxFilesDraft] = useState('');
   const [newProvider, setNewProvider] = useState<NewProviderDraft>({
     preset: 'custom-openai',
     name: 'Custom OpenAI',
@@ -346,6 +349,7 @@ export function SettingsPage() {
       setSavedGlobalConfig(nextGlobalConfig);
       setReviewSettings(reviewSettingsRes.settings);
       setSavedReviewSettings(reviewSettingsRes.settings);
+      setMaxFilesDraft(String(reviewSettingsRes.settings.maxFiles));
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to load settings';
@@ -421,6 +425,21 @@ export function SettingsPage() {
       { ...reviewSettings, concurrencyLevel: level },
       `Concurrency set to ${CONCURRENCY_LEVEL_LABEL[level]}`,
     );
+  };
+
+  const commitMaxFiles = () => {
+    if (!reviewSettings) return;
+    const parsed = Number.parseInt(maxFilesDraft, 10);
+
+    // Snap junk or out-of-range input back to something valid rather than rejecting it, so the
+    // field can never be left showing a number that isn't what the server will use.
+    const next = Number.isFinite(parsed)
+      ? Math.min(reviewMaxFilesRange.max, Math.max(reviewMaxFilesRange.min, parsed))
+      : reviewSettings.maxFiles;
+
+    setMaxFilesDraft(String(next));
+    if (next === reviewSettings.maxFiles) return;
+    void persistReviewSettings({ ...reviewSettings, maxFiles: next }, `File limit set to ${next}`);
   };
 
   const handleCommentsChange = (value: number) => {
@@ -609,7 +628,7 @@ export function SettingsPage() {
       {/* ── Review performance ──────────────────────────────────────────────── */}
       <SectionCard
         title="Review performance"
-        description="Concurrency and comment limits for automated reviews, changes save automatically"
+        description="Concurrency, comment and file limits for automated reviews, changes save automatically"
       >
         <div className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-2">
           {!loading && reviewSettings ? (
@@ -649,9 +668,36 @@ export function SettingsPage() {
                   A hard ceiling on the number of comments posted per review, applied on top of any repo-specific limit.
                 </p>
               </div>
+
+              <div>
+                <FieldLabel htmlFor="max-files-input">Files per review</FieldLabel>
+                <Input
+                  id="max-files-input"
+                  type="number"
+                  inputMode="numeric"
+                  min={reviewMaxFilesRange.min}
+                  max={reviewMaxFilesRange.max}
+                  step={1}
+                  value={maxFilesDraft}
+                  onChange={(event) => setMaxFilesDraft(event.target.value)}
+                  // Committed on blur/Enter rather than on every keystroke: this is a free text
+                  // field, and saving mid-typing would persist "2" on the way to "200".
+                  onBlur={commitMaxFiles}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                    if (event.key === 'Escape') setMaxFilesDraft(String(reviewSettings.maxFiles));
+                  }}
+                  aria-describedby="max-files-help"
+                />
+                <p id="max-files-help" className="mt-2 text-xs text-muted-foreground">
+                  How many changed files a single review covers, {reviewMaxFilesRange.min}–{reviewMaxFilesRange.max}.
+                  Anything beyond this is left unreviewed and called out in the review summary.
+                </p>
+              </div>
             </>
           ) : (
             <>
+              <Skeleton height={44} />
               <Skeleton height={44} />
               <Skeleton height={44} />
             </>
