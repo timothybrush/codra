@@ -77,15 +77,16 @@ export async function insertFileReview(
       const titles = input.parsedComments.map(c => c.title);
       const bodies = input.parsedComments.map(c => c.body);
       const codeSuggestions = input.parsedComments.map(c => c.codeSuggestion ?? null);
+      const confidenceScores = input.parsedComments.map(c => c.confidenceScore ?? null);
 
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score
           )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[])
+          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[])
         `,
-        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions]
+        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions, confidenceScores]
       );
     }
   });
@@ -189,9 +190,9 @@ export async function upsertFileReview(
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score
           )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[])
+          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[])
         `,
         [
           review.id,
@@ -203,6 +204,7 @@ export async function upsertFileReview(
           input.parsedComments.map(c => c.title),
           input.parsedComments.map(c => c.body),
           input.parsedComments.map(c => c.codeSuggestion ?? null),
+          input.parsedComments.map(c => c.confidenceScore ?? null),
         ],
       );
     }
@@ -320,9 +322,9 @@ export async function bulkInheritFileReviews(
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score
           )
-          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion
+          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score
           FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
           JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
           JOIN review_comments rc ON rc.file_review_id = pf.id
@@ -426,7 +428,8 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
                 'category', rc.category,
                 'title', rc.title,
                 'body', rc.body,
-                'codeSuggestion', rc.code_suggestion
+                'codeSuggestion', rc.code_suggestion,
+                'confidenceScore', rc.confidence_score
               )
             ORDER BY rc.id ASC
             ) FROM review_comments rc WHERE rc.file_review_id = fr.id

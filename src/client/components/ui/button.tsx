@@ -77,7 +77,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     // Base UI composition: `asChild` renders the child element itself (props
     // merged onto it), mirroring the former Radix Slot behaviour.
     return useRender({
-      render: asChild ? (children as React.ReactElement) : undefined,
+      render: asChild && React.isValidElement(children) ? children : undefined,
       defaultTagName: 'button',
       ref,
       props: {

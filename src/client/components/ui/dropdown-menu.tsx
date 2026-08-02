@@ -13,6 +13,7 @@ import {
   type ReactElement,
   type ReactNode,
   type RefCallback,
+  isValidElement,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@client/lib/utils';
@@ -81,7 +82,7 @@ export function DropdownMenuTrigger({
   // Base UI composition: `asChild` merges the trigger props onto the child
   // element itself (former Radix Slot behaviour).
   return useRender({
-    render: asChild ? (children as ReactElement) : undefined,
+    render: asChild && isValidElement(children) ? (children as ReactElement) : undefined,
     defaultTagName: 'button',
     ref: setRef,
     props: {
