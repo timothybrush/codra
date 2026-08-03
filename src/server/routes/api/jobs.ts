@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { defaultRepoConfig, jobsQuerySchema } from '@shared/schema';
+import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@shared/schema';
+import { getFindingLabelTarget } from '@server/db/file-reviews';
+import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
 import type { AppEnv } from '@server/env';
 import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@server/db/jobs';
 import { jsonError } from '@server/core/http';
@@ -222,6 +224,51 @@ export function createJobsRouter() {
     await cancelJob(c.env, id);
     const updated = await getJobForProcessing(c.env, id);
     return c.json({ job: updated ? mapJob(updated) : job }, 200);
+  });
+
+  /**
+   * Record a human verdict on one finding.
+   *
+   * The only way to get ground truth into this system. Until now the sole capture path was a human
+   * deleting an inline GitHub comment, which nobody does -- so `comment_feedback` sat empty and every
+   * accuracy question had to be answered by hand-auditing a review.
+   *
+   * Marking a finding WRONG suppresses it repository-wide; marking it RIGHT does not suppress
+   * anything and exists purely for measurement. See the note on CommentOutcome.
+   */
+  app.put('/:id/findings/:fingerprint/label', async (c) => {
+    const jobId = c.req.param('id');
+    const fingerprint = c.req.param('fingerprint');
+
+    const parsed = findingLabelSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return jsonError('Body must be {"label":"right"|"wrong"}.', 400);
+
+    const target = await getFindingLabelTarget(c.env, jobId, fingerprint);
+    if (!target) return jsonError('Finding not found on this job.', 404);
+
+    await upsertDashboardFeedback(c.env, {
+      repositoryId: target.repository_id,
+      prNumber: target.pr_number,
+      fingerprint,
+      anchorHash: target.anchor_hash,
+      jobId,
+      labelledBy: c.get('sessionUser')?.githubUserId ?? null,
+      outcome: parsed.data.label === 'wrong' ? 'marked_wrong' : 'marked_right',
+    });
+
+    return c.json({ label: parsed.data.label }, 200);
+  });
+
+  // Undo a label. Scoped to dashboard-sourced rows so a genuine GitHub deletion stays recorded.
+  app.delete('/:id/findings/:fingerprint/label', async (c) => {
+    const jobId = c.req.param('id');
+    const fingerprint = c.req.param('fingerprint');
+
+    const target = await getFindingLabelTarget(c.env, jobId, fingerprint);
+    if (!target) return jsonError('Finding not found on this job.', 404);
+
+    await clearDashboardFeedback(c.env, target.repository_id, fingerprint);
+    return c.body(null, 204);
   });
 
   // Delete a job (cascades to its file reviews and comments). Stops the workflow first if running.

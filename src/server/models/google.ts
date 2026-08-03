@@ -133,17 +133,26 @@ export async function reviewWithGoogle(
           body: JSON.stringify({
             systemInstruction: {
               role: 'system',
-              parts: [{ text: input.systemPrompt }],
+              // Same JSON-only framing the Cloudflare, OpenAI and Anthropic adapters append. This
+              // adapter used to send both prompts unmodified, which matters most here: gemma is the
+              // one model in the chain that gets no `responseMimeType` (below), so the prompt is the
+              // only thing keeping its output parseable.
+              parts: [{ text: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.` }],
             },
             contents: [
               {
                 role: 'user',
-                parts: [{ text: input.userPrompt }],
+                parts: [{ text: `${input.userPrompt}\n\nRespond with the required JSON object only.` }],
               },
             ],
             generationConfig: {
               ...(model.toLowerCase().includes('gemma') ? {} : { responseMimeType: 'application/json' }),
               maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+              // Every other adapter sends temperature 0; this one sent nothing, so gemma and gemini
+              // ran at the API default (~1.0) and were the only stochastically-sampled members of
+              // the chain. For a task whose failure mode is inventing code that isn't there, that is
+              // a fabrication source rather than a tuning preference.
+              temperature: 0,
             },
           }),
         }),

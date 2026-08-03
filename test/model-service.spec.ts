@@ -597,6 +597,7 @@ describe('ModelService', () => {
             min_severity: 'nit',
             min_confidence: 0.6,
             focus: ['quality'],
+            deny_claim_types: [],
             custom_rules: [],
             labels: false,
             exec: {

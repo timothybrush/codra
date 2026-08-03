@@ -161,6 +161,7 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
                       key={`${groupName}-${index}`}
                       comment={comment}
                       filePath={comment.filePath}
+                      jobId={job.id}
                     />
                   ))}
                 </div>

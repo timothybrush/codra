@@ -31,6 +31,7 @@ Here is my review:
     "title": "Good code",
     "body": "This looks fine.",
     "priority": 2,
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 2 }
   }],
   "overall_correctness": "patch is correct",
@@ -53,6 +54,7 @@ Issue",
     "body": "This has
 unescaped newlines",
     "priority": 1,
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 2 }
   }],
   "overall_correctness": "issues found",
@@ -71,6 +73,7 @@ unescaped newlines",
     "title": "Truncated",
     "body": "This cuts off",
     "priority": 1,
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 2 }
 `; 
     const result = parseFileReviewResponse(rawOutput, mockFile);
@@ -85,6 +88,7 @@ unescaped newlines",
     "title": "🚀 [PERFORMANCE] Optimization needed",
     "body": "⚠️ HIGH: You should optimize this.",
     "priority": 0,
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 2 }
   }],
   "overall_correctness": "issues found",
@@ -103,12 +107,14 @@ unescaped newlines",
       "title": "P0 Issue",
       "body": "Critical",
       "priority": 0,
+      "evidence": "new line",
       "code_location": { "absolute_file_path": "test.ts", "line": 2 }
     },
     {
       "title": "P3 Issue",
       "body": "Minor",
       "priority": 3,
+      "evidence": "new line",
       "code_location": { "absolute_file_path": "test.ts", "line": 2 }
     }
   ],
@@ -121,13 +127,17 @@ unescaped newlines",
     expect(result.comments[1].severity).toBe('P3');
   });
 
-  it('snaps a slightly-off line onto the nearest diff line', () => {
+  // The matched quote is the anchor, so a wrong line number costs nothing -- and the line-snapping
+  // fallback that used to handle this is gone, because requiring matched evidence made it
+  // unreachable. What matters now is that the reported line does not move the comment.
+  it('anchors on the quoted line and ignores a wrong reported line number', () => {
     const rawOutput = `
 {
   "findings": [{
     "title": "Off-target",
     "body": "Targeting line 5",
     "priority": 2,
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 5 }
   }],
   "overall_correctness": "issues found",
@@ -135,8 +145,7 @@ unescaped newlines",
 }`;
 
     const result = parseFileReviewResponse(rawOutput, mockFile);
-    // Valid lines are 1, 2, 3; line 5 is within MAX_LINE_SNAP_DISTANCE of 3, so it lands there.
-    expect(result.comments[0].line).toBe(3);
+    expect(result.comments[0].line).toBe(2);
   });
 
   it('drops a finding whose line is far outside the diff instead of relocating it', () => {
@@ -201,6 +210,7 @@ export function nextOwner(owner: string) {
     "body": "Concrete issue",
     "priority": 1,
     "confidence_score": 0.92,
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 2 }
   }],
   "overall_correctness": "issues found",
@@ -217,6 +227,7 @@ export function nextOwner(owner: string) {
   "findings": [{
     "title": "Unranked finding",
     "body": "Model did not set a priority",
+    "evidence": "new line",
     "code_location": { "absolute_file_path": "test.ts", "line": 2 }
   }],
   "overall_correctness": "issues found",

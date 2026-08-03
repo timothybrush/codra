@@ -119,6 +119,12 @@ export async function upsertFileReview(
     overallCorrectness?: string | null;
     confidenceScore?: number | null;
     errorMessage: string | null;
+    /**
+     * Findings dropped in the PARSER, which therefore have no review_comments row to carry a
+     * disposition. Without this, a review where every finding was withheld is indistinguishable from
+     * a clean one, and both get approved.
+     */
+    withheldCounts?: { evidence: number; claimDenied: number } | null;
     // Async batch bookkeeping: set when a review is submitted to the Workers AI queue (status
     // 'pending'), cleared (null) once the batch completes and a terminal review is persisted.
     asyncRequestId?: string | null;
@@ -146,9 +152,10 @@ export async function upsertFileReview(
           error_msg,
           model_provider,
           async_request_id,
-          async_model
+          async_model,
+          withheld_counts
         )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb)
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = EXCLUDED.file_status,
           model_used = EXCLUDED.model_used,
@@ -166,6 +173,7 @@ export async function upsertFileReview(
           model_provider = EXCLUDED.model_provider,
           async_request_id = EXCLUDED.async_request_id,
           async_model = EXCLUDED.async_model,
+          withheld_counts = EXCLUDED.withheld_counts,
           transient_error_count = 0
         RETURNING id
       `,
@@ -188,6 +196,7 @@ export async function upsertFileReview(
         input.modelProvider ?? null,
         input.asyncRequestId ?? null,
         input.asyncModel ?? null,
+        input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
       ],
     );
 
@@ -430,6 +439,7 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
     transient_error_count: number;
     async_request_id: string | null;
     async_model: string | null;
+    withheld_counts: { evidence?: number; claimDenied?: number } | string | null;
   }>(
     env,
     `
@@ -454,7 +464,8 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
                 'posted', rc.posted,
                 'claimType', rc.claim_type,
                 'contextSnippet', rc.context_snippet,
-                'disposition', rc.disposition
+                'disposition', rc.disposition,
+                'verifyReason', rc.verify_reason
               )
             ORDER BY rc.id ASC
             ) FROM review_comments rc WHERE rc.file_review_id = fr.id
@@ -471,6 +482,7 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
   return rows.map((row) => ({
     ...row,
     parsed_comments: parseJsonColumn(row.parsed_comments, []),
+    withheld_counts: parseJsonColumn(row.withheld_counts, {} as { evidence?: number; claimDenied?: number }),
   }));
 }
 
@@ -519,10 +531,13 @@ export async function getSuppressedFindings(
           AND rc.fingerprint IS NOT NULL
       ),
       rejected AS (
+        -- Only the NEGATIVE outcomes. 'resolved' and 'marked_right' are stored but never read here:
+        -- suppressing on them would silence the findings that turned out to be correct. And note
+        -- there is no branch for "no row" -- an unlabelled finding is not a negative signal.
         SELECT DISTINCT cf.fingerprint, NULL::text AS anchor_hash
         FROM me
         JOIN comment_feedback cf ON cf.repository_id = me.repository_id
-        WHERE cf.outcome = 'deleted' AND cf.fingerprint IS NOT NULL
+        WHERE cf.outcome IN ('deleted', 'marked_wrong') AND cf.fingerprint IS NOT NULL
       )
       SELECT fingerprint, anchor_hash, TRUE  AS anchored FROM already_posted
       UNION ALL
@@ -530,6 +545,34 @@ export async function getSuppressedFindings(
     `,
     [jobId],
   );
+}
+
+/**
+ * Resolves a finding fingerprint WITHIN a specific job, for the dashboard labelling route.
+ *
+ * This lookup is the authorization boundary, not a convenience. A dashboard label writes a
+ * REPOSITORY-WIDE suppression, so without scoping it to a job the caller owns, anyone could silence
+ * an arbitrary finding by guessing eight hex characters. Returns null when the fingerprint is not
+ * part of this job, which the route turns into a 404.
+ */
+export async function getFindingLabelTarget(
+  env: Pick<AppBindings, 'HYPERDRIVE'>,
+  jobId: string,
+  fingerprint: string,
+): Promise<{ repository_id: number; pr_number: number | null; anchor_hash: string | null } | null> {
+  const rows = await queryRows<{ repository_id: number; pr_number: number | null; anchor_hash: string | null }>(
+    env,
+    `
+      SELECT j.repository_id, j.pr_number, rc.anchor_hash
+      FROM jobs j
+      JOIN file_reviews    fr ON fr.job_id = j.id
+      JOIN review_comments rc ON rc.file_review_id = fr.id
+      WHERE j.id = $1::uuid AND rc.fingerprint = $2::text
+      LIMIT 1
+    `,
+    [jobId, fingerprint],
+  );
+  return rows[0] ?? null;
 }
 
 /**
@@ -573,23 +616,28 @@ export async function markCommentsPosted(
 export async function markCommentDispositions(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
-  byFingerprint: Map<string, string>,
+  byFingerprint: Map<string, { disposition: string | null; reason: string | null }>,
 ): Promise<void> {
   if (byFingerprint.size === 0) return;
   const fingerprints = [...byFingerprint.keys()];
-  const dispositions = fingerprints.map((fp) => byFingerprint.get(fp)!);
+  const dispositions = fingerprints.map((fp) => byFingerprint.get(fp)!.disposition);
+  const reasons = fingerprints.map((fp) => byFingerprint.get(fp)!.reason);
 
+  // COALESCE on both columns, and it is load-bearing on `disposition`: a KEPT finding is entered
+  // here with a null disposition purely to carry its verifier reason, and this statement runs AFTER
+  // markCommentsPosted. Assigning unconditionally would overwrite `posted` with NULL.
   await queryRows(
     env,
     `
       UPDATE review_comments rc
-      SET disposition = d.disposition
+      SET disposition   = COALESCE(d.disposition, rc.disposition),
+          verify_reason = COALESCE(d.reason, rc.verify_reason)
       FROM file_reviews fr,
-           UNNEST($2::text[], $3::text[]) AS d(fingerprint, disposition)
+           UNNEST($2::text[], $3::text[], $4::text[]) AS d(fingerprint, disposition, reason)
       WHERE fr.id = rc.file_review_id
         AND fr.job_id = $1::uuid
         AND rc.fingerprint = d.fingerprint
     `,
-    [jobId, fingerprints, dispositions],
+    [jobId, fingerprints, dispositions, reasons],
   );
 }

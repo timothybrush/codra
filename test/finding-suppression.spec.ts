@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTestEnv, hasConfiguredTestDatabaseUrl } from './helpers';
+import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
 import { runWithDb, queryRows } from '@server/db/client';
 import { insertJob } from '@server/db/jobs';
 import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@server/db/file-reviews';
@@ -195,6 +196,92 @@ dbDescribe('cross-run finding suppression', () => {
       expect(row.context_snippet).toContain('SELECT 1');
       // markCommentsPosted writes the disposition alongside the flag.
       expect(row.disposition).toBe('posted');
+    });
+  });
+
+  // Ground truth from the dashboard. comment_feedback sat empty in production because the only way to
+  // register a false positive was deleting an inline GitHub comment, which nobody ever did.
+  describe('dashboard labels', () => {
+    async function seedRepo(suffix: string) {
+      const job = await seedJob(`label-${Date.now()}-${suffix}`, sha('d'));
+      const [{ repository_id: repositoryId }] = await queryRows<{ repository_id: number }>(
+        env, 'SELECT repository_id FROM jobs WHERE id = $1::uuid', [job],
+      );
+      return { job, repositoryId };
+    }
+
+    const label = (repositoryId: number, job: string, outcome: 'marked_wrong' | 'marked_right', fingerprint = 'fp-labelled') =>
+      upsertDashboardFeedback(env, {
+        repositoryId, prNumber: 1, fingerprint, anchorHash: null, jobId: job, labelledBy: 42, outcome,
+      });
+
+    it('suppresses a finding a human marked wrong', async () => {
+      await runWithDb(env, async () => {
+        const { job, repositoryId } = await seedRepo('wrong');
+        await label(repositoryId, job, 'marked_wrong');
+
+        const suppressed = await getSuppressedFindings(env, job);
+        expect(suppressed.find((s) => s.fingerprint === 'fp-labelled')).toMatchObject({ anchored: false });
+      });
+    });
+
+    // Marking a finding CORRECT must never suppress it. Doing so would train the system to stop
+    // reporting exactly the findings that worked -- the same reasoning that protects 'resolved'.
+    it('does not suppress a finding a human marked right', async () => {
+      await runWithDb(env, async () => {
+        const { job, repositoryId } = await seedRepo('right');
+        await label(repositoryId, job, 'marked_right');
+
+        const suppressed = await getSuppressedFindings(env, job);
+        expect(suppressed.find((s) => s.fingerprint === 'fp-labelled')).toBeUndefined();
+      });
+    });
+
+    it('leaves exactly one row when a label is flipped', async () => {
+      await runWithDb(env, async () => {
+        const { job, repositoryId } = await seedRepo('flip');
+        await label(repositoryId, job, 'marked_right');
+        await label(repositoryId, job, 'marked_wrong');
+        await label(repositoryId, job, 'marked_right');
+
+        const rows = await queryRows<{ outcome: string }>(
+          env,
+          `SELECT outcome FROM comment_feedback
+           WHERE repository_id = $1::int AND fingerprint = 'fp-labelled' AND source = 'dashboard'`,
+          [repositoryId],
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0].outcome).toBe('marked_right');
+      });
+    });
+
+    // A webhook 'deleted' row is ground truth from GitHub -- somebody actually removed the comment --
+    // and must survive an undo made in the dashboard.
+    it('clearing a dashboard label leaves a webhook deletion intact', async () => {
+      await runWithDb(env, async () => {
+        const { job, repositoryId } = await seedRepo('clear');
+        await label(repositoryId, job, 'marked_wrong', 'fp-both');
+        await queryRows(
+          env,
+          `INSERT INTO comment_feedback (repository_id, pr_number, fingerprint, anchor_hash, github_comment_id, outcome)
+           VALUES ($1::int, 1, 'fp-both', NULL, 999001, 'deleted')`,
+          [repositoryId],
+        );
+
+        await clearDashboardFeedback(env, repositoryId, 'fp-both');
+
+        const suppressed = await getSuppressedFindings(env, job);
+        expect(suppressed.find((s) => s.fingerprint === 'fp-both')).toBeDefined();
+      });
+    });
+
+    // Silence is not a signal in either direction.
+    it('does not suppress an unlabelled finding', async () => {
+      await runWithDb(env, async () => {
+        const { job } = await seedRepo('silent');
+        const suppressed = await getSuppressedFindings(env, job);
+        expect(suppressed.filter((s) => s.fingerprint === 'fp-never-labelled')).toHaveLength(0);
+      });
     });
   });
 

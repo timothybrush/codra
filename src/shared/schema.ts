@@ -68,6 +68,63 @@ export function toClaimType(value: unknown): ClaimType {
   return (claimTypes as readonly string[]).includes(value as string) ? (value as ClaimType) : 'other';
 }
 
+/**
+ * Whether a claim of this kind can be decided from a diff hunk ALONE.
+ *
+ * Only diff hunks ever reach the model -- there is no enclosing-file or repo context anywhere in
+ * this codebase, and adding it is not affordable (gemma's free tier is a 16k input-tokens-per-minute
+ * bucket, and fetching file bodies costs a subrequest per file against a budget of 25). So rather
+ * than widening the context to match the claims, this narrows the claims to match the context.
+ *
+ * 'needs_whole_file' means the defect cannot be established without knowing a callee's signature, a
+ * value's nullability, or whether a path is reachable. Published measurements on exactly these
+ * classes: LLIFT reached 50% precision on path feasibility (a coin flip); DCE-LLM needs a fine-tuned
+ * classifier to beat GPT-4o by 30% on dead code, putting a general model in the mid-60s F1; and for
+ * ReDoS there is no published LLM accuracy measurement at all, while purpose-built detectors still
+ * carry ~23% false-positive rates.
+ *
+ * A `Record` rather than an array on purpose: a 17th claim type is a COMPILE ERROR until someone
+ * classifies it, exactly as CLAIM_TYPE_CATEGORY already forces a category. An array would let a new
+ * type default silently into "allowed".
+ */
+export const CLAIM_TYPE_DECIDABILITY: Record<ClaimType, 'diff_local' | 'needs_whole_file'> = {
+  // Lexically visible in the added line itself.
+  sql_injection: 'diff_local',
+  unsafe_dom_sink: 'diff_local',
+  unsafe_dynamic_code: 'diff_local',
+  insecure_randomness: 'diff_local',
+  hardcoded_secret: 'diff_local',
+  mutable_default_arg: 'diff_local',
+  destructive_migration: 'diff_local',
+  swallowed_error: 'diff_local',
+  unhandled_promise_rejection: 'diff_local',
+  // Genuinely interprocedural -- deciding it requires knowing the callee is async -- but allowed
+  // anyway. A known-true un-awaited call is shaped exactly like this, and there is no way to predict
+  // whether a model labels such a finding `missing_await` or `unhandled_promise_rejection`; denying
+  // this would risk silencing the real thing. The largest deliberate soundness hole in the table.
+  missing_await: 'diff_local',
+  // The escape hatch. Cannot be denied: it is where a model puts any real defect the taxonomy has no
+  // name for. Watch its share of claimTypeCounts -- a jump means claims are being relabelled into it.
+  other: 'diff_local',
+
+  react_hook_missing_deps: 'needs_whole_file',   // needs the enclosing component and what's in scope
+  react_missing_cleanup: 'needs_whole_file',     // needs to know whether cleanup exists outside the hunk
+  resource_leak: 'needs_whole_file',             // interprocedural lifetime reasoning
+  null_or_undefined_deref: 'needs_whole_file',   // nullability of values declared elsewhere + path feasibility
+  redos_regex: 'needs_whole_file',               // regex complexity AND reachability from untrusted input
+};
+
+/**
+ * Claim types not reportable by default.
+ *
+ * `null_or_undefined_deref` is classified above but deliberately EXCLUDED from this list for now: it
+ * is the most FP-prone class, but unlike the hook claims there is no corpus measurement showing it
+ * never posts, so it is scored in the shadow harness first. Move it in once that data exists.
+ */
+export const DEFAULT_DENIED_CLAIM_TYPES: ClaimType[] = claimTypes.filter(
+  (type) => CLAIM_TYPE_DECIDABILITY[type] === 'needs_whole_file' && type !== 'null_or_undefined_deref',
+);
+
 /** How a finding ended its life. Distinguishes the six reasons `posted = false` used to conflate. */
 export const findingDispositions = [
   'posted',
@@ -76,7 +133,16 @@ export const findingDispositions = [
   'suppression',
   'dedupe',
   'verify',
+  // Distinct from 'verify' deliberately. 'verify' is the model's judgement; this is the verifier
+  // failing to answer for a finding at all, which is our defect. Collapsing them would make the
+  // tuning data useless in exactly the way `posted = false` was.
+  'verify_unanswered',
   'cap',
+  // NOTE: there is deliberately no value here for the parser's own drops (unmatched evidence, denied
+  // claim types, refuted absence claims). Those findings never become review_comments rows, so a
+  // disposition could never be written for them -- adding one would be a value nothing can produce.
+  // They are surfaced two other ways instead: a `[reason]`-prefixed entry in the file summary, and
+  // the per-file `withheld_counts` column that drives the review verdict.
   'unverifiable_passthrough',
 ] as const;
 
@@ -128,7 +194,15 @@ export const parsedReviewCommentSchema = z.object({
   contextSnippet: z.string().nullable().optional(),
   // Which pipeline stage ended this finding's life.
   disposition: z.enum(findingDispositions).nullable().optional(),
+  // The verifier's own justification, for kept findings as well as dropped ones. The tuning surface:
+  // a subtraction stage nobody can inspect is a subtraction stage nobody can improve.
+  verifyReason: z.string().nullable().optional(),
+  // A human's verdict from the dashboard, if any. `null` means UNLABELLED, which is not a verdict --
+  // precision may only be computed over the labelled subset.
+  humanLabel: z.enum(['marked_right', 'marked_wrong']).nullable().optional(),
 });
+
+export const findingLabelSchema = z.object({ label: z.enum(['right', 'wrong']) });
 
 export const fileReviewModelOutputSchema = z.object({
   findings: z.array(
@@ -193,10 +267,25 @@ export const reviewConfigSchema = z.object({
   // 'P3' and not 'nit': findings the model itself marks as cosmetic are exactly the "technically
   // true, nobody cared" comments that make a review bot get ignored. NOTE this default only
   // applies to repos seen for the first time -- syncRepoConfig materializes the whole config into
-  // repo_configs.parsed_json, so existing rows need a data migration (008) to move.
+  // repo_configs.parsed_json, so changing a default here needs a data migration to reach existing
+  // rows (see 005 for min_confidence) plus a REPO_CONFIG_CACHE_VERSION bump.
   min_severity: z.enum(reviewSeverities).default('P3'),
-  min_confidence: z.number().min(0).max(1).default(0.6),
+  // Defaults to 0, i.e. OFF, on purpose. Model-reported confidence is not merely a weak signal in
+  // this corpus, it is an INVERTED one: the worst-performing claim family carried a mean confidence
+  // of 0.964 across 21 findings, of which the 4 that posted were all the same wrong claim under
+  // different titles, while the only claim area that ever produced a true positive averaged 0.775.
+  // A live floor here would therefore preferentially retain the least correct findings.
+  //
+  // The gate itself is kept and is now provider-independent (an omitted score records as 0 rather
+  // than `undefined`), so an operator who sets this deliberately gets consistent behaviour on every
+  // provider. The mechanism is repaired; the default declines to use it. Grounding is enforced by
+  // evidence provenance in the parser instead, which is checkable rather than self-reported.
+  min_confidence: z.number().min(0).max(1).default(0),
   focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),
+  // Claim classes the model may not report, enforced at parse time so it binds every provider.
+  // Config-driven rather than hardcoded so it lands in the job's replayable configSnapshot and a
+  // retried job filters against the same list it originally ran with.
+  deny_claim_types: z.array(z.enum(claimTypes)).default([...DEFAULT_DENIED_CLAIM_TYPES]),
   custom_rules: z.array(z.string().min(1)).default([]),
   labels: labelsSchema.default({
     p1: 'review: needs-attention',
@@ -227,8 +316,9 @@ export const repoConfigSchema = z.object({
     max_total_diff_chars: 150_000,
     max_comments: 10,
     min_severity: 'P3',
-    min_confidence: 0.6,
+    min_confidence: 0,
     focus: [...reviewCategories],
+    deny_claim_types: [...DEFAULT_DENIED_CLAIM_TYPES],
     custom_rules: [],
     labels: {
       p1: 'review: needs-attention',

@@ -425,12 +425,30 @@ async function normalizeRepoConfigs() {
 
 async function main() {
   try {
-    console.log('Acquiring advisory lock...');
-    await query('SELECT pg_advisory_lock($1)', [migrationLockId]);
-
     console.log('Starting database migrations...');
     await query('BEGIN');
     try {
+      // Transaction-scoped, and deliberately so.
+      //
+      // This used to be a session-scoped `pg_advisory_lock` taken outside the transaction, with the
+      // matching `pg_advisory_unlock` in a `finally`. If the process died before reaching that
+      // unlock -- Ctrl+C, a dropped network, a crash -- the lock was never released, because a
+      // session-scoped advisory lock can only be released by the session that took it. Worse, the
+      // connection then went back into the pooler still holding it, so a recycled backend served
+      // ordinary app traffic while sitting on the migration lock, and every later `npm run migrate`
+      // blocked forever on a lock no client could clear. Recovering it required
+      // pg_terminate_backend on the pooled connection. (Observed in production.)
+      //
+      // `pg_advisory_xact_lock` is released by Postgres itself on COMMIT, ROLLBACK, or disconnect,
+      // so there is no code path -- and no crash -- that can leak it.
+      //
+      // `SET LOCAL` (not SET) for the same reason: session state leaks across pooled connections.
+      // A bounded wait means a genuinely concurrent migration fails with a clear error instead of
+      // hanging a deploy indefinitely.
+      console.log('Acquiring advisory lock...');
+      await query("SET LOCAL lock_timeout = '30s'");
+      await query('SELECT pg_advisory_xact_lock($1)', [migrationLockId]);
+
       await ensureMigrationTable();
 
       const migrationFiles = (await readdir(migrationsDir))
@@ -458,8 +476,8 @@ async function main() {
 
     console.log('Database migrations are up to date.');
   } finally {
-    console.log('Releasing advisory lock...');
-    await query('SELECT pg_advisory_unlock($1)', [migrationLockId]);
+    // No unlock needed: COMMIT/ROLLBACK above released the transaction-scoped lock, and closing the
+    // connection would release it regardless.
     await sql.end();
   }
 }

@@ -4,15 +4,17 @@ import {
   summaryModelOutputSchema,
   toClaimType,
   CLAIM_TYPE_CATEGORY,
+  type ClaimType,
   type ParsedReviewComment,
   reviewSeverities,
 } from '@shared/schema';
 import { renderDiffSnippet } from '@server/prompts/verify';
 import { z } from 'zod';
 import { logger } from './logger';
-import { findClosestValidLine, findPositionForLine, getValidNewLines, getValidPositions } from './diff';
+import { findPositionForLine, getValidPositions } from './diff';
 import type { DiffLine, FileDiff } from './diff';
-import { buildAnchorHash, buildFindingFingerprint, normalizeDiffText, normalizeFindingTitle } from './fingerprint';
+import { buildAnchorHash, buildFindingFingerprint, foldEvidenceText, normalizeFindingTitle } from './fingerprint';
+import { buildPresenceIndex, checkAbsenceClaim } from './claim-checks';
 import { jsonrepair } from 'jsonrepair';
 
 /**
@@ -273,6 +275,37 @@ function withSuggestion(body: string, codeSuggestion?: string) {
   return `${cleanBody}\n\n\`\`\`suggestion\n${cleanSuggestion}\n\`\`\``;
 }
 
+/**
+ * Recovers a specific claim type from an `other`-labelled finding, for the two classes whose
+ * vocabulary is unmistakable.
+ *
+ * The denylist is enforced invisibly -- the model is still shown all 16 types and is never told which
+ * are forbidden -- precisely so it has no incentive to relabel a denied claim as `other`. But a model
+ * can land on `other` unprompted, which would launder a denied claim into the allowed bucket. This
+ * closes the two cases where a mislabel is unambiguous from the text.
+ *
+ * Deliberately NOT attempted for react_missing_cleanup, resource_leak or null_or_undefined_deref:
+ * their vocabulary ("removeEventListener", "leak", "null") appears freely in legitimate `other`
+ * findings, so a repair regex there would launder ALLOWED findings into the denied bucket -- the same
+ * failure in the more damaging direction.
+ */
+const CLAIM_TYPE_REPAIRS: ReadonlyArray<{ pattern: RegExp; claimType: ClaimType }> = [
+  { pattern: /dependenc(?:y|ies)\s+array|exhaustive[- ]deps/i, claimType: 'react_hook_missing_deps' },
+  { pattern: /redos|catastrophic backtrack|exponential backtrack/i, claimType: 'redos_regex' },
+];
+
+function repairClaimType(claimType: ClaimType, title: string, body: string, onRepair: () => void): ClaimType {
+  if (claimType !== 'other') return claimType;
+  const text = `${title}\n${body}`;
+  for (const { pattern, claimType: repaired } of CLAIM_TYPE_REPAIRS) {
+    if (pattern.test(text)) {
+      onRepair();
+      return repaired;
+    }
+  }
+  return claimType;
+}
+
 type EvidenceIndex = {
   byContent: Map<string, DiffLine[]>;
   lines: { normalized: string; line: DiffLine }[];
@@ -297,7 +330,7 @@ function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
     if (postable.length === 0) continue;
 
     hunk.lines.forEach((line, lineIndex) => {
-      const normalized = normalizeDiffText(line.content);
+      const normalized = foldEvidenceText(line.content);
       if (!normalized) return;
 
       let anchor = line;
@@ -334,7 +367,7 @@ function resolveEvidence(
   if (typeof evidence !== 'string') return { status: 'absent' };
 
   // Multi-line quotes are common; the first substantive line is the one we anchor to.
-  const firstLine = evidence.split('\n').map(normalizeDiffText).find((l) => l.length > 0);
+  const firstLine = evidence.split('\n').map(foldEvidenceText).find((l) => l.length > 0);
   if (!firstLine) return { status: 'absent' };
   if (firstLine.length < MIN_DISCRIMINATING_EVIDENCE_CHARS) return { status: 'weak' };
 
@@ -368,18 +401,30 @@ function resolveEvidence(
   return { status: 'unmatched' };
 }
 
+/**
+ * Grounding here is deliberately provider-independent.
+ *
+ * This used to take a `schemaEnforced` flag, true only for Cloudflare Workers AI (the sole provider
+ * that constrains decoding to our grammar), and every grounding rule below was gated on it. The
+ * effect was that on a gemma-first Google chain -- the configuration actually in production -- the
+ * evidence gate never fired, a missing `priority` passed the severity gate, and a missing
+ * `confidence_score` became `undefined`, which bypassed `min_confidence` entirely. An entire round
+ * of accuracy work was unreachable on the models it was meant to police.
+ *
+ * The flag conflated two questions, and separating them shows neither needs the provider:
+ *   "did the model omit a field?"            -> answered by looking at the field
+ *   "does its quote appear in the diff?"     -> answered deterministically against the FileDiff
+ * A fabricated quote is fabricated no matter who generated it, so the check runs for everyone.
+ */
 export function parseFileReviewResponse(
   raw: string,
   file: FileDiff,
   options?: {
     /**
-     * True when the provider constrained decoding to our JSON schema, i.e. `evidence`,
-     * `confidence_score` and `priority` were REQUIRED and the model could not have omitted them.
-     * Only then is a missing or unmatched field the model's fault and safe to act on. On providers
-     * that ignore schemas this stays false and grounding degrades to anchoring-only, so we never
-     * empty out a review just because the provider can't enforce a grammar.
+     * Claim classes to reject outright. Enforced HERE, not in the grammar, because three of four
+     * providers ignore the response schema entirely -- a narrowed enum would bind Cloudflare only.
      */
-    schemaEnforced?: boolean;
+    deniedClaimTypes?: readonly ClaimType[];
   },
 ): {
   comments: ParsedReviewComment[];
@@ -389,6 +434,15 @@ export function parseFileReviewResponse(
   confidenceScore?: number;
   evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number };
   claimTypeCounts: Record<string, number>;
+  /** Denied claims, counted per type. Findings dropped here appear in `claimTypeCounts` too. */
+  deniedClaimCounts: Record<string, number>;
+  /**
+   * Funnel for the absence-claim refutation check, which is SHADOW-ONLY: nothing is dropped on it
+   * yet. Three counters rather than one on purpose -- a check reporting `refuted: 0` is otherwise
+   * indistinguishable from a check that is silently never firing, and that ambiguity is how someone
+   * later "fixes" it by loosening the identifier extraction.
+   */
+  absenceCheckStats: { absenceShaped: number; identifierExtracted: number; refuted: number };
 } {
   let extracted = '';
   try {
@@ -481,12 +535,14 @@ export function parseFileReviewResponse(
     throw new Error(`Response schema mismatch: ${e instanceof Error ? e.message : 'Check logs'}`);
   }
 
-  const validLines = getValidNewLines(file);
   const validPositions = getValidPositions(file);
   const evidenceIndex = buildEvidenceIndex(file);
-  const schemaEnforced = options?.schemaEnforced === true;
   const evidenceStats = { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 };
   const claimTypeCounts: Record<string, number> = {};
+  const deniedClaimCounts: Record<string, number> = {};
+  const deniedClaimTypes = new Set<ClaimType>(options?.deniedClaimTypes ?? []);
+  const presenceIndex = buildPresenceIndex(file);
+  const absenceCheckStats = { absenceShaped: 0, identifierExtracted: 0, refuted: 0 };
 
   const orphanedComments: string[] = [];
   const comments = (parsed.findings || [])
@@ -506,37 +562,34 @@ export function parseFileReviewResponse(
       else if (evidence.status === 'weak') evidenceStats.weak += 1;
       else if (evidence.status === 'absent') evidenceStats.absent += 1;
 
-      // Where the grammar REQUIRED a verbatim quote, only a quote that actually resolves to a diff
-      // line is good enough.
+      // Only a quote that actually resolves to a diff line is good enough -- on every provider.
       //
-      // This used to reject `unmatched` alone, which meant a finding that quoted NOTHING (`absent`)
-      // or quoted three characters (`weak`) was treated more leniently than one that quoted wrong
-      // -- it fell through to line-based anchoring and posted. Under an enforced schema `evidence`
-      // is a required field, so absent/weak is a schema violation wearing a finding's clothes.
+      // All three failure modes are the model's, not the provider's:
+      //   unmatched  quoted something discriminating that appears nowhere in the diff
+      //   weak       quoted under 8 normalized chars, i.e. `}` / `);` / `else {` -- proves nothing
+      //   absent     quoted nothing, despite the prompt demanding a verbatim line in four separate
+      //              places that every provider sees. A model that fills in title, body, priority
+      //              and confidence_score and omits only the one checkable field is not limited by
+      //              its provider; it is declining the one instruction we can verify.
       //
       // Not deleted: these land in the off-diff list, which the dashboard renders, with a distinct
       // prefix per reason so the disposition data can attribute them.
-      if (schemaEnforced && evidence.status !== 'matched') {
+      if (evidence.status !== 'matched') {
         orphanedComments.push(`- **[unverified:${evidence.status}] ${finding.title}:** ${finding.body}`);
         return null;
       }
 
-      if (evidence.status === 'matched') {
-        anchorLine = evidence.line;
-        line = evidence.line.newLineNumber;
-        position = findPositionForLine(file, line!);
-      } else if (line !== undefined) {
-        // No usable evidence: fall back to the model's line number, snapping only a short distance
-        // to absorb genuine off-by-one errors.
-        if (!validLines.has(line)) {
-          const closest = findClosestValidLine(file, line);
-          line = closest;
-        }
-
-        if (line !== undefined) {
-          position = findPositionForLine(file, line);
-        }
-      }
+      // The anchor now comes from the matched quote, always. The model's own `code_location.line` is
+      // only a hint used to disambiguate between repeated identical lines (see `nearest` in
+      // resolveEvidence); it never determines where the comment lands.
+      //
+      // There used to be an `else` here that fell back to the reported line number, snapping it a
+      // few lines onto the nearest valid one. The guard above makes that branch unreachable, so it
+      // (and the snap helpers in diff.ts) have been removed rather than left as a fallback that can
+      // never fire -- it read like a safety net while doing nothing.
+      anchorLine = evidence.line;
+      line = evidence.line.newLineNumber;
+      position = findPositionForLine(file, line!);
 
       // Final validation
       if (position === undefined || !validPositions.has(position)) {
@@ -552,12 +605,12 @@ export function parseFileReviewResponse(
         3: 'P3',
         4: 'nit',
       };
-      // A missing priority means the model didn't bother to rank it. Where the schema REQUIRED it,
-      // omitting it is a defect and the finding is treated as a nit so the severity gate can act on
-      // it; elsewhere fall back to P3 so a provider that can't enforce the field isn't punished.
+      // A missing priority falls back to P3 everywhere. This is a deliberate asymmetry with the
+      // evidence rule above: evidence is what makes a claim *checkable*, whereas priority is
+      // metadata, and discarding a genuine P0 because the model forgot to rank it is a bad trade.
       const severity = finding.priority !== undefined
         ? priorityMap[finding.priority] || 'P3'
-        : schemaEnforced ? 'nit' : 'P3';
+        : 'P3';
 
       const cleanText = (text: string) => {
         let current = text.trim();
@@ -588,16 +641,46 @@ export function parseFileReviewResponse(
         ?? file.hunks.flatMap((h) => h.lines).find((l) => l.newLineNumber === line)?.content
         ?? '';
 
-      // Where the schema required a confidence score, its absence is a model defect and must not
-      // silently bypass the min_confidence gate downstream -- 0 fails it, as intended.
+      // An omitted confidence score records as 0, never `undefined`. `undefined` is precisely
+      // "silently trusted": the gate in review.ts only fires on `typeof === 'number'`, and both
+      // tiebreaks read `?? 0`, so an omission used to sail past a threshold a reported 0.1 would
+      // have failed. 0 makes the omission explicit and untrusted.
       const confidenceScore = typeof finding.confidence_score === 'number'
         ? finding.confidence_score
-        : schemaEnforced ? 0 : undefined;
+        : 0;
 
       // Unrecognized or missing values coerce to 'other' rather than throwing: a Zod rejection here
       // would discard every finding in the file over one bad label.
-      const claimType = toClaimType(finding.claim_type);
+      const claimType = repairClaimType(toClaimType(finding.claim_type), title, body, () => {
+        claimTypeCounts.__repaired = (claimTypeCounts.__repaired ?? 0) + 1;
+      });
+
+      // Counted BEFORE the deny check, and the order is load-bearing: this is what preserves the
+      // per-type GENERATED rate. Reversed, denied types would vanish from the tally and there would
+      // be no way to tell a denylist that is working from one that never matches anything.
       claimTypeCounts[claimType] = (claimTypeCounts[claimType] ?? 0) + 1;
+
+      if (deniedClaimTypes.has(claimType)) {
+        deniedClaimCounts[claimType] = (deniedClaimCounts[claimType] ?? 0) + 1;
+        orphanedComments.push(`- **[claim-denied:${claimType}] ${title}:** ${body}`);
+        return null;
+      }
+
+      // SHADOW ONLY -- counted, never acted on. The false-refutation surface is the least-measured
+      // part of this design, so the funnel runs first and enforcement waits on its numbers. Promote
+      // to a drop only once `refuted` is non-zero on real absence claims AND the known-true fixtures
+      // in the gold-set test still pass.
+      const absence = checkAbsenceClaim({ title, body, anchorLine: line, index: presenceIndex });
+      if (absence.status === 'refuted') {
+        absenceCheckStats.absenceShaped += 1;
+        absenceCheckStats.identifierExtracted += 1;
+        absenceCheckStats.refuted += 1;
+      } else if (absence.reason !== 'not_absence_shaped') {
+        absenceCheckStats.absenceShaped += 1;
+        if (absence.reason !== 'no_identifier' && absence.reason !== 'ambiguous_identifier') {
+          absenceCheckStats.identifierExtracted += 1;
+        }
+      }
 
       return parsedReviewCommentSchema.parse({
         path: file.path,
@@ -637,6 +720,8 @@ export function parseFileReviewResponse(
     confidenceScore: parsed.overall_confidence_score,
     evidenceStats,
     claimTypeCounts,
+    deniedClaimCounts,
+    absenceCheckStats,
   };
 }
 

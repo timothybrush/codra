@@ -42,7 +42,7 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 1 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(1);
     expect(result.comments[0].line).toBe(3);
   });
@@ -55,7 +55,7 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 2 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(1);
     expect(result.comments[0].line).toBe(2);
   });
@@ -66,62 +66,78 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 2 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(0);
     // The reason is part of the marker so the disposition data can attribute it.
     expect(result.fileSummary).toContain('[unverified:unmatched]');
   });
 
-  // Same unmatched evidence, but on a provider that cannot enforce the field. Excluding here would
-  // let a provider limitation empty out the whole review.
-  it('keeps an unmatched finding when the provider could not enforce the schema', () => {
-    const raw = review({
-      evidence: 'const retries = getRetryPolicy(config);',
-      code_location: { absolute_file_path: 'src/app.ts', line: 2 },
-    });
-
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: false });
-    expect(result.comments).toHaveLength(1);
-    expect(result.comments[0].line).toBe(2);
-  });
-
-  // Previously `weak` and `absent` fell through to line-based anchoring and posted, so a finding
-  // that quoted NOTHING was treated more leniently than one that quoted wrong. Under an enforced
-  // schema `evidence` is a required field, so an unusable quote is a schema violation.
-  it('excludes evidence too short to discriminate when the schema required a quote', () => {
+  // `weak` and `absent` used to fall through to line-based anchoring and post, so a finding that
+  // quoted NOTHING was treated more leniently than one that quoted wrong.
+  it('excludes evidence too short to discriminate', () => {
     const raw = review({
       evidence: '}',
       code_location: { absolute_file_path: 'src/app.ts', line: 2 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(0);
     expect(result.fileSummary).toContain('[unverified:weak]');
     expect(result.evidenceStats.weak).toBe(1);
   });
 
-  it('excludes a finding with no evidence at all when the schema required a quote', () => {
+  it('excludes a finding with no evidence at all', () => {
     const raw = review({ code_location: { absolute_file_path: 'src/app.ts', line: 2 } });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(0);
     expect(result.fileSummary).toContain('[unverified:absent]');
     expect(result.evidenceStats.absent).toBe(1);
   });
 
-  // ...but a provider that cannot enforce a grammar must not have its whole review emptied out.
-  it('keeps weak and absent evidence when the provider could not enforce the schema', () => {
-    const weak = parseFileReviewResponse(
-      review({ evidence: '}', code_location: { absolute_file_path: 'src/app.ts', line: 2 } }),
-      file, { schemaEnforced: false },
-    );
-    const absent = parseFileReviewResponse(
-      review({ code_location: { absolute_file_path: 'src/app.ts', line: 2 } }),
-      file, { schemaEnforced: false },
-    );
+  // THE regression this round exists to prevent. Grounding used to be gated on a `schemaEnforced`
+  // flag that was true only for Cloudflare, so on the gemma-first Google chain actually running in
+  // production none of the three exclusions above fired at all. The signature no longer accepts a
+  // provider argument, which is what makes reintroducing the split a type error rather than a
+  // silent regression -- but assert the behaviour too, since a future options bag could bring it
+  // back.
+  it('applies every evidence exclusion without reference to the provider', () => {
+    const unusable = [
+      { evidence: 'const retries = getRetryPolicy(config);' }, // unmatched
+      { evidence: '}' },                                       // weak
+      {},                                                       // absent
+    ];
 
-    expect(weak.comments).toHaveLength(1);
-    expect(absent.comments).toHaveLength(1);
+    for (const over of unusable) {
+      const result = parseFileReviewResponse(
+        review({ ...over, code_location: { absolute_file_path: 'src/app.ts', line: 2 } }),
+        file,
+      );
+      expect(result.comments).toHaveLength(0);
+    }
+  });
+
+  // Models retype rather than copy, and curly quotes are the most common substitution. Once an
+  // unmatched quote is fatal, folding these is the difference between a good finding and a deletion.
+  it('matches evidence whose quotes and dashes were retyped as typographic characters', () => {
+    const quoteFile: FileDiff = {
+      ...file,
+      hunks: [{
+        header: '@@ -1,1 +1,1 @@',
+        lines: [
+          { kind: 'add', content: "const mode = 'fast-path';", newLineNumber: 1, position: 1 },
+        ],
+      }],
+    };
+
+    const raw = review({
+      evidence: 'const mode = ‘fast—path’;',
+      code_location: { absolute_file_path: 'src/app.ts', line: 1 },
+    });
+
+    const result = parseFileReviewResponse(raw, quoteFile);
+    expect(result.comments).toHaveLength(1);
+    expect(result.evidenceStats.matched).toBe(1);
   });
 
   // A quote of removed code must not anchor to the `del` line: findPositionForLine rejects those,
@@ -132,7 +148,7 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 2 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(1);
     expect(result.comments[0].line).toBe(2);
   });
@@ -157,7 +173,7 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 1 },
     });
 
-    const result = parseFileReviewResponse(raw, braceFile, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, braceFile);
     expect(result.comments).toHaveLength(0);
     expect(result.evidenceStats.unmatched).toBe(1);
   });
@@ -168,7 +184,7 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 3 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments).toHaveLength(1);
     expect(result.comments[0].line).toBe(3);
   });
@@ -179,11 +195,13 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 3 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.evidenceStats).toMatchObject({ total: 1, matched: 1, unmatched: 0 });
   });
 
-  it('treats a missing confidence score as failing when the schema required one', () => {
+  // `undefined` is not a neutral value here, it is a bypass: the gate in review.ts only fires on
+  // `typeof === 'number'`, so an omission used to pass a threshold a reported 0.1 would have failed.
+  it('scores a missing confidence as 0 rather than leaving it unset', () => {
     const raw = JSON.stringify({
       findings: [{
         title: 'Unvalidated timeout',
@@ -196,12 +214,7 @@ describe('evidence grounding', () => {
       overall_explanation: 'explanation',
     });
 
-    const enforced = parseFileReviewResponse(raw, file, { schemaEnforced: true });
-    expect(enforced.comments[0].confidenceScore).toBe(0);
-
-    // Where the provider ignores schemas, absence is not the model's fault and must not be scored 0.
-    const unenforced = parseFileReviewResponse(raw, file, { schemaEnforced: false });
-    expect(unenforced.comments[0].confidenceScore).toBeUndefined();
+    expect(parseFileReviewResponse(raw, file).comments[0].confidenceScore).toBe(0);
   });
 
   it('maps priority 4 to nit so the severity gate has something to act on', () => {
@@ -211,8 +224,27 @@ describe('evidence grounding', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 3 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments[0].severity).toBe('nit');
+  });
+
+  // Deliberately NOT 'nit', unlike the confidence rule above: evidence is what makes a claim
+  // checkable, priority is only metadata, and discarding a real P0 over a missing integer is a bad
+  // trade. A change here silently alters which findings clear `min_severity`.
+  it('defaults a missing priority to P3, not nit', () => {
+    const raw = JSON.stringify({
+      findings: [{
+        title: 'Unvalidated timeout',
+        body: 'The timeout value is never checked.',
+        confidence_score: 0.9,
+        evidence: 'server.listen(timeout);',
+        code_location: { absolute_file_path: 'src/app.ts', line: 3 },
+      }],
+      overall_correctness: 'patch is incorrect',
+      overall_explanation: 'explanation',
+    });
+
+    expect(parseFileReviewResponse(raw, file).comments[0].severity).toBe('P3');
   });
 });
 

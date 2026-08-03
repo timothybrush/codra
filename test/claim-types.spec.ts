@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { parseFileReviewResponse } from '@server/core/model-output';
 import { buildFindingFingerprint } from '@server/core/fingerprint';
-import { CLAIM_TYPE_CATEGORY, claimTypes, toClaimType } from '@shared/schema';
+import {
+  CLAIM_TYPE_CATEGORY,
+  CLAIM_TYPE_DECIDABILITY,
+  DEFAULT_DENIED_CLAIM_TYPES,
+  claimTypes,
+  toClaimType,
+} from '@shared/schema';
+import { buildReviewResponseSchema, fileReviewSystemPromptBase } from '@server/prompts/file-review';
 import type { FileDiff } from '@server/core/diff';
 
 const file: FileDiff = {
@@ -43,7 +50,7 @@ describe('claim types', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 1 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments[0].claimType).toBe('sql_injection');
     expect(result.claimTypeCounts).toEqual({ sql_injection: 1 });
   });
@@ -56,7 +63,7 @@ describe('claim types', () => {
         evidence: 'server.listen(timeout);',
         code_location: { absolute_file_path: 'src/app.ts', line: 2 },
       });
-      const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+      const result = parseFileReviewResponse(raw, file);
       expect(result.comments).toHaveLength(1);
       expect(result.comments[0].claimType).toBe('other');
     }
@@ -71,7 +78,7 @@ describe('claim types', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 1 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     expect(result.comments[0].category).toBe('security');
   });
 
@@ -82,6 +89,94 @@ describe('claim types', () => {
     expect(toClaimType('other')).toBe('other');
   });
 
+  it('classifies every claim type for decidability', () => {
+    for (const type of claimTypes) {
+      expect(CLAIM_TYPE_DECIDABILITY[type]).toBeDefined();
+    }
+  });
+});
+
+describe('claim type denylist', () => {
+  const denied = (over: Record<string, unknown> = {}) => review({
+    claim_type: 'redos_regex',
+    evidence: 'const query = `SELECT * FROM users WHERE id = ${id}`;',
+    code_location: { absolute_file_path: 'src/app.ts', line: 1 },
+    ...over,
+  });
+
+  // The denylist is about what the model CANNOT DECIDE from a diff, which is independent of whether
+  // this particular quote happened to resolve. A denied claim with flawless evidence still drops.
+  it('drops a denied claim type even when its evidence matches perfectly', () => {
+    const result = parseFileReviewResponse(denied(), file, { deniedClaimTypes: ['redos_regex'] });
+
+    expect(result.comments).toHaveLength(0);
+    expect(result.fileSummary).toContain('[claim-denied:redos_regex]');
+    expect(result.deniedClaimCounts.redos_regex).toBe(1);
+  });
+
+  // Load-bearing ordering. Counting after the drop would erase denied types from the tally, leaving
+  // no way to distinguish a denylist that is working from one that never matches anything.
+  it('counts a denied claim in claimTypeCounts before dropping it', () => {
+    const result = parseFileReviewResponse(denied(), file, { deniedClaimTypes: ['redos_regex'] });
+    expect(result.claimTypeCounts.redos_regex).toBe(1);
+  });
+
+  it('keeps the same claim when the type is not denied', () => {
+    const result = parseFileReviewResponse(denied(), file, { deniedClaimTypes: [] });
+    expect(result.comments).toHaveLength(1);
+  });
+
+  // Enforcement is invisible to the model precisely so it has no reason to relabel -- but a model can
+  // reach for 'other' unprompted, which would launder a denied claim into the allowed bucket.
+  it('repairs an other-labelled claim whose text is unmistakably a denied class', () => {
+    const raw = review({
+      claim_type: 'other',
+      title: 'Effect re-runs on every render',
+      body: 'The dependency array omits `id`, so this effect runs on every render.',
+      evidence: 'server.listen(timeout);',
+      code_location: { absolute_file_path: 'src/app.ts', line: 2 },
+    });
+
+    const result = parseFileReviewResponse(raw, file, { deniedClaimTypes: ['react_hook_missing_deps'] });
+    expect(result.comments).toHaveLength(0);
+    expect(result.deniedClaimCounts.react_hook_missing_deps).toBe(1);
+  });
+
+  // The counterpart risk: repair must not drag legitimate 'other' findings into a denied bucket.
+  it('leaves a generic other finding alone', () => {
+    const raw = review({
+      claim_type: 'other',
+      title: 'Loading guard is bypassed',
+      body: 'When the render prop is used the loading state is never checked.',
+      evidence: 'server.listen(timeout);',
+      code_location: { absolute_file_path: 'src/app.ts', line: 2 },
+    });
+
+    const result = parseFileReviewResponse(raw, file, { deniedClaimTypes: [...DEFAULT_DENIED_CLAIM_TYPES] });
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0].claimType).toBe('other');
+  });
+
+  // Anti-laundering guard. If the model is ever SHOWN a narrowed enum, it will relabel denied claims
+  // as 'other' and walk them straight through the allowed bucket -- while also destroying the
+  // per-type measurement. The grammar must keep advertising all of them.
+  it('still advertises every claim type to the model', () => {
+    const schema = buildReviewResponseSchema(10) as unknown as {
+      schema: { properties: { findings: { items: { properties: { claim_type: { enum: string[] } } } } } };
+    };
+
+    expect(schema.schema.properties.findings.items.properties.claim_type.enum)
+      .toEqual([...claimTypes]);
+    for (const type of claimTypes) {
+      expect(fileReviewSystemPromptBase).toContain(type);
+    }
+  });
+
+  it('excludes null_or_undefined_deref from the default denylist pending measurement', () => {
+    expect(DEFAULT_DENIED_CLAIM_TYPES).not.toContain('null_or_undefined_deref');
+    expect(DEFAULT_DENIED_CLAIM_TYPES).toContain('react_hook_missing_deps');
+  });
+
   it('captures the diff context needed to re-judge the finding later', () => {
     const raw = review({
       claim_type: 'other',
@@ -89,7 +184,7 @@ describe('claim types', () => {
       code_location: { absolute_file_path: 'src/app.ts', line: 2 },
     });
 
-    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    const result = parseFileReviewResponse(raw, file);
     // Without this, offline evaluation is impossible: migration 003 nulls diff_input and the KV
     // diff cache expires after 6 hours.
     expect(result.comments[0].contextSnippet).toContain('server.listen(timeout);');

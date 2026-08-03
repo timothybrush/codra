@@ -209,6 +209,19 @@ export const api = {
       method: 'DELETE',
     });
   },
+  /** Record a human verdict on one finding. 'wrong' also suppresses it repo-wide; 'right' does not. */
+  setFindingLabel(jobId: string, fingerprint: string, label: 'right' | 'wrong') {
+    return request<{ label: 'right' | 'wrong' }>(
+      `/api/jobs/${pathSegment(jobId)}/findings/${pathSegment(fingerprint)}/label`,
+      { method: 'PUT', body: JSON.stringify({ label }) },
+    );
+  },
+  clearFindingLabel(jobId: string, fingerprint: string) {
+    return request<void>(
+      `/api/jobs/${pathSegment(jobId)}/findings/${pathSegment(fingerprint)}/label`,
+      { method: 'DELETE' },
+    );
+  },
   getRepos() {
     return request<RepoConfigsResponse>('/api/repos');
   },

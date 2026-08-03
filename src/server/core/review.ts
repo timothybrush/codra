@@ -852,6 +852,7 @@ async function runReviewPhase(
           model: awaitingReview.async_model ?? awaitingReview.model_used,
           requestId: awaitingReview.async_request_id!,
           file,
+          config,
         });
         if (poll.status === 'pending') {
           awaitingAsync += 1;
@@ -1166,6 +1167,17 @@ async function reviewAndPersistFile(
       overallCorrectness: response.parsed.overallCorrectness,
       confidenceScore: response.parsed.confidenceScore,
       errorMessage: null,
+      // Persisted because these findings produce NO review_comments row -- they are dropped in the
+      // parser, before a ParsedReviewComment exists. Without this, finalize cannot tell "the model
+      // found nothing" from "everything it found was withheld", and would approve the PR either way.
+      // Optional-chained because `parsed` is also assembled by hand on the chunk-merge path: a
+      // missing counter must degrade the instrumentation, never fail the file review it describes.
+      withheldCounts: {
+        evidence: (response.parsed.evidenceStats?.unmatched ?? 0)
+          + (response.parsed.evidenceStats?.absent ?? 0)
+          + (response.parsed.evidenceStats?.weak ?? 0),
+        claimDenied: Object.values(response.parsed.deniedClaimCounts ?? {}).reduce((sum, n) => sum + n, 0),
+      },
     });
 
     // evidenceStats was computed and thrown away by every caller. It is the only per-file view of
@@ -1177,6 +1189,10 @@ async function reviewAndPersistFile(
       kept: response.parsed.comments.length,
       evidence: response.parsed.evidenceStats,
       claimTypes: response.parsed.claimTypeCounts,
+      deniedClaims: response.parsed.deniedClaimCounts,
+      // Shadow only. `refuted` staying 0 while `absenceShaped` climbs means the check is reaching
+      // real claims but never resolving an identifier -- the extraction, not the idea, is the problem.
+      absenceCheck: response.parsed.absenceCheckStats,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown file review error';
@@ -1390,7 +1406,12 @@ function shadowEvaluate(candidates: ParsedReviewComment[], posted: ParsedReviewC
     dropP3AndNit: count((c) => c.severity === 'P3' || c.severity === 'nit'),
     dropLowYieldTitle: count((c) => LOW_YIELD_TITLE.test(c.title)),
     dropUnmatchedEvidence: count((c) => !c.evidence),
-    dropTsxHookClaims: count((c) => c.claimType === 'react_hook_missing_deps'),
+    // The one denylist candidate deliberately NOT enforced yet. It is the most FP-prone claim class,
+    // but unlike the hook claims there is no corpus measurement showing it never posts -- so it is
+    // scored here first. Move it into DEFAULT_DENIED_CLAIM_TYPES once `wouldDropPosted` is reliably 0
+    // over ~10 reviews. (`react_hook_missing_deps` left this harness when it became enforced; a rule
+    // that is already applied always scores 0 here and tells you nothing.)
+    dropNullDeref: count((c) => c.claimType === 'null_or_undefined_deref'),
   };
 }
 
@@ -1406,9 +1427,61 @@ function verifyCandidateLimit(effectiveMaxComments: number) {
 }
 
 /**
- * Best-effort verification pass: one consolidated model call re-checks the top candidate findings
- * against their diff context and drops the false positives. Any failure (model error, unparseable
- * output) falls back to returning the input findings unchanged — verification never blocks a review.
+ * Below this share of answered indices the response is treated as a non-answer and everything is
+ * kept. A model that returned 3 verdicts for 20 findings did not do the task, and letting the 17
+ * silent ones fail closed would be a mass deletion dressed up as judgement.
+ *
+ * A guess, pending data. `droppedUnanswered` is logged separately so it can be tuned; if it is
+ * routinely non-zero the batch is too large and `verifyCandidateLimit` should come down instead.
+ */
+const VERIFY_MIN_ANSWER_RATIO = 0.6;
+
+/**
+ * Above this share of un-snippetable candidates, verification is skipped entirely.
+ *
+ * Unverifiable candidates now fail closed, which makes a path-normalization mismatch between the
+ * diff and the stored comments capable of deleting every finding in a file. That is an
+ * infrastructure failure and must never read as a wall of model verdicts.
+ */
+const UNVERIFIABLE_CIRCUIT_BREAKER_RATIO = 0.5;
+
+export type VerifyDrop = {
+  comment: ParsedReviewComment;
+  disposition: Extract<FindingDisposition, 'verify' | 'verify_unanswered' | 'unverifiable_passthrough'>;
+  reason?: string;
+};
+
+export type VerifyOutcome = {
+  /** A strict SUBSEQUENCE of the input: this pass may only ever subtract. */
+  comments: ParsedReviewComment[];
+  dropped: VerifyDrop[];
+  /** Verifier reasoning per judged candidate, for the kept ones too. The tuning surface. */
+  reasons: Map<ParsedReviewComment, string>;
+  stats: {
+    candidates: number;
+    answered: number;
+    droppedByVerdict: number;
+    droppedUnanswered: number;
+    droppedUnverifiable: number;
+    /** Candidates past the limit, never judged at all. A pre-existing hole, now at least visible. */
+    unverifiedTail: number;
+    failedOpen: false | 'error' | 'no_verdicts' | 'under_response' | 'unverifiable_ratio';
+  };
+};
+
+/**
+ * The Gatekeeper: one consolidated model call re-checks the top candidate findings against their
+ * diff context and subtracts the ones that don't hold up.
+ *
+ * Two structural properties, both load-bearing:
+ *
+ * 1. It can only SUBTRACT. The return is `comments.filter(...)`, so the severity sort established by
+ *    the caller survives by construction rather than by remembering to re-sort. This used to return
+ *    `[...kept, ...unverifiable, ...passthrough]`, which reordered the array before `max_comments`
+ *    sliced it -- so the cap was cutting from a list that was no longer in severity order.
+ * 2. Verdicts are read from a SPARSE MAP keyed on the model's own `index` field, never by position.
+ *    A renumbered or truncated list can therefore no longer delete the wrong finding; the worst it
+ *    can do is leave an index unanswered, which is a separate, separately-labelled outcome.
  */
 export async function verifyFindings(params: {
   job: Pick<PersistedReviewJob, 'id'>;
@@ -1417,13 +1490,23 @@ export async function verifyFindings(params: {
   comments: ParsedReviewComment[];
   model: Pick<ModelService, 'verifyFindings'>;
   maxCandidates?: number;
-}): Promise<ParsedReviewComment[]> {
+}): Promise<VerifyOutcome> {
   const { comments, files, model, config, job } = params;
-  if (comments.length === 0) return comments;
+  const keepAll = (failedOpen: VerifyOutcome['stats']['failedOpen'], extra?: Partial<VerifyOutcome['stats']>): VerifyOutcome => ({
+    comments,
+    dropped: [],
+    reasons: new Map(),
+    stats: {
+      candidates: 0, answered: 0, droppedByVerdict: 0, droppedUnanswered: 0,
+      droppedUnverifiable: 0, unverifiedTail: 0, failedOpen, ...extra,
+    },
+  });
+
+  if (comments.length === 0) return keepAll(false);
 
   const limit = verifyCandidateLimit(params.maxCandidates ?? config.review.max_comments);
   const toVerify = comments.slice(0, limit);
-  const passthrough = comments.slice(limit);
+  const unverifiedTail = comments.length - toVerify.length;
 
   const fileByPath = new Map(files.map((file) => [file.path, file]));
   const prepared = toVerify.map((comment) => ({
@@ -1431,14 +1514,21 @@ export async function verifyFindings(params: {
     snippet: renderDiffSnippet(fileByPath.get(comment.path), comment.line ?? undefined),
   }));
 
-  // A candidate we can show no context for cannot be judged. Sending it anyway would ask the model
-  // to rule on a claim it has no way to check, and a strict verifier drops what it can't confirm --
-  // so a path-normalization mismatch between the diff and the stored comment would silently wipe
-  // out every finding in that file. Pass those through unverified instead: an infrastructure miss
-  // must never look like a model verdict.
   const verifiable = prepared.filter((entry) => entry.snippet !== '' || entry.comment.evidence);
   const unverifiable = prepared.filter((entry) => entry.snippet === '' && !entry.comment.evidence);
-  if (verifiable.length === 0) return comments;
+
+  // Circuit breaker before anything else: a wholesale failure to render snippets is infrastructure,
+  // not judgement, and the fail-closed rule below would turn it into a silent mass deletion.
+  const unverifiableRatio = prepared.length > 0 ? unverifiable.length / prepared.length : 0;
+  if (verifiable.length === 0 || unverifiableRatio > UNVERIFIABLE_CIRCUIT_BREAKER_RATIO) {
+    logger.warn('Too many candidates have no diff context; skipping verification', {
+      jobId: job.id,
+      unverifiable: unverifiable.length,
+      prepared: prepared.length,
+      paths: [...new Set(unverifiable.map((entry) => entry.comment.path))].slice(0, 10),
+    });
+    return keepAll('unverifiable_ratio', { unverifiedTail });
+  }
 
   const candidates: VerifyCandidate[] = verifiable.map((entry, index) => ({
     index,
@@ -1454,38 +1544,108 @@ export async function verifyFindings(params: {
     const response = await model.verifyFindings({ candidates, config });
     const results = parseVerifyResponse(response.rawText);
 
-    // The drop set is keyed on model-supplied indices, so a model that renumbers or returns a short
-    // list would silently delete the WRONG findings. Only honor a result set that is a complete,
-    // in-range answer; anything else falls back to keep-all, the same as an outright failure.
-    const inRange = results.every((result) => result.index >= 0 && result.index < candidates.length);
-    if (results.length !== candidates.length || !inRange) {
-      logger.warn('Verification returned an unusable result set; keeping all findings', {
-        jobId: job.id,
-        candidates: candidates.length,
-        results: results.length,
-        inRange,
+    // Sparse, index-keyed, and tolerant of junk: an out-of-range index is ignored rather than
+    // aborting the whole pass, and two conflicting verdicts for one index cancel out to "unanswered"
+    // instead of letting arrival order decide.
+    const byIndex = new Map<number, { verdict: 'keep' | 'drop'; reason?: string }>();
+    const conflicting = new Set<number>();
+    for (const result of results) {
+      if (!Number.isInteger(result.index) || result.index < 0 || result.index >= candidates.length) continue;
+      const prior = byIndex.get(result.index);
+      if (prior && prior.verdict !== result.verdict) {
+        conflicting.add(result.index);
+        continue;
+      }
+      if (!prior) byIndex.set(result.index, { verdict: result.verdict, reason: result.reason });
+    }
+    for (const index of conflicting) byIndex.delete(index);
+
+    const answered = byIndex.size;
+    if (answered === 0) {
+      logger.warn('Verification returned no usable verdicts; keeping all findings', {
+        jobId: job.id, candidates: candidates.length, results: results.length,
       });
-      return comments;
+      return keepAll('no_verdicts', { candidates: candidates.length, unverifiedTail });
+    }
+    if (answered / candidates.length < VERIFY_MIN_ANSWER_RATIO) {
+      logger.warn('Verification under-responded; keeping all findings', {
+        jobId: job.id, candidates: candidates.length, answered,
+      });
+      return keepAll('under_response', { candidates: candidates.length, answered, unverifiedTail });
     }
 
-    const dropped = new Set<number>();
-    for (const result of results) {
-      if (result.verdict === 'drop') dropped.add(result.index);
+    const dropped: VerifyDrop[] = [];
+    const reasons = new Map<ParsedReviewComment, string>();
+    let droppedByVerdict = 0;
+    let droppedUnanswered = 0;
+
+    verifiable.forEach((entry, index) => {
+      const result = byIndex.get(index);
+      if (result?.reason) reasons.set(entry.comment, result.reason);
+
+      if (result?.verdict === 'drop') {
+        droppedByVerdict += 1;
+        dropped.push({ comment: entry.comment, disposition: 'verify', reason: result.reason });
+        return;
+      }
+      if (!result) {
+        // Fail closed. The prompt demands exactly one result per index, so an index the model never
+        // addressed has not been endorsed. Labelled distinctly from a real 'verify' drop on purpose:
+        // this one is OUR defect, and conflating the two would make the tuning data worthless in
+        // exactly the way `posted = false` was.
+        droppedUnanswered += 1;
+        dropped.push({
+          comment: entry.comment,
+          disposition: 'verify_unanswered',
+          reason: 'the verifier returned no verdict for this finding',
+        });
+      }
+    });
+
+    for (const entry of unverifiable) {
+      dropped.push({
+        comment: entry.comment,
+        disposition: 'unverifiable_passthrough',
+        reason: 'no diff context could be rendered for this location',
+      });
     }
-    const kept = verifiable.filter((_, index) => !dropped.has(index)).map((entry) => entry.comment);
+
+    const droppedSet = new Set(dropped.map((drop) => drop.comment));
     logger.info('Verification pass complete', {
       jobId: job.id,
       candidates: candidates.length,
-      dropped: candidates.length - kept.length,
-      unverifiable: unverifiable.length,
+      answered,
+      droppedByVerdict,
+      droppedUnanswered,
+      droppedUnverifiable: unverifiable.length,
+      unverifiedTail,
+      // Severity of every unverifiable drop: a P0 appearing here means the fail-closed rule is
+      // eating high-severity findings for an infrastructure reason and should be reverted.
+      unverifiableSeverities: unverifiable.map((entry) => entry.comment.severity),
+      topReasons: dropped.slice(0, 5).map((drop) => drop.reason),
     });
-    return [...kept, ...unverifiable.map((entry) => entry.comment), ...passthrough];
+
+    return {
+      // Subtraction only, hence the sort is preserved.
+      comments: comments.filter((comment) => !droppedSet.has(comment)),
+      dropped,
+      reasons,
+      stats: {
+        candidates: candidates.length,
+        answered,
+        droppedByVerdict,
+        droppedUnanswered,
+        droppedUnverifiable: unverifiable.length,
+        unverifiedTail,
+        failedOpen: false,
+      },
+    };
   } catch (error) {
     logger.warn('Verification pass failed; posting pre-verification findings', {
       jobId: job.id,
       error: error instanceof Error ? error.message : String(error),
     });
-    return comments;
+    return keepAll('error', { candidates: candidates.length, unverifiedTail });
   }
 }
 
@@ -1577,15 +1737,21 @@ async function runFinalizePhase(
   const minRank = severityRanks[config.review.min_severity] ?? 4;
   const minConfidence = config.review.min_confidence ?? 0;
 
-  // 1. Severity + confidence gates. A finding with an explicit confidence below the threshold is
-  //    dropped as too speculative; findings without a confidence score are kept (the model didn't
-  //    provide one) but rank lowest in the confidence tiebreak below. Where the provider enforced
-  //    our schema the parser already substitutes 0 for an omitted score, so the gate still bites.
+  // 1. Severity + confidence gates. A finding whose confidence is below the threshold is dropped as
+  //    too speculative. The parser now substitutes 0 for an omitted score on EVERY provider, so an
+  //    omission can no longer sail past a threshold that a reported 0.1 would have failed -- which
+  //    is what made this gate a no-op on the Google chain. Note `min_confidence` now defaults to 0
+  //    (see the rationale on the schema): confidence is inversely correlated with correctness here,
+  //    so the gate is repaired but deliberately inert unless an operator opts in.
   // Which stage ended each finding's life, keyed by fingerprint. `posted = false` on its own
   // conflates six outcomes, which is what made the historical corpus unusable for evaluation --
   // "P3 is never posted" turned out to be mostly P3 sorting last and the cap slicing from the end.
   // Attribution has to be captured where the decision is made; it cannot be reconstructed later.
   const dispositions = new Map<string, FindingDisposition>();
+  // The verifier's own words, for kept findings as well as dropped ones. Parsed and discarded until
+  // now; it is the only surface that explains WHY the Gatekeeper ruled the way it did, and a filter
+  // nobody can inspect is a filter nobody can tune.
+  const verifyReasons = new Map<string, string>();
   const recordDisposition = (comments: ParsedReviewComment[], stage: FindingDisposition) => {
     for (const comment of comments) {
       if (comment.fingerprint && !dispositions.has(comment.fingerprint)) {
@@ -1652,13 +1818,18 @@ async function runFinalizePhase(
   });
 
   // 5. Verification pass: one consolidated model call re-checks the surviving candidates against the
-  //    actual diff and drops false positives. Best-effort — on any failure we keep the filtered set.
+  //    actual diff and subtracts what doesn't hold up. Best-effort — on any failure we keep the
+  //    filtered set. It returns a subsequence, so the severity sort above survives into the cap.
   const beforeVerifyList = finalComments;
-  const beforeVerify = finalComments.length;
-  finalComments = await verifyFindings({ job, config, files, comments: finalComments, model, maxCandidates: effectiveMaxComments });
-  const droppedByVerification = beforeVerify - finalComments.length;
-  const survivedVerify = new Set(finalComments);
-  recordDisposition(beforeVerifyList.filter((c) => !survivedVerify.has(c)), 'verify');
+  const verify = await verifyFindings({ job, config, files, comments: finalComments, model, maxCandidates: effectiveMaxComments });
+  finalComments = verify.comments;
+  const droppedByVerification = verify.dropped.length;
+  // Per-drop attribution rather than a set difference: this is what distinguishes "the model judged
+  // this a drop" from "the verifier never answered" from "we could render no context for it".
+  for (const drop of verify.dropped) recordDisposition([drop.comment], drop.disposition);
+  for (const [comment, reason] of verify.reasons) {
+    if (comment.fingerprint) verifyReasons.set(comment.fingerprint, reason);
+  }
 
   const beforeCapList = finalComments;
   const beforeCap = finalComments.length;
@@ -1670,6 +1841,15 @@ async function runFinalizePhase(
   const omittedCount = reviewedComments.length - finalComments.length;
   // Everything removed before verification, minus suppression: severity/confidence gates + dedupe.
   const droppedByFilters = omittedCount - droppedBySuppression - droppedByVerification - droppedByCap;
+
+  // Findings the PARSER withheld. They never became review_comments rows, so `reviewedComments` has
+  // never seen them and no disposition could be recorded -- which is why the count has to be carried
+  // on the file_reviews row. Needed for the verdict below: without it, "the model found nothing" and
+  // "everything it found was withheld" are the same state, and both get approved.
+  const withheldByParser = reviews.reduce(
+    (sum, review) => sum + (review.withheld_counts?.evidence ?? 0) + (review.withheld_counts?.claimDenied ?? 0),
+    0,
+  );
 
   // Per-claim-type counts, split by whether the finding survived. This is the number that matters:
   // a type that is repeatedly generated and never posted is a type to retire. It would have shown
@@ -1695,6 +1875,7 @@ async function runFinalizePhase(
     droppedByVerification,
     droppedByCap,
     posted: finalComments.length,
+    withheldByParser,
     byClaimType,
     // Canaries. A review that posts nothing is not automatically wrong, but three in a row means
     // the filters have gone too far -- that is the signal to revert the most recent change.
@@ -1716,7 +1897,18 @@ async function runFinalizePhase(
   // posted right now. A finding suppressed because we already commented on it in an earlier commit
   // is still unaddressed -- approving the PR (and applying the green label) while an unresolved P0
   // comment sits on the diff would be actively misleading.
-  const verdictSummary = formatter.summarizeVerdict([...finalComments, ...suppressedComments], hasFailures);
+  const rawVerdict = formatter.summarizeVerdict([...finalComments, ...suppressedComments], hasFailures);
+
+  // A PR whose every finding was withheld must not read as a clean one. The gates are strict and
+  // deliberately so, but "we filtered all of it" and "there was nothing to find" are different
+  // statements and only the second justifies a green approval. Downgrading to 'comment' also moves
+  // the label off the approved one, which is the point: the reader should not infer a pass.
+  const everythingWithheld = finalComments.length === 0
+    && suppressedComments.length === 0
+    && (withheldByParser > 0 || omittedCount > 0);
+  const verdictSummary = everythingWithheld && rawVerdict.verdict === 'approve'
+    ? { ...rawVerdict, verdict: 'comment' as const }
+    : rawVerdict;
   await updateJobStep(env, job.id, 'Generating Summary', { status: 'done' });
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
@@ -1741,6 +1933,13 @@ async function runFinalizePhase(
     if (droppedByCap > 0) reasons.push(`${droppedByCap} over the \`max_comments\` cap (${effectiveMaxComments})`);
 
     formattedSummary += `\n\n> [!NOTE]\n> **${omittedCount} finding${omittedCount === 1 ? ' was' : 's were'} omitted** — ${reasons.join('; ')}.`;
+  }
+
+  // Counted separately from `omittedCount`, which is derived from review_comments rows these findings
+  // never got. Reported anyway: withholding an unverifiable claim is the right call, but doing it
+  // silently is how a filtered review becomes indistinguishable from a clean one.
+  if (withheldByParser > 0) {
+    formattedSummary += `\n\n> [!NOTE]\n> **${withheldByParser} further claim${withheldByParser === 1 ? ' was' : 's were'} withheld** before review — either the quoted code could not be found in the diff, or the claim was of a kind that cannot be judged from a diff alone. They are listed per file below.`;
   }
 
   // If a prior finalize attempt already reached the posting stage (the 'Completing' step was
@@ -1785,7 +1984,17 @@ async function runFinalizePhase(
   // Record why every other finding did not make it. Best-effort: this is measurement, and a
   // failure here must never fail a review that is already on GitHub.
   try {
-    await markCommentDispositions(env, job.id, dispositions);
+    // Union of the two maps: every finding with a disposition, plus every finding the verifier gave a
+    // reason for (including the ones it KEPT, which have no disposition and must not clobber
+    // 'posted' -- see the COALESCE in markCommentDispositions).
+    const withReasons = new Map<string, { disposition: string | null; reason: string | null }>();
+    for (const fingerprint of new Set([...dispositions.keys(), ...verifyReasons.keys()])) {
+      withReasons.set(fingerprint, {
+        disposition: dispositions.get(fingerprint) ?? null,
+        reason: verifyReasons.get(fingerprint) ?? null,
+      });
+    }
+    await markCommentDispositions(env, job.id, withReasons);
   } catch (error) {
     logger.warn('Could not record finding dispositions', {
       jobId: job.id,

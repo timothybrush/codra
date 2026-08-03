@@ -35,18 +35,15 @@ const MODEL_ALIASES: Record<string, string> = {
   'gemma-4-26b': 'gemma-4-26b-a4b-it',
 };
 
-/**
- * Whether the provider actually constrains decoding to the `responseSchema` we send, rather than
- * merely being asked nicely in the prompt.
- *
- * This is the difference between "the model omitted a required field" (a defect worth acting on)
- * and "this provider was never able to guarantee the field" (not the model's fault). Downstream
- * gates that exclude findings for a missing `confidence_score`, `priority`, or `evidence` may only
- * do so when this is true -- otherwise a provider that ignores schemas would have every one of its
- * findings deleted.
- */
-function providerEnforcesResponseSchema(apiFormat: ResolvedModelConfig['apiFormat']): boolean {
-  return apiFormat === 'cloudflare-workers-ai';
+/** Sums per-key counters across a file's chunks. */
+function mergeCounts(sources: Array<Record<string, number> | undefined>): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const source of sources) {
+    for (const [key, count] of Object.entries(source ?? {})) {
+      merged[key] = (merged[key] ?? 0) + count;
+    }
+  }
+  return merged;
 }
 
 export class RetryableModelError extends Error {
@@ -389,6 +386,23 @@ export class ModelService {
       parsed: {
         ...primaryResult.parsed,
         comments: combinedFindings,
+        // Summed across chunks, not inherited from the primary one. These counters drive the
+        // "N claims were withheld" note and the approve/comment verdict, so taking a single chunk's
+        // numbers would under-report a truncated file's withheld findings by up to 3/4.
+        evidenceStats: results.reduce((acc, r) => ({
+          total: acc.total + (r.parsed.evidenceStats?.total ?? 0),
+          matched: acc.matched + (r.parsed.evidenceStats?.matched ?? 0),
+          unmatched: acc.unmatched + (r.parsed.evidenceStats?.unmatched ?? 0),
+          weak: acc.weak + (r.parsed.evidenceStats?.weak ?? 0),
+          absent: acc.absent + (r.parsed.evidenceStats?.absent ?? 0),
+        }), { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 }),
+        claimTypeCounts: mergeCounts(results.map((r) => r.parsed.claimTypeCounts)),
+        deniedClaimCounts: mergeCounts(results.map((r) => r.parsed.deniedClaimCounts)),
+        absenceCheckStats: results.reduce((acc, r) => ({
+          absenceShaped: acc.absenceShaped + (r.parsed.absenceCheckStats?.absenceShaped ?? 0),
+          identifierExtracted: acc.identifierExtracted + (r.parsed.absenceCheckStats?.identifierExtracted ?? 0),
+          refuted: acc.refuted + (r.parsed.absenceCheckStats?.refuted ?? 0),
+        }), { absenceShaped: 0, identifierExtracted: 0, refuted: 0 }),
       },
       reviewedLineCount: results.reduce((sum, r) => sum + r.reviewedLineCount, 0),
       wasPromptTruncated: chunks.length < totalChunkCount || results.length < chunks.length,
@@ -460,7 +474,7 @@ export class ModelService {
    * Poll a previously submitted async batch review. Returns 'pending' while still queued/running,
    * 'done' with the parsed review once complete, or 'failed' if the poll or parse errored.
    */
-  async pollReviewBatch(params: { model: string; requestId: string; file: any }): Promise<
+  async pollReviewBatch(params: { model: string; requestId: string; file: any; config: RepoConfig }): Promise<
     | { status: 'pending' }
     | { status: 'done'; response: ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>; reviewedLineCount: number; wasPromptTruncated: boolean; userPrompt: string } }
     | { status: 'failed'; error: unknown }
@@ -483,7 +497,7 @@ export class ModelService {
         this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
       }
       const parsed = parseFileReviewResponse(response.rawText, params.file, {
-        schemaEnforced: providerEnforcesResponseSchema(resolved.apiFormat),
+        deniedClaimTypes: params.config.review.deny_claim_types,
       });
       return {
         status: 'done',
@@ -595,7 +609,7 @@ export class ModelService {
         }
 
         const parsed = parseFileReviewResponse(response.rawText, params.file, {
-          schemaEnforced: providerEnforcesResponseSchema(resolved.apiFormat),
+          deniedClaimTypes: params.config.review.deny_claim_types,
         });
         return {
           ...response,

@@ -86,13 +86,11 @@ Your goal is to find REAL defects — bugs, security vulnerabilities, and perfor
 - If you cannot quote a specific line from the diff that exhibits the problem, you do not have a finding. Omit it.
 
 ### CLAIM TYPE (required — pick the one that fits, or "other"):
-react_hook_missing_deps, react_missing_cleanup, missing_await, unhandled_promise_rejection,
-resource_leak, null_or_undefined_deref, sql_injection, unsafe_dom_sink, unsafe_dynamic_code,
-insecure_randomness, hardcoded_secret, redos_regex, swallowed_error, mutable_default_arg,
-destructive_migration, other
+${claimTypes.join(', ')}
 - This is a label for the KIND of defect. It does not license the claim: only report a type if the
   diff actually shows it. Picking a type the code cannot exhibit makes the finding easy to discard.
 - If nothing fits, use "other". Do not stretch a label to fit.
+- Label honestly. The type you choose does not affect whether a finding is accepted; an inaccurate label only makes a real defect harder to act on.
 
 ### OUTPUT RULES:
 1. Output MUST be valid JSON — EXACTLY ONE object matching the schema below.

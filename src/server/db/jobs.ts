@@ -438,7 +438,20 @@ export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: 
                         'anchorHash', rc.anchor_hash,
                         'posted', rc.posted,
                         'claimType', rc.claim_type,
-                        'disposition', rc.disposition
+                        'disposition', rc.disposition,
+                        'verifyReason', rc.verify_reason,
+                        -- Written since migration 004 but never selected here, so the dashboard has
+                        -- never been able to show it. A human cannot label a finding they can't see.
+                        'contextSnippet', rc.context_snippet,
+                        -- Correlated rather than joined so this stays one round trip. Served by the
+                        -- comment_feedback (repository_id, fingerprint) index from migration 005.
+                        'humanLabel', (
+                          SELECT cf.outcome FROM comment_feedback cf
+                          WHERE cf.repository_id = j.repository_id
+                            AND cf.fingerprint = rc.fingerprint
+                            AND cf.source = 'dashboard'
+                          LIMIT 1
+                        )
                       )
                       ORDER BY rc.id ASC
                     ) FROM review_comments rc WHERE rc.file_review_id = fr.id

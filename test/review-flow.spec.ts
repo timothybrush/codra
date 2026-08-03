@@ -68,7 +68,13 @@ vi.mock('@server/services/model', () => {
                     verdict: 'comment',
                     fileSummary: 'Looks ok',
                     overallCorrectness: 'issues found',
-                    confidenceScore: 0.9
+                    confidenceScore: 0.9,
+                    // Kept in step with parseFileReviewResponse: finalize sums these to decide whether
+                    // an empty review means "nothing found" or "everything withheld".
+                    evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
+                    claimTypeCounts: { other: 1 },
+                    deniedClaimCounts: {},
+                    absenceCheckStats: { absenceShaped: 0, identifierExtracted: 0, refuted: 0 },
                 },
                 modelUsed: 'test-model',
                 provider: 'test-provider',
@@ -85,6 +91,19 @@ vi.mock('@server/services/model', () => {
                 rawText: '{"summary": "test"}',
                 inputTokens: 3,
                 outputTokens: 2,
+            };
+        }
+        // Keeps every finding. Without this the verifier throws, and although it fails open, the
+        // warning masked genuine failures in this suite.
+        async verifyFindings({ candidates }: { candidates: Array<{ index: number }> }) {
+            return {
+                modelUsed: 'verify-model',
+                provider: 'test-provider',
+                rawText: JSON.stringify({
+                    results: candidates.map((c) => ({ index: c.index, reason: 'confirmed', verdict: 'keep' })),
+                }),
+                inputTokens: 1,
+                outputTokens: 1,
             };
         }
     }
