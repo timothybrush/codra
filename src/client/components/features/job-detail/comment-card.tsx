@@ -10,6 +10,17 @@ import { severityConfig } from './constants';
 
 const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
 
+/** Plain-English reason a finding never reached the pull request. */
+const DISPOSITION_LABEL: Record<string, string> = {
+  severity: 'Below the severity threshold for this repository',
+  confidence: 'The model was not confident enough in this finding',
+  suppression: 'Already reported on an earlier commit, or previously dismissed',
+  dedupe: 'Collapsed into another finding with the same title',
+  verify: 'The verification pass could not confirm it against the diff',
+  cap: 'Over the max-comments limit for a single review',
+  unverifiable_passthrough: 'Could not be verified — no diff context was available',
+};
+
 interface CommentCardProps {
   comment: ParsedReviewComment;
   filePath: string;
@@ -62,6 +73,22 @@ export function CommentCard({ comment, filePath }: CommentCardProps) {
         </span>
         {comment.line != null && (
           <span className="ui-font-mono tabular-nums">line {comment.line}</span>
+        )}
+        {comment.claimType && comment.claimType !== 'other' && (
+          <span className="ui-font-mono rounded bg-card/60 px-1.5 py-0.5 text-[11px] text-ui-subtle">
+            {comment.claimType.replace(/_/g, ' ')}
+          </span>
+        )}
+        {/* A finding in this list did not necessarily reach the pull request -- the dashboard shows
+            everything the model produced. Say which stage stopped it rather than leaving a filtered
+            finding looking identical to a posted one. */}
+        {comment.posted === false && comment.disposition && comment.disposition !== 'posted' && (
+          <span
+            className="ui-font-mono rounded bg-card/60 px-1.5 py-0.5 text-[11px] text-ui-subtle"
+            title={DISPOSITION_LABEL[comment.disposition] ?? 'Not posted'}
+          >
+            not posted · {comment.disposition}
+          </span>
         )}
       </div>
 

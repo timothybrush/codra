@@ -1,4 +1,13 @@
-import { fileReviewModelOutputSchema, parsedReviewCommentSchema, summaryModelOutputSchema, type ParsedReviewComment, reviewSeverities } from '@shared/schema';
+import {
+  fileReviewModelOutputSchema,
+  parsedReviewCommentSchema,
+  summaryModelOutputSchema,
+  toClaimType,
+  CLAIM_TYPE_CATEGORY,
+  type ParsedReviewComment,
+  reviewSeverities,
+} from '@shared/schema';
+import { renderDiffSnippet } from '@server/prompts/verify';
 import { z } from 'zod';
 import { logger } from './logger';
 import { findClosestValidLine, findPositionForLine, getValidNewLines, getValidPositions } from './diff';
@@ -341,10 +350,18 @@ function resolveEvidence(
   const exact = index.byContent.get(firstLine);
   if (exact && exact.length > 0) return { status: 'matched', line: nearest(exact) };
 
-  // The model may have quoted a fragment of the line, or included trailing context. Accept
-  // containment in either direction before giving up.
+  // The model may have quoted a fragment of the line, or included trailing context, so accept
+  // containment in either direction -- but BOTH sides have to be discriminating.
+  //
+  // Requiring only the evidence to clear the length bar is not enough: a fabricated quote like
+  // "useEffect(() => {" trivially contains a real but meaningless diff line such as ") => {", so
+  // the finding anchors onto whatever brace happens to match and looks grounded. Observed in
+  // production -- four hallucinated React-hook findings anchored to lines that were nothing but
+  // punctuation. Holding the matched line to the same minimum closes that.
   const contained = index.lines
-    .filter(({ normalized }) => normalized.includes(firstLine) || firstLine.includes(normalized))
+    .filter(({ normalized }) =>
+      normalized.length >= MIN_DISCRIMINATING_EVIDENCE_CHARS
+      && (normalized.includes(firstLine) || firstLine.includes(normalized)))
     .map(({ line }) => line);
   if (contained.length > 0) return { status: 'matched', line: nearest(contained) };
 
@@ -370,7 +387,8 @@ export function parseFileReviewResponse(
   fileSummary: string;
   overallCorrectness?: string;
   confidenceScore?: number;
-  evidenceStats: { total: number; matched: number; unmatched: number; absent: number };
+  evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number };
+  claimTypeCounts: Record<string, number>;
 } {
   let extracted = '';
   try {
@@ -467,7 +485,8 @@ export function parseFileReviewResponse(
   const validPositions = getValidPositions(file);
   const evidenceIndex = buildEvidenceIndex(file);
   const schemaEnforced = options?.schemaEnforced === true;
-  const evidenceStats = { total: 0, matched: 0, unmatched: 0, absent: 0 };
+  const evidenceStats = { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 };
+  const claimTypeCounts: Record<string, number> = {};
 
   const orphanedComments: string[] = [];
   const comments = (parsed.findings || [])
@@ -484,13 +503,21 @@ export function parseFileReviewResponse(
       const evidence = resolveEvidence(finding.evidence, evidenceIndex, line);
       if (evidence.status === 'matched') evidenceStats.matched += 1;
       else if (evidence.status === 'unmatched') evidenceStats.unmatched += 1;
+      else if (evidence.status === 'weak') evidenceStats.weak += 1;
       else if (evidence.status === 'absent') evidenceStats.absent += 1;
 
-      if (evidence.status === 'unmatched' && schemaEnforced) {
-        // The model was REQUIRED to quote real code and quoted something that isn't in the diff.
-        // That is the clearest hallucination signal available, so the finding doesn't get posted.
-        // It still shows in the dashboard's off-diff list, which keeps it debuggable.
-        orphanedComments.push(`- **[unverified] ${finding.title}:** ${finding.body}`);
+      // Where the grammar REQUIRED a verbatim quote, only a quote that actually resolves to a diff
+      // line is good enough.
+      //
+      // This used to reject `unmatched` alone, which meant a finding that quoted NOTHING (`absent`)
+      // or quoted three characters (`weak`) was treated more leniently than one that quoted wrong
+      // -- it fell through to line-based anchoring and posted. Under an enforced schema `evidence`
+      // is a required field, so absent/weak is a schema violation wearing a finding's clothes.
+      //
+      // Not deleted: these land in the off-diff list, which the dashboard renders, with a distinct
+      // prefix per reason so the disposition data can attribute them.
+      if (schemaEnforced && evidence.status !== 'matched') {
+        orphanedComments.push(`- **[unverified:${evidence.status}] ${finding.title}:** ${finding.body}`);
         return null;
       }
 
@@ -567,12 +594,23 @@ export function parseFileReviewResponse(
         ? finding.confidence_score
         : schemaEnforced ? 0 : undefined;
 
+      // Unrecognized or missing values coerce to 'other' rather than throwing: a Zod rejection here
+      // would discard every finding in the file over one bad label.
+      const claimType = toClaimType(finding.claim_type);
+      claimTypeCounts[claimType] = (claimTypeCounts[claimType] ?? 0) + 1;
+
       return parsedReviewCommentSchema.parse({
         path: file.path,
         line: line,
         position,
         severity,
-        category: 'quality', // Default for now
+        // Derived, never model-emitted. Asking the model for a field the harness can compute is how
+        // you end up with a column that reads 'quality' on all 705 rows.
+        category: CLAIM_TYPE_CATEGORY[claimType],
+        claimType,
+        // Captured now because it is unrecoverable later: migration 003 nulls diff_input and the KV
+        // diff cache expires after 6h, so a finding with no stored context can never be re-judged.
+        contextSnippet: renderDiffSnippet(file, line) || undefined,
         title,
         body: withSuggestion(body, finding.code_suggestion),
         codeSuggestion: finding.code_suggestion,
@@ -598,6 +636,7 @@ export function parseFileReviewResponse(
     overallCorrectness: parsed.overall_correctness,
     confidenceScore: parsed.overall_confidence_score,
     evidenceStats,
+    claimTypeCounts,
   };
 }
 

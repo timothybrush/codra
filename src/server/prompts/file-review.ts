@@ -1,4 +1,4 @@
-import type { RepoConfig } from '@shared/schema';
+import { claimTypes, type RepoConfig } from '@shared/schema';
 import type { FileDiff } from '@server/core/diff';
 import type { ModelResponseSchema } from '@server/models/types';
 import { getLanguageForFile } from './languages';
@@ -25,13 +25,14 @@ export function buildReviewResponseSchema(maxComments: number): ModelResponseSch
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['title', 'body', 'priority', 'confidence_score', 'evidence', 'code_location'],
+            required: ['title', 'body', 'priority', 'confidence_score', 'evidence', 'claim_type', 'code_location'],
             properties: {
               title: { type: 'string', maxLength: 100 },
               body: { type: 'string' },
               confidence_score: { type: 'number', minimum: 0, maximum: 1 },
               priority: { type: 'integer', minimum: 0, maximum: 4 },
               evidence: { type: 'string' },
+              claim_type: { type: 'string', enum: [...claimTypes] },
               code_location: {
                 type: 'object',
                 additionalProperties: false,
@@ -84,6 +85,15 @@ Your goal is to find REAL defects — bugs, security vulnerabilities, and perfor
 - Copy the code exactly as it appears. Do NOT include the two line-number columns or the +/- marker, do NOT paraphrase, reformat, shorten, or invent code.
 - If you cannot quote a specific line from the diff that exhibits the problem, you do not have a finding. Omit it.
 
+### CLAIM TYPE (required — pick the one that fits, or "other"):
+react_hook_missing_deps, react_missing_cleanup, missing_await, unhandled_promise_rejection,
+resource_leak, null_or_undefined_deref, sql_injection, unsafe_dom_sink, unsafe_dynamic_code,
+insecure_randomness, hardcoded_secret, redos_regex, swallowed_error, mutable_default_arg,
+destructive_migration, other
+- This is a label for the KIND of defect. It does not license the claim: only report a type if the
+  diff actually shows it. Picking a type the code cannot exhibit makes the finding easy to discard.
+- If nothing fits, use "other". Do not stretch a label to fit.
+
 ### OUTPUT RULES:
 1. Output MUST be valid JSON — EXACTLY ONE object matching the schema below.
 2. DO NOT output any conversational text, source code, or diff hunks before or after the JSON.
@@ -100,6 +110,7 @@ Your goal is to find REAL defects — bugs, security vulnerabilities, and perfor
       "priority": 0 | 1 | 2 | 3 | 4,
       "confidence_score": number (0 to 1),
       "evidence": "<the exact line of code from the diff this finding is about>",
+      "claim_type": "<one of the claim types listed above>",
       "code_location": {
         "line": number,
         "line_range": { "start": number, "end": number }
@@ -164,6 +175,7 @@ export function buildFileReviewPrompts(input: {
       "priority": <0|1|2|3|4>,
       "confidence_score": <float 0.0-1.0>,
       "evidence": "<exact line of code copied verbatim from the diff below, without the line-number columns or +/- marker>",
+      "claim_type": "<${claimTypes.join(' | ')}>",
       "code_location": {
         "absolute_file_path": "${input.file.path}",
         "line": <int>,

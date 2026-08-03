@@ -50,6 +50,16 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
   // read "Findings 7" and disagreed with the priority triage totals right above it.
   const findingCount = job.files.reduce((total, file) => total + file.parsedComments.length, 0);
 
+  // This list shows everything the model produced. Most of it never reaches the pull request --
+  // the confidence/severity gates, cross-run dedupe and the verification pass all run afterwards.
+  // Showing 11 findings for a review that posted 1 reads as "Codra reported 11 things", so state
+  // the posted count explicitly whenever the two differ.
+  const postedCount = job.files.reduce(
+    (total, file) => total + file.parsedComments.filter((c) => c.posted).length,
+    0,
+  );
+  const filteredCount = findingCount - postedCount;
+
   return (
     <div className="ui-font-sans">
       {/* Section header */}
@@ -60,6 +70,14 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
           {findingCount > 0 && (
             <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
               {findingCount}
+            </span>
+          )}
+          {filteredCount > 0 && (
+            <span
+              className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-subtle"
+              title={`${postedCount} posted to the pull request; ${filteredCount} filtered out before posting (low confidence, below the severity threshold, already reported, or dropped by the verification pass).`}
+            >
+              · {postedCount} posted
             </span>
           )}
         </div>

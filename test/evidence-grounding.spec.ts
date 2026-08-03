@@ -68,7 +68,8 @@ describe('evidence grounding', () => {
 
     const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
     expect(result.comments).toHaveLength(0);
-    expect(result.fileSummary).toContain('[unverified]');
+    // The reason is part of the marker so the disposition data can attribute it.
+    expect(result.fileSummary).toContain('[unverified:unmatched]');
   });
 
   // Same unmatched evidence, but on a provider that cannot enforce the field. Excluding here would
@@ -84,14 +85,43 @@ describe('evidence grounding', () => {
     expect(result.comments[0].line).toBe(2);
   });
 
-  it('does not exclude on evidence too short to discriminate', () => {
+  // Previously `weak` and `absent` fell through to line-based anchoring and posted, so a finding
+  // that quoted NOTHING was treated more leniently than one that quoted wrong. Under an enforced
+  // schema `evidence` is a required field, so an unusable quote is a schema violation.
+  it('excludes evidence too short to discriminate when the schema required a quote', () => {
     const raw = review({
       evidence: '}',
       code_location: { absolute_file_path: 'src/app.ts', line: 2 },
     });
 
     const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
-    expect(result.comments).toHaveLength(1);
+    expect(result.comments).toHaveLength(0);
+    expect(result.fileSummary).toContain('[unverified:weak]');
+    expect(result.evidenceStats.weak).toBe(1);
+  });
+
+  it('excludes a finding with no evidence at all when the schema required a quote', () => {
+    const raw = review({ code_location: { absolute_file_path: 'src/app.ts', line: 2 } });
+
+    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    expect(result.comments).toHaveLength(0);
+    expect(result.fileSummary).toContain('[unverified:absent]');
+    expect(result.evidenceStats.absent).toBe(1);
+  });
+
+  // ...but a provider that cannot enforce a grammar must not have its whole review emptied out.
+  it('keeps weak and absent evidence when the provider could not enforce the schema', () => {
+    const weak = parseFileReviewResponse(
+      review({ evidence: '}', code_location: { absolute_file_path: 'src/app.ts', line: 2 } }),
+      file, { schemaEnforced: false },
+    );
+    const absent = parseFileReviewResponse(
+      review({ code_location: { absolute_file_path: 'src/app.ts', line: 2 } }),
+      file, { schemaEnforced: false },
+    );
+
+    expect(weak.comments).toHaveLength(1);
+    expect(absent.comments).toHaveLength(1);
   });
 
   // A quote of removed code must not anchor to the `del` line: findPositionForLine rejects those,
@@ -105,6 +135,42 @@ describe('evidence grounding', () => {
     const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
     expect(result.comments).toHaveLength(1);
     expect(result.comments[0].line).toBe(2);
+  });
+
+  // Regression: a fabricated quote must not anchor itself by "containing" a scrap of punctuation
+  // from the diff. Production posted four hallucinated React-hook findings this way -- evidence
+  // like "useEffect(() => {" matched a real line that was just ") => {".
+  it('does not anchor a fabricated quote to a short punctuation-only diff line', () => {
+    const braceFile: FileDiff = {
+      ...file,
+      hunks: [{
+        header: '@@ -1,2 +1,2 @@',
+        lines: [
+          { kind: 'add', content: '  ) => {', newLineNumber: 1, position: 1 },
+          { kind: 'add', content: '  const timeout = config.timeout;', newLineNumber: 2, position: 2 },
+        ],
+      }],
+    };
+
+    const raw = review({
+      evidence: 'useEffect(() => {',
+      code_location: { absolute_file_path: 'src/app.ts', line: 1 },
+    });
+
+    const result = parseFileReviewResponse(raw, braceFile, { schemaEnforced: true });
+    expect(result.comments).toHaveLength(0);
+    expect(result.evidenceStats.unmatched).toBe(1);
+  });
+
+  it('still accepts a genuine fragment of a substantial line', () => {
+    const raw = review({
+      evidence: 'server.listen(timeout)',
+      code_location: { absolute_file_path: 'src/app.ts', line: 3 },
+    });
+
+    const result = parseFileReviewResponse(raw, file, { schemaEnforced: true });
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0].line).toBe(3);
   });
 
   it('reports evidence match statistics for observability', () => {

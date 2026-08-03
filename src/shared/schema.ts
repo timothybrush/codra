@@ -5,7 +5,82 @@ export const jobStatuses = ['queued', 'running', 'done', 'failed', 'superseded',
 export const fileStatuses = ['pending', 'done', 'skipped', 'failed'] as const;
 export const reviewVerdicts = ['approve', 'comment'] as const;
 export const reviewSeverities = ['P0', 'P1', 'P2', 'P3', 'nit'] as const;
-export const reviewCategories = ['security', 'bugs', 'performance', 'correctness', 'quality'] as const; // Keeping for DB compatibility but will deprecate usage in prompts
+export const reviewCategories = ['security', 'bugs', 'performance', 'correctness', 'quality'] as const;
+
+/**
+ * The kinds of defect a finding may claim to be.
+ *
+ * Every value corresponds to something the prompts already invite, and every value has a
+ * mechanically checkable precondition (a token that must be present for the claim to be possible).
+ * The precondition table is deliberately NOT part of this enum and is never emitted by the model --
+ * a model asked to state its own precondition will invent that too.
+ *
+ * Labelling only for now: nothing is refuted or filtered on this field yet. It exists so per-type
+ * precision becomes measurable, which is the thing that would have surfaced `react_hook_missing_deps`
+ * at 0-posted-out-of-28 months ago.
+ */
+export const claimTypes = [
+  'react_hook_missing_deps',
+  'react_missing_cleanup',
+  'missing_await',
+  'unhandled_promise_rejection',
+  'resource_leak',
+  'null_or_undefined_deref',
+  'sql_injection',
+  'unsafe_dom_sink',
+  'unsafe_dynamic_code',
+  'insecure_randomness',
+  'hardcoded_secret',
+  'redos_regex',
+  'swallowed_error',
+  'mutable_default_arg',
+  'destructive_migration',
+  'other',
+] as const;
+
+export type ClaimType = typeof claimTypes[number];
+
+/**
+ * Category is DERIVED from the claim type, never asked for. The model has never been asked for a
+ * category and every row in the database reads 'quality' as a result, which makes the per-category
+ * dashboard aggregate a single meaningless bar.
+ */
+export const CLAIM_TYPE_CATEGORY: Record<ClaimType, typeof reviewCategories[number]> = {
+  sql_injection: 'security',
+  unsafe_dom_sink: 'security',
+  unsafe_dynamic_code: 'security',
+  insecure_randomness: 'security',
+  hardcoded_secret: 'security',
+  missing_await: 'bugs',
+  unhandled_promise_rejection: 'bugs',
+  null_or_undefined_deref: 'bugs',
+  react_hook_missing_deps: 'bugs',
+  swallowed_error: 'bugs',
+  mutable_default_arg: 'bugs',
+  resource_leak: 'performance',
+  redos_regex: 'performance',
+  destructive_migration: 'correctness',
+  react_missing_cleanup: 'correctness',
+  other: 'quality',
+};
+
+export function toClaimType(value: unknown): ClaimType {
+  return (claimTypes as readonly string[]).includes(value as string) ? (value as ClaimType) : 'other';
+}
+
+/** How a finding ended its life. Distinguishes the six reasons `posted = false` used to conflate. */
+export const findingDispositions = [
+  'posted',
+  'severity',
+  'confidence',
+  'suppression',
+  'dedupe',
+  'verify',
+  'cap',
+  'unverifiable_passthrough',
+] as const;
+
+export type FindingDisposition = typeof findingDispositions[number];
 export const llmApiFormats = ['openai', 'anthropic', 'gemini', 'cloudflare-workers-ai'] as const;
 
 export const dateStringSchema = z.union([z.string(), z.date()]).transform((d) => (d instanceof Date ? d.toISOString() : d));
@@ -38,6 +113,21 @@ export const parsedReviewCommentSchema = z.object({
   // Hash of the anchored line's content. When this changes the underlying code changed, so a
   // previously-posted finding is legitimately raised again.
   anchorHash: z.string().min(1).nullable().optional(),
+  // Whether this finding actually reached the pull request. The dashboard lists everything the
+  // model produced, so without this a review that generated 11 findings and posted 1 looks
+  // identical to one that posted all 11.
+  posted: z.boolean().nullable().optional(),
+  // What kind of defect this claims to be. Kept in its own field and NEVER folded into the title:
+  // buildFindingFingerprint hashes the title, so a title-format change would reset cross-run
+  // suppression and unmatch every human dismissal in comment_feedback -- meaning the next review
+  // re-posts findings someone already deleted.
+  claimType: z.enum(claimTypes).nullable().optional(),
+  // The diff window this finding was anchored to, captured at parse time. Findings cannot be
+  // re-evaluated offline without it: diff_input is nulled by migration 003 and the KV diff cache
+  // expires after 6 hours, so historical findings have no retrievable context.
+  contextSnippet: z.string().nullable().optional(),
+  // Which pipeline stage ended this finding's life.
+  disposition: z.enum(findingDispositions).nullable().optional(),
 });
 
 export const fileReviewModelOutputSchema = z.object({
@@ -51,6 +141,10 @@ export const fileReviewModelOutputSchema = z.object({
       // priority fails the parse for the ENTIRE file, not just that finding.
       priority: z.number().int().min(0).max(4).optional(),
       evidence: z.string().optional(),
+      // `unknown`, not `string`: a Zod rejection here throws for the WHOLE file, so one model that
+      // emits `claim_type: 42` would discard every finding in that file over a label. Validation
+      // happens in toClaimType, which coerces anything unrecognized to 'other'.
+      claim_type: z.unknown().optional(),
       code_location: z.object({
         absolute_file_path: z.string(),
         line_range: z.object({

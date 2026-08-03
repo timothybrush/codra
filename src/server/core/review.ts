@@ -3,7 +3,7 @@ import { isSupportedGitHubWebhookEvent, type GitHubWebhookEventName, type GitHub
 import { defaultRepoConfig, normalizeModelId, type ParsedReviewComment, type RepoConfig, type ReviewJobMessage } from '@shared/schema';
 import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
 import type { AppBindings } from '@server/env';
-import { bulkInheritFileReviews, bulkMarkFilesFailed, getFileReviewsForJobs, getSuppressedFindings, markCommentsPosted, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
+import { bulkInheritFileReviews, bulkMarkFilesFailed, getFileReviewsForJobs, getSuppressedFindings, markCommentDispositions, markCommentsPosted, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
 import { getResolvedModelConfig } from '@server/db/model-configs';
 import {
   claimJobLease,
@@ -39,7 +39,7 @@ import { loadRepoConfig } from './config';
 import { getWebhookDelivery } from '@server/db/webhook-deliveries';
 import { sendTelemetryEvent } from './telemetry';
 import { getReviewSettings } from '@server/db/app-settings';
-import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange } from '@shared/schema';
+import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange, type FindingDisposition } from '@shared/schema';
 
 type PersistedReviewJob = ReturnType<typeof mapJob>;
 
@@ -1167,6 +1167,17 @@ async function reviewAndPersistFile(
       confidenceScore: response.parsed.confidenceScore,
       errorMessage: null,
     });
+
+    // evidenceStats was computed and thrown away by every caller. It is the only per-file view of
+    // how well the model grounds its claims, and `unmatched`/`absent`/`weak` climbing on a
+    // particular model is the earliest available signal that its output has stopped being usable.
+    logger.info(`File review parsed: ${file.path}`, {
+      jobId: job.id,
+      model: response.modelUsed,
+      kept: response.parsed.comments.length,
+      evidence: response.parsed.evidenceStats,
+      claimTypes: response.parsed.claimTypeCounts,
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown file review error';
     const modelId = config.model?.main ?? 'unconfigured';
@@ -1346,6 +1357,41 @@ async function loadSuppressedFingerprints(env: AppBindings, jobId: string) {
   }
 
   return { posted, rejected };
+}
+
+/**
+ * Evaluates the Phase-2 candidate filters WITHOUT applying them.
+ *
+ * A/B testing is not available here: one operator, one pull request at a time, and retried jobs
+ * replay their stored `configSnapshot`, so any date-based arm assignment is contaminated. The
+ * workable substitute is a paired within-run comparison -- score both the live chain and the
+ * candidate rules on the same findings, post using the live chain, and log the difference. That
+ * yields paired data on every real review and is valid at n=1.
+ *
+ * It exists because the corpus cannot currently justify any of these rules. "P3 has never been
+ * posted" (0 of 173) looked decisive until it turned out P3 sorts last and `max_comments` slices
+ * from the end -- the statistic was measuring the sort order, not the findings. These counters
+ * measure the rules against findings that reached the end of the live chain, which is the
+ * comparison that actually discriminates.
+ */
+const LOW_YIELD_TITLE = /missing|redundant|repetitive|inconsisten|documentation|\btype\b|\bany\b|potential/i;
+
+function shadowEvaluate(candidates: ParsedReviewComment[], posted: ParsedReviewComment[]) {
+  const postedSet = new Set(posted);
+  const count = (predicate: (c: ParsedReviewComment) => boolean) => ({
+    wouldDrop: candidates.filter(predicate).length,
+    // The number that matters: how many findings the rule would have taken off the pull request.
+    wouldDropPosted: posted.filter(predicate).length,
+  });
+
+  return {
+    candidates: candidates.length,
+    posted: postedSet.size,
+    dropP3AndNit: count((c) => c.severity === 'P3' || c.severity === 'nit'),
+    dropLowYieldTitle: count((c) => LOW_YIELD_TITLE.test(c.title)),
+    dropUnmatchedEvidence: count((c) => !c.evidence),
+    dropTsxHookClaims: count((c) => c.claimType === 'react_hook_missing_deps'),
+  };
 }
 
 /**
@@ -1535,9 +1581,28 @@ async function runFinalizePhase(
   //    dropped as too speculative; findings without a confidence score are kept (the model didn't
   //    provide one) but rank lowest in the confidence tiebreak below. Where the provider enforced
   //    our schema the parser already substitutes 0 for an omitted score, so the gate still bites.
+  // Which stage ended each finding's life, keyed by fingerprint. `posted = false` on its own
+  // conflates six outcomes, which is what made the historical corpus unusable for evaluation --
+  // "P3 is never posted" turned out to be mostly P3 sorting last and the cap slicing from the end.
+  // Attribution has to be captured where the decision is made; it cannot be reconstructed later.
+  const dispositions = new Map<string, FindingDisposition>();
+  const recordDisposition = (comments: ParsedReviewComment[], stage: FindingDisposition) => {
+    for (const comment of comments) {
+      if (comment.fingerprint && !dispositions.has(comment.fingerprint)) {
+        dispositions.set(comment.fingerprint, stage);
+      }
+    }
+  };
+
   let finalComments = reviewedComments.filter((c) => {
-    if ((severityRanks[c.severity] ?? 4) > minRank) return false;
-    if (typeof c.confidenceScore === 'number' && c.confidenceScore < minConfidence) return false;
+    if ((severityRanks[c.severity] ?? 4) > minRank) {
+      recordDisposition([c], 'severity');
+      return false;
+    }
+    if (typeof c.confidenceScore === 'number' && c.confidenceScore < minConfidence) {
+      recordDisposition([c], 'confidence');
+      return false;
+    }
     return true;
   });
 
@@ -1566,9 +1631,17 @@ async function runFinalizePhase(
     });
   }
   const droppedBySuppression = suppressedComments.length;
+  recordDisposition(suppressedComments, 'suppression');
 
   // 3. Collapse duplicate findings repeated across files (e.g. the same "Use of any" N times).
+  //    NOTE: dedupe elects one representative per normalized title across ALL files and runs
+  //    BEFORE verification. If the elected representative is then dropped by the verifier, a
+  //    genuine same-titled finding in another file is already gone. The disposition data below is
+  //    what will finally make that visible.
+  const beforeDedupe = finalComments;
   finalComments = dedupeFindings(finalComments);
+  const survivedDedupe = new Set(finalComments);
+  recordDisposition(beforeDedupe.filter((c) => !survivedDedupe.has(c)), 'dedupe');
 
   // 4. Order by severity (most severe first), then by confidence, so the max_comments cap keeps the
   //    strongest findings rather than whichever happened to be first in file order.
@@ -1580,18 +1653,39 @@ async function runFinalizePhase(
 
   // 5. Verification pass: one consolidated model call re-checks the surviving candidates against the
   //    actual diff and drops false positives. Best-effort — on any failure we keep the filtered set.
+  const beforeVerifyList = finalComments;
   const beforeVerify = finalComments.length;
   finalComments = await verifyFindings({ job, config, files, comments: finalComments, model, maxCandidates: effectiveMaxComments });
   const droppedByVerification = beforeVerify - finalComments.length;
+  const survivedVerify = new Set(finalComments);
+  recordDisposition(beforeVerifyList.filter((c) => !survivedVerify.has(c)), 'verify');
 
+  const beforeCapList = finalComments;
   const beforeCap = finalComments.length;
   if (finalComments.length > effectiveMaxComments) {
     finalComments = finalComments.slice(0, effectiveMaxComments);
   }
   const droppedByCap = beforeCap - finalComments.length;
+  recordDisposition(beforeCapList.slice(effectiveMaxComments), 'cap');
   const omittedCount = reviewedComments.length - finalComments.length;
   // Everything removed before verification, minus suppression: severity/confidence gates + dedupe.
   const droppedByFilters = omittedCount - droppedBySuppression - droppedByVerification - droppedByCap;
+
+  // Per-claim-type counts, split by whether the finding survived. This is the number that matters:
+  // a type that is repeatedly generated and never posted is a type to retire. It would have shown
+  // `react_hook_missing_deps` at 0-posted-out-of-28 long before it produced six false positives in
+  // a single review.
+  const byClaimType: Record<string, { generated: number; posted: number }> = {};
+  for (const comment of reviewedComments) {
+    const key = comment.claimType ?? 'unlabelled';
+    byClaimType[key] ??= { generated: 0, posted: 0 };
+    byClaimType[key].generated += 1;
+  }
+  for (const comment of finalComments) {
+    const key = comment.claimType ?? 'unlabelled';
+    byClaimType[key] ??= { generated: 0, posted: 0 };
+    byClaimType[key].posted += 1;
+  }
 
   logger.info('Finding pipeline outcome', {
     jobId: job.id,
@@ -1601,6 +1695,21 @@ async function runFinalizePhase(
     droppedByVerification,
     droppedByCap,
     posted: finalComments.length,
+    byClaimType,
+    // Canaries. A review that posts nothing is not automatically wrong, but three in a row means
+    // the filters have gone too far -- that is the signal to revert the most recent change.
+    postedAny: finalComments.length > 0,
+    postedPer100Files: files.length > 0
+      ? Math.round((finalComments.length / files.length) * 1000) / 10
+      : 0,
+  });
+
+  // Scored, not applied. Read this over ~20 reviews to decide whether any Phase-2 rule earns its
+  // place; `wouldDropPosted` is the cost side, and it is the number that would have been invisible
+  // if these rules had simply been switched on.
+  logger.info('Shadow filter evaluation', {
+    jobId: job.id,
+    ...shadowEvaluate(beforeVerifyList, finalComments),
   });
 
   // Verdict is computed from the findings that are STILL OPEN on this PR, not just the ones being
@@ -1671,6 +1780,17 @@ async function runFinalizePhase(
       .map((index) => finalComments[index]?.fingerprint)
       .filter((fingerprint): fingerprint is string => Boolean(fingerprint));
     await markCommentsPosted(env, job.id, postedFingerprints);
+  }
+
+  // Record why every other finding did not make it. Best-effort: this is measurement, and a
+  // failure here must never fail a review that is already on GitHub.
+  try {
+    await markCommentDispositions(env, job.id, dispositions);
+  } catch (error) {
+    logger.warn('Could not record finding dispositions', {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   const fileInputTokens = reviews.reduce((sum, review) => sum + (review.input_tokens ?? 0), 0);

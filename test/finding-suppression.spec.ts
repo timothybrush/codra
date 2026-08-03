@@ -174,6 +174,30 @@ dbDescribe('cross-run finding suppression', () => {
     });
   });
 
+  it('round-trips the instrumentation columns through persistence', async () => {
+    const repo = `suppress-${Date.now()}-instrumentation`;
+    await runWithDb(env, async () => {
+      const job = await seedJob(repo, sha('c'));
+      await seedPostedFinding(job, finding({
+        claimType: 'sql_injection',
+        contextSnippet: '   1 +const query = `SELECT 1`;',
+      }));
+
+      const [row] = await queryRows<{ claim_type: string; context_snippet: string; disposition: string }>(
+        env,
+        `SELECT rc.claim_type, rc.context_snippet, rc.disposition
+         FROM review_comments rc JOIN file_reviews fr ON fr.id = rc.file_review_id
+         WHERE fr.job_id = $1::uuid`,
+        [job],
+      );
+
+      expect(row.claim_type).toBe('sql_injection');
+      expect(row.context_snippet).toContain('SELECT 1');
+      // markCommentsPosted writes the disposition alongside the flag.
+      expect(row.disposition).toBe('posted');
+    });
+  });
+
   it('round-trips fingerprint, anchor hash and evidence through persistence', async () => {
     const repo = `suppress-${Date.now()}-roundtrip`;
     await runWithDb(env, async () => {

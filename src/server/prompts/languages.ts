@@ -27,15 +27,20 @@ export const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
       'Flag incorrect exception handling or resource handling (files/sockets not closed).',
     ],
   },
-  {
-    language: 'React',
-    persona: 'a senior React engineer focused on hook correctness',
-    extensions: ['tsx', 'jsx'],
-    guidelines: [
-      'Flag missing/incorrect useEffect/useCallback/useMemo dependencies that cause stale-closure or infinite-loop bugs.',
-      'Flag state updates on unmounted components or effects missing cleanup that leak.',
-    ],
-  },
+  // A React entry used to live here with extensions ['tsx', 'jsx'] and a "flag missing
+  // useEffect/useCallback/useMemo dependencies" guideline. Both of those extensions are ALSO in the
+  // TypeScript/JavaScript entry above, so every .tsx file matched twice: getLanguageForFile merged
+  // the two, concatenating both personas ("an expert TypeScript engineer ... and a senior React
+  // engineer focused on hook correctness") and unioning both guideline sets.
+  //
+  // The effect was measurable. Hook-dependency findings were 10x concentrated in .tsx (3.7% of
+  // files vs 0.36% for .ts) while findings-per-file stayed flat -- the checklist did not make the
+  // model find more, it dictated what it "found". That claim family is 0-posted-out-of-28 across
+  // the entire production corpus, and six of them were the false positives that prompted this
+  // change: "useEffect is missing a dependency array" on lines containing no useEffect.
+  //
+  // Removed rather than reworded: the base prompt already covers correctness and async safety for
+  // these files, and a checklist the model completes is worse than no checklist at all.
   {
     language: 'CSS/SCSS/Less',
     persona: 'a frontend engineer',
@@ -87,13 +92,13 @@ export function getLanguageForFile(path: string): LanguageGuideline | undefined 
   
   if (matches.length === 0) return undefined;
 
+  // On an overlap, take the single most specific entry rather than merging. Merging stacked two
+  // personas and two checklists onto one file, which is how .tsx ended up being told to hunt for
+  // hook-dependency bugs. Narrower extension list == more specific.
   if (matches.length > 1) {
-    return {
-      language: matches.map(m => m.language).join(' & '),
-      persona: matches.map(m => m.persona).filter(Boolean).join(' and '),
-      extensions: Array.from(new Set(matches.flatMap(m => m.extensions))),
-      guidelines: Array.from(new Set(matches.flatMap(m => m.guidelines))),
-    };
+    return matches.reduce((best, candidate) =>
+      candidate.extensions.length < best.extensions.length ? candidate : best,
+    );
   }
 
   return matches[0];

@@ -81,16 +81,19 @@ export async function insertFileReview(
       const evidences = input.parsedComments.map(c => c.evidence ?? null);
       const fingerprints = input.parsedComments.map(c => c.fingerprint ?? null);
       const anchorHashes = input.parsedComments.map(c => c.anchorHash ?? null);
+      const claimTypes = input.parsedComments.map(c => c.claimType ?? null);
+      const contextSnippets = input.parsedComments.map(c => c.contextSnippet ?? null);
+      const dispositions = input.parsedComments.map(c => c.disposition ?? null);
 
       await tx.query(
         `
           INSERT INTO review_comments (
             file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash
+            evidence, fingerprint, anchor_hash, claim_type, context_snippet, disposition
           )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[])
+          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[])
         `,
-        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions, confidenceScores, evidences, fingerprints, anchorHashes]
+        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions, confidenceScores, evidences, fingerprints, anchorHashes, claimTypes, contextSnippets, dispositions]
       );
     }
   });
@@ -195,9 +198,9 @@ export async function upsertFileReview(
         `
           INSERT INTO review_comments (
             file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash
+            evidence, fingerprint, anchor_hash, claim_type, context_snippet, disposition
           )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[])
+          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[])
         `,
         [
           review.id,
@@ -213,6 +216,9 @@ export async function upsertFileReview(
           input.parsedComments.map(c => c.evidence ?? null),
           input.parsedComments.map(c => c.fingerprint ?? null),
           input.parsedComments.map(c => c.anchorHash ?? null),
+          input.parsedComments.map(c => c.claimType ?? null),
+          input.parsedComments.map(c => c.contextSnippet ?? null),
+          input.parsedComments.map(c => c.disposition ?? null),
         ],
       );
     }
@@ -333,10 +339,10 @@ export async function bulkInheritFileReviews(
         `
           INSERT INTO review_comments (
             file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash, posted
+            evidence, fingerprint, anchor_hash, posted, claim_type, context_snippet, disposition
           )
           SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score,
-                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE
+                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE, rc.claim_type, rc.context_snippet, NULL
           FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
           JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
           JOIN review_comments rc ON rc.file_review_id = pf.id
@@ -444,7 +450,11 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
                 'confidenceScore', rc.confidence_score,
                 'evidence', rc.evidence,
                 'fingerprint', rc.fingerprint,
-                'anchorHash', rc.anchor_hash
+                'anchorHash', rc.anchor_hash,
+                'posted', rc.posted,
+                'claimType', rc.claim_type,
+                'contextSnippet', rc.context_snippet,
+                'disposition', rc.disposition
               )
             ORDER BY rc.id ASC
             ) FROM review_comments rc WHERE rc.file_review_id = fr.id
@@ -539,12 +549,47 @@ export async function markCommentsPosted(
     env,
     `
       UPDATE review_comments rc
-      SET posted = TRUE
+      SET posted = TRUE, disposition = 'posted'
       FROM file_reviews fr
       WHERE fr.id = rc.file_review_id
         AND fr.job_id = $1::uuid
         AND rc.fingerprint = ANY($2::text[])
     `,
     [jobId, fingerprints],
+  );
+}
+
+/**
+ * Record WHY each finding did not reach the pull request.
+ *
+ * `posted = false` on its own conflates six different outcomes -- the severity gate, the confidence
+ * gate, cross-run suppression, dedupe, the verifier, and the max_comments cap. That ambiguity is
+ * what made the corpus unusable for evaluation: "P3 has never been posted" turned out to be mostly
+ * an artifact of P3 sorting last and the cap slicing from the end, not evidence that P3 findings are
+ * wrong. Attribution has to be recorded at the moment the decision is made.
+ *
+ * One statement regardless of how many stages fired, so finalize's subrequest cost is unchanged.
+ */
+export async function markCommentDispositions(
+  env: Pick<AppBindings, 'HYPERDRIVE'>,
+  jobId: string,
+  byFingerprint: Map<string, string>,
+): Promise<void> {
+  if (byFingerprint.size === 0) return;
+  const fingerprints = [...byFingerprint.keys()];
+  const dispositions = fingerprints.map((fp) => byFingerprint.get(fp)!);
+
+  await queryRows(
+    env,
+    `
+      UPDATE review_comments rc
+      SET disposition = d.disposition
+      FROM file_reviews fr,
+           UNNEST($2::text[], $3::text[]) AS d(fingerprint, disposition)
+      WHERE fr.id = rc.file_review_id
+        AND fr.job_id = $1::uuid
+        AND rc.fingerprint = d.fingerprint
+    `,
+    [jobId, fingerprints, dispositions],
   );
 }
