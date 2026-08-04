@@ -592,6 +592,76 @@ describe('Dashboard API Suite', () => {
     expect(data.job.files[0].parsedComments[0].codeSuggestion).toBeNull();
   });
 
+  /**
+   * `fingerprint_v2` was written on every insert and omitted from this projection alone, so the
+   * dashboard never saw it — while cross-run suppression and the golden-set labels both key on it.
+   * The projection is now generated from one shared field list; this pins the round trip so a
+   * future field cannot go the same way.
+   */
+  it('returns both fingerprints on job detail comments', async () => {
+    const env = createTestEnv();
+    const token = await getAuthCookie(env);
+
+    const job = await insertJob(env, {
+      installationId: '123',
+      owner: 'api-test-owner',
+      repo: `api-test-repo-${Date.now()}`,
+      prNumber: 44,
+      prTitle: 'Fingerprint PR',
+      prAuthor: 'tester',
+      commitSha: 'c'.repeat(40),
+      baseSha: 'd'.repeat(40),
+      trigger: 'auto',
+      headRef: 'feature',
+      baseRef: 'main',
+      configSnapshot: defaultRepoConfig,
+    });
+
+    await insertFileReview(env, {
+      jobId: job.id,
+      filePath: 'src/lib/slug.ts',
+      fileStatus: 'done',
+      modelUsed: 'gemma-4-31b-it',
+      modelProvider: 'google',
+      diffLineCount: 5,
+      diffInput: 'diff',
+      rawAiOutput: '{}',
+      parsedComments: [{
+        path: 'src/lib/slug.ts',
+        position: 1,
+        severity: 'P2',
+        category: 'quality',
+        title: 'Example',
+        body: 'Body',
+        codeSuggestion: null,
+        fingerprint: 'abc12345',
+        fingerprintV2: 'def67890',
+        anchorHash: 'anchor01',
+        claimType: 'swallowed_error',
+        contextSnippet: 'try {} catch {}',
+      }],
+      inputTokens: 1,
+      outputTokens: 1,
+      durationMs: 10,
+      verdict: 'comment',
+      fileSummary: 'summary',
+      errorMessage: null,
+    });
+
+    const response = await app.request(`/api/jobs/${job.id}`, {
+      headers: { Cookie: `codra_session=${token}` },
+    }, env);
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as JobDetailResponse;
+    const comment = data.job.files[0].parsedComments[0];
+    expect(comment.fingerprint).toBe('abc12345');
+    expect(comment.fingerprintV2).toBe('def67890');
+    expect(comment.anchorHash).toBe('anchor01');
+    expect(comment.claimType).toBe('swallowed_error');
+    expect(comment.contextSnippet).toBe('try {} catch {}');
+  });
+
   it('returns stats successfully', async () => {
     const env = createTestEnv();
     const token = await getAuthCookie(env);

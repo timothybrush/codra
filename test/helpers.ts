@@ -1,3 +1,4 @@
+import { describe } from 'vitest';
 import type { AppBindings } from '@server/env';
 import { encryptLlmApiKey } from '@server/core/llm-crypto';
 import { queryRows } from '@server/db/client';
@@ -134,7 +135,10 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
 // seeded. Tests must therefore create these Google model_configs themselves; relying on them being
 // left over in a dev DB makes the suite pass locally but fail on a fresh CI database ("Model ... is
 // not configured"). Seeding them alongside enabling the Google provider keeps the setup in one place.
-const GOOGLE_TEST_MODEL_IDS = ['gemma-4-31b-it', 'gemma-4-26b-a4b-it'];
+// gemini-3.1-flash-lite is here so a test can assert fall-through to a model that actually ANSWERS,
+// not just that the metered models were skipped -- an unresolvable fallback ends the chain and looks
+// identical to every model failing.
+const GOOGLE_TEST_MODEL_IDS = ['gemma-4-31b-it', 'gemma-4-26b-a4b-it', 'gemini-3.1-flash-lite'];
 
 export async function saveTestProviderApiKey(env: AppBindings, providerName = 'Google', apiKey = 'test-key') {
   const encrypted = await encryptLlmApiKey(env, apiKey);
@@ -209,3 +213,18 @@ export function createMockPRWebhook(overrides: any = {}) {
     ...overrides,
   };
 }
+
+/**
+ * A deterministic 40-hex-character commit sha from a short seed.
+ *
+ * The `.slice(0, 40)` is load-bearing: four specs carried `seed.repeat(40)` instead, which produces
+ * an EIGHTY-character string for any two-character seed (`sha('a1')`). Nothing validates the length,
+ * so those rows stored a 40-byte value in a column meant to hold 20 and no test ever failed.
+ */
+export const sha = (seed: string) => seed.repeat(40).slice(0, 40);
+
+/**
+ * `describe` that skips when TEST_DATABASE_URL is unset, so the suite still runs without Postgres.
+ * Was defined identically in five spec files.
+ */
+export const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;

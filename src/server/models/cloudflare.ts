@@ -1,7 +1,7 @@
 import { logger } from '@server/core/logger';
 import type { AppBindings } from '@server/env';
 import { TimeoutError } from '@server/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, type ModelInput, type ModelResponse } from './types';
+import { ProviderRequestError, UnparseableModelResponseError, jsonOnlyPrompts, type ModelInput, type ModelResponse } from './types';
 
 /**
  * Default max wall-clock time allowed for a single Workers-AI call when the caller doesn't
@@ -12,7 +12,6 @@ import { ProviderRequestError, UnparseableModelResponseError, type ModelInput, t
  * to a fresh invocation instead of stalling the whole review.
  */
 const CLOUDFLARE_TIMEOUT_MS = 45_000;
-const CLOUDFLARE_MAX_RETRIES = 0;
 const CLOUDFLARE_MAX_OUTPUT_TOKENS = 8192;
 
 type UnknownRecord = Record<string, unknown>;
@@ -132,13 +131,11 @@ function extractCloudflareUsage(result: unknown) {
  * reported "dropped: 0". Verification was structurally dead.
  */
 function buildCloudflareInferenceRequest(input: ModelInput) {
+  const prompts = jsonOnlyPrompts(input);
   return {
     messages: [
-      {
-        role: 'system',
-        content: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.`,
-      },
-      { role: 'user', content: `${input.userPrompt}\n\nRespond with the required JSON object only.` },
+      { role: 'system', content: prompts.system },
+      { role: 'user', content: prompts.user },
     ],
     max_completion_tokens: CLOUDFLARE_MAX_OUTPUT_TOKENS,
     ...(input.responseSchema
@@ -263,79 +260,55 @@ export async function reviewWithCloudflare(
   providerName = 'Cloudflare',
   options?: { timeoutMs?: number },
 ): Promise<ModelResponse> {
-  const maxRetries = CLOUDFLARE_MAX_RETRIES;
+  // Single attempt, deliberately: retrying here would spend another of the invocation's 50
+  // subrequests on a model that just failed, when ModelService's fallback chain is already about to
+  // try a different one. (This was a retry loop bounded by a constant of 0 -- the body ran exactly
+  // once and ~25 lines of backoff were unreachable.)
   const timeoutMs = options?.timeoutMs ?? CLOUDFLARE_TIMEOUT_MS;
-  let lastError: unknown;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  // Abort the underlying Workers-AI request when the timeout fires. Promise.race on its own
+  // only stops *us* awaiting -- the subrequest would keep running in the background, holding
+  // this invocation's wall-clock and pushing the workflow toward its 15-minute step cap long
+  // after we've given up. Aborting via the AI binding's signal actually cancels it.
+  const controller = new AbortController();
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new TimeoutError(`Cloudflare (${model})`, timeoutMs));
+    }, timeoutMs);
+  });
 
-    // Abort the underlying Workers-AI request when the timeout fires. Promise.race on its own
-    // only stops *us* awaiting -- the subrequest would keep running in the background, holding
-    // this invocation's wall-clock and pushing the workflow toward its 15-minute step cap long
-    // after we've given up. Aborting via the AI binding's signal actually cancels it.
-    const controller = new AbortController();
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        reject(new TimeoutError(`Cloudflare (${model})`, timeoutMs));
-      }, timeoutMs);
-    });
+  try {
+    if (tracker) tracker.incrementSubrequests(1);
 
-    try {
-      if (tracker) tracker.incrementSubrequests(1);
-      if (attempt > 0) {
-        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-        logger.info(`Retrying Cloudflare request (attempt ${attempt}/${maxRetries}) in ${Math.round(delay)}ms`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
+    logger.info(`Calling Cloudflare model: ${model}`);
+    const startTime = Date.now();
+    const runPromise = env.AI.run(model as any, buildCloudflareInferenceRequest(input), { signal: controller.signal });
+    // Once the timeout wins the race the aborted run still settles (as a rejection); attach a
+    // no-op handler so that late rejection can't surface as an unhandled promise rejection.
+    runPromise.catch(() => {});
+    const result = await Promise.race([runPromise, timeoutPromise]);
+    logger.info(`AI model ${model} responded in ${Date.now() - startTime}ms`);
 
-      logger.info(`Calling Cloudflare model: ${model}`);
-      const startTime = Date.now();
-      const runPromise = env.AI.run(model as any, buildCloudflareInferenceRequest(input), { signal: controller.signal });
-      // Once the timeout wins the race the aborted run still settles (as a rejection); attach a
-      // no-op handler so that late rejection can't surface as an unhandled promise rejection.
-      runPromise.catch(() => {});
-      const result = await Promise.race([runPromise, timeoutPromise]);
-      const durationMs = Date.now() - startTime;
-      logger.info(`AI model ${model} responded in ${durationMs}ms`);
-
-      const rawText = extractCloudflareText(result, model);
-      const usage = extractCloudflareUsage(result);
-
-      return {
-        rawText,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        modelUsed: model,
-        provider: providerName,
-      };
-    } catch (error) {
-      lastError = error;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-
-      if (isLocalWorkersAiBindingError(error)) {
-        const message = 'Cloudflare Workers AI is not available in local Wrangler. Run with remote bindings or deploy the Worker to test Cloudflare models.';
-        logger.warn(message, { model });
-        throw new ProviderRequestError(providerName, 400, message);
-      }
-
-      logger.error(`Cloudflare request failed (attempt ${attempt}/${maxRetries})`, { error: errorMsg });
-
-      // If we've used up our neuron quota, don't retry - it's a persistent error for this account/day
-      if (errorMsg.includes('4006') || errorMsg.includes('daily free allocation')) {
-        throw error;
-      }
-
-      const isTimeout = error instanceof TimeoutError;
-      if ((isTimeout || attempt < maxRetries) && attempt < maxRetries) {
-        continue;
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
+    const usage = extractCloudflareUsage(result);
+    return {
+      rawText: extractCloudflareText(result, model),
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      modelUsed: model,
+      provider: providerName,
+    };
+  } catch (error) {
+    if (isLocalWorkersAiBindingError(error)) {
+      const message = 'Cloudflare Workers AI is not available in local Wrangler. Run with remote bindings or deploy the Worker to test Cloudflare models.';
+      logger.warn(message, { model });
+      throw new ProviderRequestError(providerName, 400, message);
     }
-  }
 
-  throw lastError;
+    logger.error('Cloudflare request failed', { model, error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }

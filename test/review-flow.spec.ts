@@ -1,12 +1,11 @@
 import { runReviewJob } from '@server/core/review';
-import { createTestEnv, generateMockDiff, hasConfiguredTestDatabaseUrl } from './helpers';
+import { createTestEnv, dbDescribe, generateMockDiff, sha } from './helpers';
 import { vi } from 'vitest';
 import { findExistingJobForHead, getJobForProcessing, getTerminalJobsNeedingCheckRunCompletion, insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
 import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
 import { defaultRepoConfig, type ParsedReviewComment } from '@shared/schema';
 import { runWithDb, queryRows } from '@server/db/client';
 
-const sha = (char: string) => char.repeat(40);
 
 vi.mock('@server/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<any>();
@@ -113,7 +112,6 @@ vi.mock('@server/services/model', () => {
     };
 });
 
-const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 const REVIEW_FLOW_TIMEOUT_MS = 60_000;
 
 dbDescribe('Review Flow Lifecycle', () => {
@@ -142,7 +140,7 @@ dbDescribe('Review Flow Lifecycle', () => {
             await queryRows(env, `UPDATE jobs SET last_queue_message_at = now() - interval '5 seconds' WHERE repository_id IN (SELECT id FROM repositories WHERE repo = $1)`, [repo]);
           }
         } else if (result.action === 'retry') {
-          if (++retries > MAX_RETRIES) throw new Error('Max retries exceeded');
+          if (retries + 1 > MAX_RETRIES) throw new Error('Max retries exceeded');
           // In test environments, if we get throttled or told to retry, just break to prevent infinite loops.
           // Tests that expect a retry will assert on the direct return value instead of using runAndDrain.
           break;

@@ -273,7 +273,6 @@ export function AccountPage() {
   return (
     <section className="page-enter flex flex-col gap-5 pb-20">
       <PageHeader
-        category="Profile"
         title="Account"
         description="Your Codra profile and account details."
       />

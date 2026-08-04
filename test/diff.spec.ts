@@ -1,5 +1,6 @@
-import { 
-  findPositionForLine, 
+import {
+  chunkFileDiff,
+  findPositionForLine,
   filterReviewableFiles, 
   getValidNewLines, 
   parseUnifiedDiff,
@@ -129,6 +130,92 @@ Binary files a/image.png and b/image.png differ
       expect(truncated.hunks).toHaveLength(1);
       expect(truncated.hunks[0].lines).toHaveLength(300);
       expect(truncated.lineCount).toBe(300);
+    });
+  });
+
+  /**
+   * First coverage for chunkFileDiff, which had none — and it decides how much of a large file any model
+   * ever sees. `reviewFile` chunks at `max_diff_lines_per_file` and then keeps only the first MAX_CHUNKS,
+   * so a silent partition bug here means whole regions of a file are never reviewed and nothing reports it.
+   *
+   * The invariant that matters is exact partition: every original line appears in exactly one chunk, in
+   * order. Truncation is allowed (it is capped and reported); losing a line in the middle is not.
+   */
+  describe('chunkFileDiff', () => {
+    // Distinct content per line so a dropped or duplicated line is detectable — Array(n).fill(sameObject)
+    // would hide exactly the bug this is looking for.
+    const fileOf = (hunkSizes: number[]) => {
+      let n = 0;
+      return {
+        path: 'large.ts',
+        previousPath: null,
+        isNew: false,
+        isDeleted: false,
+        isBinary: false,
+        lineCount: hunkSizes.reduce((a, b) => a + b, 0),
+        hunks: hunkSizes.map((size, h) => ({
+          header: `@@ hunk${h} @@`,
+          lines: Array.from({ length: size }, () => {
+            n += 1;
+            return { kind: 'add', content: `line ${n}`, newLineNumber: n, position: n };
+          }),
+        })),
+      } as any;
+    };
+
+    const linesOf = (files: any[]) => files.flatMap((f) => f.hunks.flatMap((h: any) => h.lines));
+
+    it('returns the file untouched when it fits, without marking it truncated', () => {
+      const file = fileOf([40]);
+      const chunks = chunkFileDiff(file, 100);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]).toBe(file);
+      expect(chunks[0].isTruncated).toBeUndefined();
+    });
+
+    it('partitions every line exactly once, in order, across chunk boundaries', () => {
+      const file = fileOf([50, 50, 50]);
+      const chunks = chunkFileDiff(file, 40);
+
+      const partitioned = linesOf(chunks);
+      expect(partitioned).toHaveLength(150);
+      expect(partitioned.map((l) => l.content)).toEqual(linesOf([file]).map((l) => l.content));
+    });
+
+    it('splits a single hunk larger than the cap, keeping the hunk header on both halves', () => {
+      // Without the header the model cannot resolve line numbers for the second half's findings.
+      const chunks = chunkFileDiff(fileOf([100]), 40);
+      expect(chunks).toHaveLength(3);
+      for (const chunk of chunks) {
+        expect(chunk.hunks.every((h: any) => h.header === '@@ hunk0 @@')).toBe(true);
+      }
+      expect(chunks.map((c) => c.lineCount)).toEqual([40, 40, 20]);
+    });
+
+    it('never exceeds the cap, and reports lineCount that matches the lines actually carried', () => {
+      const chunks = chunkFileDiff(fileOf([13, 71, 5, 44]), 30);
+      for (const chunk of chunks) {
+        const actual = chunk.hunks.reduce((sum: number, h: any) => sum + h.lines.length, 0);
+        expect(chunk.lineCount).toBe(actual);
+        expect(actual).toBeLessThanOrEqual(30);
+        expect(actual).toBeGreaterThan(0);
+      }
+    });
+
+    it('carries the original line count on every chunk so truncation is reportable', () => {
+      const chunks = chunkFileDiff(fileOf([90]), 25);
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.originalLineCount).toBe(90);
+        expect(chunk.isTruncated).toBe(true);
+      }
+    });
+
+    // The MAX_CHUNKS cap in reviewFile is what makes this the load-bearing number: at 800 lines/chunk,
+    // 4 chunks meant any file over 3,200 diff lines was silently cut off. src/server/core/review.ts
+    // changed 3,749 lines in PR #55, so ~15% of the largest file in the PR reached no model at all.
+    it('produces more than four chunks for a file the size of the largest in PR #55', () => {
+      expect(chunkFileDiff(fileOf([3_749]), 800).length).toBeGreaterThan(4);
     });
   });
 

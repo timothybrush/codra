@@ -28,21 +28,6 @@ export function langForPath(path: string): Lang {
   return EXT_LANG[ext] ?? 'plain';
 }
 
-// Markdown fence hints ("```typescript") → our internal Lang.
-const HINT_LANG: Record<string, Lang> = {
-  typescript: 'js', ts: 'js', tsx: 'js', javascript: 'js', js: 'js', jsx: 'js', json: 'json', jsonc: 'json',
-  python: 'py', py: 'py', ruby: 'py', rb: 'py',
-  bash: 'sh', sh: 'sh', shell: 'sh', zsh: 'sh', yaml: 'sh', yml: 'sh', toml: 'sh',
-  css: 'css', scss: 'css', less: 'css', html: 'html', xml: 'html', svg: 'html',
-  sql: 'sql', go: 'clike', rust: 'clike', rs: 'clike', java: 'clike', kotlin: 'clike', kt: 'clike',
-  c: 'clike', cpp: 'clike', 'c++': 'clike', h: 'clike', hpp: 'clike', csharp: 'clike', cs: 'clike',
-  php: 'clike', swift: 'clike', md: 'md', markdown: 'md',
-};
-
-export function langForHint(hint: string): Lang {
-  return HINT_LANG[hint.trim().toLowerCase()] ?? 'plain';
-}
-
 const JS_KEYWORDS = new Set([
   'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'do',
   'switch', 'case', 'default', 'break', 'continue', 'new', 'delete', 'typeof',
@@ -215,18 +200,4 @@ export function highlightLine(text: string, lang: Lang): ReactNode {
 
   if (last < text.length) out.push(text.slice(last));
   return out;
-}
-
-/** Multi-line code block with per-line syntax highlighting. */
-export function HighlightedCode({ code, lang }: { code: string; lang: Lang }) {
-  const lines = code.replace(/\n+$/, '').split('\n');
-  return (
-    <>
-      {lines.map((line, i) => (
-        <span key={i} className="block">
-          {line ? highlightLine(line, lang) : ' '}
-        </span>
-      ))}
-    </>
-  );
 }

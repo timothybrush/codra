@@ -39,8 +39,24 @@ const comment = (over: Partial<ParsedReviewComment> = {}): ParsedReviewComment =
 
 describe('finding marker', () => {
   it('round-trips through a rendered comment body', () => {
-    const body = new FormatterService('https://codra.test').formatInlineComment(comment());
-    expect(parseFindingMarker(body)).toEqual({ fingerprint: 'deadbeef', anchorHash: 'cafe1234' });
+    const body = new FormatterService('https://codra.test')
+      .formatInlineComment(comment({ fingerprintV2: 'beefcafe' }));
+    expect(parseFindingMarker(body)).toEqual({
+      fingerprint: 'deadbeef',
+      anchorHash: 'cafe1234',
+      fingerprintV2: 'beefcafe',
+    });
+  });
+
+  // Every comment already on GitHub carries the two-field form. If this stopped parsing, deletions of
+  // all historical comments would silently stop being recorded -- parseFindingMarker returns null and
+  // the webhook records zero, with nothing to indicate anything is wrong.
+  it('still parses the two-field marker written before v2 existed', () => {
+    expect(parseFindingMarker('Body\n\n<!-- codra-fp:deadbeef:cafe1234 -->')).toEqual({
+      fingerprint: 'deadbeef',
+      anchorHash: 'cafe1234',
+      fingerprintV2: null,
+    });
   });
 
   it('emits nothing when the finding has no fingerprint', () => {

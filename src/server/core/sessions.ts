@@ -16,23 +16,6 @@ function sessionKey(token: string) {
   return `session:${token}`;
 }
 
-export function constantTimeEqual(left: string, right: string) {
-  const encoder = new TextEncoder();
-  const leftBytes = encoder.encode(left);
-  const rightBytes = encoder.encode(right);
-
-  if (leftBytes.byteLength !== rightBytes.byteLength) {
-    return false;
-  }
-
-  let result = 0;
-  for (let index = 0; index < leftBytes.byteLength; index += 1) {
-    result |= leftBytes[index] ^ rightBytes[index];
-  }
-
-  return result === 0;
-}
-
 export async function createSession(c: Context<AppEnv>, session: SessionRecord) {
   const token = randomHex();
 

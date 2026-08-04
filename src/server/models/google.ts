@@ -1,6 +1,7 @@
 import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, type ModelResponse } from './types';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
+import { assertPublicBaseUrl } from './url-guard';
 
 /** Default max wall-clock time for a single Google AI Studio call when the caller doesn't
  * supply a diff-size-aware budget. */
@@ -67,32 +68,6 @@ function isRetryableTransportError(error: unknown) {
   return error instanceof TypeError;
 }
 
-function isPrivateIP(hostname: string) {
-  const privateRanges = [
-    /^127\./,
-    /^10\./,
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-    /^192\.168\./,
-    /^169\.254\./,
-    /^localhost$/,
-    /^::1$/,
-  ];
-  return privateRanges.some((regex) => regex.test(hostname));
-}
-
-function isValidPublicUrl(urlString: string) {
-  try {
-    const url = new URL(urlString);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    const hostname = url.hostname;
-    if (hostname === 'metadata.google.internal' || hostname === '100.100.100.200') return false;
-    if (isPrivateIP(hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function reviewWithGoogle(
   config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
   model: string,
@@ -102,9 +77,8 @@ export async function reviewWithGoogle(
   const timeoutMs = config.timeoutMs ?? GEMINI_TIMEOUT_MS;
   logger.info(`Calling Google model: ${model}`);
   
-  if (config.baseUrl && !isValidPublicUrl(config.baseUrl)) {
-    throw new ProviderRequestError(config.providerName ?? 'Google', 400, 'Invalid provider base URL.');
-  }
+  assertPublicBaseUrl(config.baseUrl, config.providerName ?? 'Google');
+  const prompts = jsonOnlyPrompts(input);
 
   const startTime = Date.now();
   const baseUrl = (config.baseUrl || DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, '');
@@ -133,17 +107,13 @@ export async function reviewWithGoogle(
           body: JSON.stringify({
             systemInstruction: {
               role: 'system',
-              // Same JSON-only framing the Cloudflare, OpenAI and Anthropic adapters append. This
-              // adapter used to send both prompts unmodified, which matters most here: gemma is the
-              // one model in the chain that gets no `responseMimeType` (below), so the prompt is the
-              // only thing keeping its output parseable.
-              parts: [{ text: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.` }],
+              // The shared JSON-only framing matters most here: gemma is the one model in the chain
+              // that gets no `responseMimeType` (below), so the prompt is all that keeps its output
+              // parseable. This adapter spent a period sending both prompts unmodified.
+              parts: [{ text: prompts.system }],
             },
             contents: [
-              {
-                role: 'user',
-                parts: [{ text: `${input.userPrompt}\n\nRespond with the required JSON object only.` }],
-              },
+              { role: 'user', parts: [{ text: prompts.user }] },
             ],
             generationConfig: {
               ...(model.toLowerCase().includes('gemma') ? {} : { responseMimeType: 'application/json' }),

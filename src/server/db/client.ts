@@ -39,6 +39,18 @@ function createDbClient(env: DbEnv): DbClient {
   };
 }
 
+/**
+ * WRITING JSONB: bind `JSON.stringify(value)` and cast the placeholder `$n::text::jsonb`.
+ *
+ * Not `$n::jsonb` -- postgres.js types a JS string bound there as json and stores a jsonb STRING
+ * SCALAR, so every SQL JSON operator (`->`, `@>`, `jsonb_typeof`) silently sees nothing. That bug
+ * reached five columns and 1,215 rows before a SQL aggregate returned zero for a review that had
+ * withheld five findings (migrations 007 and 008).
+ *
+ * And not "bind the raw value" either: that works for objects but this function turns a JS ARRAY
+ * into a Postgres array literal (`{"a","b"}`), which casts straight back to a string scalar. Passing
+ * the JSON text keeps arrays out of that branch, so one idiom is correct for both shapes.
+ */
 function normalizeParam(param: unknown): unknown {
   return Array.isArray(param) ? toPostgresArrayLiteral(param) : param;
 }

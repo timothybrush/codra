@@ -21,6 +21,7 @@ import { encryptLlmApiKey, decryptLlmApiKey } from '@server/core/llm-crypto';
 import { llmApiFormats } from '@shared/schema';
 import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
+import { reviewWithVertex } from '@server/models/vertex';
 import { reviewWithOpenAI } from '@server/models/openai';
 import { reviewWithAnthropic } from '@server/models/anthropic';
 import { listProviderModels } from '@server/models/catalog';
@@ -108,6 +109,12 @@ function providerErrorStatus(error: ProviderRequestError) {
 
 function providerCanBeEnabled(apiFormat: z.infer<typeof apiFormatSchema>, encryptedApiKey: string | null | undefined) {
   return apiFormat === 'cloudflare-workers-ai' || Boolean(encryptedApiKey);
+}
+
+/** Unlike the other formats, Vertex has no universal default base URL -- it embeds the caller's
+ * GCP project ID and region -- so it must be supplied explicitly rather than falling back. */
+function requiresExplicitBaseUrl(apiFormat: z.infer<typeof apiFormatSchema>, baseUrl: string | null | undefined) {
+  return apiFormat === 'vertex' && !baseUrl;
 }
 
 function optionalEnv(value: () => string) {
@@ -203,12 +210,16 @@ export function createModelsRouter() {
     }
 
     const input = parsed.data;
+    if (requiresExplicitBaseUrl(input.apiFormat, input.baseUrl)) {
+      return jsonError('Vertex AI requires a base URL with your GCP project ID and region, e.g. https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1', 400);
+    }
+
     const existing = await findLlmProviderByName(c.env, input.name);
     if (existing) {
       return jsonError(`Provider ${input.name} already exists. Update the existing provider instead.`, 409);
     }
 
-    let encryptedApiKey: string | null = null;
+    let encryptedApiKey: string | null;
     try {
       encryptedApiKey = input.apiFormat === 'cloudflare-workers-ai'
         ? null
@@ -255,6 +266,10 @@ export function createModelsRouter() {
     }
 
     const input = parsed.data;
+    if (requiresExplicitBaseUrl(input.apiFormat, input.baseUrl)) {
+      return jsonError('Vertex AI requires a base URL with your GCP project ID and region, e.g. https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1', 400);
+    }
+
     const existing = await getLlmProvider(c.env, id);
     if (!existing) return jsonError('Provider not found.', 404);
 
@@ -343,6 +358,9 @@ export function createModelsRouter() {
         switch (config.apiFormat) {
           case 'gemini':
             response = await reviewWithGoogle({ apiKey, baseUrl: config.baseUrl, providerName: config.providerName }, config.modelName, input);
+            break;
+          case 'vertex':
+            response = await reviewWithVertex({ apiKey, baseUrl: config.baseUrl, providerName: config.providerName }, config.modelName, input);
             break;
           case 'openai':
             response = await reviewWithOpenAI({

@@ -17,14 +17,13 @@ import { queryRows } from './client';
  */
 export type CommentOutcome = 'posted' | 'deleted' | 'resolved' | 'unresolved' | 'marked_wrong' | 'marked_right';
 
-/** The two outcomes that suppress a finding on later runs. */
-export const NEGATIVE_OUTCOMES = ['deleted', 'marked_wrong'] as const;
-
 export type CommentFeedbackInput = {
   repositoryId: number;
   prNumber: number | null;
   fingerprint: string;
   anchorHash: string | null;
+  /** Title-independent identity, carried so a reworded repeat of a rejected claim also matches. */
+  fingerprintV2?: string | null;
   githubCommentId: number;
   outcome: CommentOutcome;
 };
@@ -47,8 +46,8 @@ export async function recordCommentFeedback(
   const rows = await queryRows<{ id: string }>(
     env,
     `
-      INSERT INTO comment_feedback (repository_id, pr_number, fingerprint, anchor_hash, github_comment_id, outcome)
-      SELECT * FROM UNNEST($1::int[], $2::int[], $3::text[], $4::text[], $5::bigint[], $6::text[])
+      INSERT INTO comment_feedback (repository_id, pr_number, fingerprint, anchor_hash, github_comment_id, outcome, fingerprint_v2)
+      SELECT * FROM UNNEST($1::int[], $2::int[], $3::text[], $4::text[], $5::bigint[], $6::text[], $7::text[])
       ON CONFLICT (repository_id, github_comment_id, outcome) DO NOTHING
       RETURNING id
     `,
@@ -59,6 +58,7 @@ export async function recordCommentFeedback(
       entries.map((e) => e.anchorHash ?? null),
       entries.map((e) => e.githubCommentId),
       entries.map((e) => e.outcome),
+      entries.map((e) => e.fingerprintV2 ?? null),
     ],
   );
 
@@ -80,6 +80,7 @@ export async function upsertDashboardFeedback(
     prNumber: number | null;
     fingerprint: string;
     anchorHash: string | null;
+    fingerprintV2?: string | null;
     jobId: string;
     labelledBy: number | null;
     outcome: 'marked_wrong' | 'marked_right';
@@ -89,20 +90,21 @@ export async function upsertDashboardFeedback(
     env,
     `
       INSERT INTO comment_feedback
-        (repository_id, pr_number, fingerprint, anchor_hash, github_comment_id, outcome, source, job_id, labelled_by)
-      VALUES ($1::int, $2::int, $3::text, $4::text, NULL, $5::text, 'dashboard', $6::uuid, $7::bigint)
+        (repository_id, pr_number, fingerprint, anchor_hash, github_comment_id, outcome, source, job_id, labelled_by, fingerprint_v2)
+      VALUES ($1::int, $2::int, $3::text, $4::text, NULL, $5::text, 'dashboard', $6::uuid, $7::bigint, $8::text)
       ON CONFLICT (repository_id, fingerprint) WHERE source = 'dashboard'
       DO UPDATE SET
         outcome     = EXCLUDED.outcome,
         pr_number   = EXCLUDED.pr_number,
         anchor_hash = COALESCE(EXCLUDED.anchor_hash, comment_feedback.anchor_hash),
+        fingerprint_v2 = COALESCE(EXCLUDED.fingerprint_v2, comment_feedback.fingerprint_v2),
         job_id      = EXCLUDED.job_id,
         labelled_by = EXCLUDED.labelled_by,
         updated_at  = now()
     `,
     [
       input.repositoryId, input.prNumber, input.fingerprint, input.anchorHash,
-      input.outcome, input.jobId, input.labelledBy,
+      input.outcome, input.jobId, input.labelledBy, input.fingerprintV2 ?? null,
     ],
   );
 }

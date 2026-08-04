@@ -1,7 +1,6 @@
 import {
   fileReviewModelOutputSchema,
   parsedReviewCommentSchema,
-  summaryModelOutputSchema,
   toClaimType,
   CLAIM_TYPE_CATEGORY,
   type ClaimType,
@@ -11,10 +10,20 @@ import {
 import { renderDiffSnippet } from '@server/prompts/verify';
 import { z } from 'zod';
 import { logger } from './logger';
-import { findPositionForLine, getValidPositions } from './diff';
-import type { DiffLine, FileDiff } from './diff';
-import { buildAnchorHash, buildFindingFingerprint, foldEvidenceText, normalizeFindingTitle } from './fingerprint';
-import { buildPresenceIndex, checkAbsenceClaim } from './claim-checks';
+import { findPositionForLine, getValidPositions, type DiffLine, type FileDiff } from './diff';
+import {
+  buildAnchorHash,
+  buildFindingFingerprint,
+  buildFindingFingerprintV2,
+  foldEvidenceText,
+  normalizeFindingTitle,
+} from './fingerprint';
+import {
+  buildPresenceIndex,
+  checkAbsenceClaim,
+  isVersionClaimRefutedByPin,
+  looksLikeExternalVersionClaim,
+} from './claim-checks';
 import { jsonrepair } from 'jsonrepair';
 
 /**
@@ -297,6 +306,15 @@ const CLAIM_TYPE_REPAIRS: ReadonlyArray<{ pattern: RegExp; claimType: ClaimType 
 function repairClaimType(claimType: ClaimType, title: string, body: string, onRepair: () => void): ClaimType {
   if (claimType !== 'other') return claimType;
   const text = `${title}\n${body}`;
+
+  // Version-existence claims arrive labelled `other` in practice -- the model has no reason to reach
+  // for a type describing a limitation it does not know it has. Relabelling by wording is what lets
+  // the denylist see them at all. Measured: every such finding in the corpus has been false.
+  if (looksLikeExternalVersionClaim(title, body)) {
+    onRepair();
+    return 'external_version_claim';
+  }
+
   for (const { pattern, claimType: repaired } of CLAIM_TYPE_REPAIRS) {
     if (pattern.test(text)) {
       onRepair();
@@ -337,7 +355,7 @@ function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
       if (line.kind === 'del' || line.newLineNumber === undefined) {
         // Nearest postable line at or after the deletion, falling back to the one before it.
         anchor = hunk.lines.slice(lineIndex + 1).find((l) => l.kind !== 'del' && l.newLineNumber !== undefined)
-          ?? [...hunk.lines.slice(0, lineIndex)].reverse().find((l) => l.kind !== 'del' && l.newLineNumber !== undefined)
+          ?? hunk.lines.slice(0, lineIndex).reverse().find((l) => l.kind !== 'del' && l.newLineNumber !== undefined)
           ?? postable[0];
       }
 
@@ -444,7 +462,7 @@ export function parseFileReviewResponse(
    */
   absenceCheckStats: { absenceShaped: number; identifierExtracted: number; refuted: number };
 } {
-  let extracted = '';
+  let extracted: string;
   try {
     extracted = extractJson(raw);
     if (!hasReviewKeys(extracted)) {
@@ -458,10 +476,10 @@ export function parseFileReviewResponse(
       rawPrefix: raw.slice(0, 500),
       error: e instanceof Error ? e.message : String(e),
     });
-    throw new Error('Could not find JSON root in model response.');
+    throw new Error('Could not find JSON root in model response.', { cause: e });
   }
 
-  let preprocessed = '';
+  let preprocessed: string;
   try {
     preprocessed = preprocessJson(extracted);
   } catch (e) {
@@ -481,7 +499,7 @@ export function parseFileReviewResponse(
     parsedJson = JSON.parse(repaired);
   } catch (e) {
     logger.error('Critical JSON parse error after extraction and repair', { repaired: truncateJsonForLog(repaired), error: e });
-    throw new Error(`Invalid JSON format: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    throw new Error(`Invalid JSON format: ${e instanceof Error ? e.message : 'Unknown error'}`, { cause: e });
   }
 
   let parsed: z.infer<typeof fileReviewModelOutputSchema>;
@@ -532,7 +550,7 @@ export function parseFileReviewResponse(
     parsed = fileReviewModelOutputSchema.parse(data);
   } catch (e) {
     logger.error('Model response failed schema validation', { parsedJson, error: e });
-    throw new Error(`Response schema mismatch: ${e instanceof Error ? e.message : 'Check logs'}`);
+    throw new Error(`Response schema mismatch: ${e instanceof Error ? e.message : 'Check logs'}`, { cause: e });
   }
 
   const validPositions = getValidPositions(file);
@@ -549,8 +567,6 @@ export function parseFileReviewResponse(
     .map((finding) => {
       // Codex style findings use start/end or line
       let line = finding.code_location.line || finding.code_location.line_range?.start;
-      let position: number | undefined;
-      let anchorLine: DiffLine | undefined;
 
       // Evidence first: a verbatim quote that actually appears in the diff is a far stronger
       // anchor than a line number the model may have invented, and it is the only signal we can
@@ -587,9 +603,9 @@ export function parseFileReviewResponse(
       // few lines onto the nearest valid one. The guard above makes that branch unreachable, so it
       // (and the snap helpers in diff.ts) have been removed rather than left as a fallback that can
       // never fire -- it read like a safety net while doing nothing.
-      anchorLine = evidence.line;
+      const anchorLine = evidence.line;
       line = evidence.line.newLineNumber;
-      position = findPositionForLine(file, line!);
+      const position = findPositionForLine(file, line!);
 
       // Final validation
       if (position === undefined || !validPositions.has(position)) {
@@ -666,6 +682,15 @@ export function parseFileReviewResponse(
         return null;
       }
 
+      // Belt and braces for the version class: even if the claim is labelled something the denylist
+      // permits, a line pinned to a full commit SHA refutes it outright -- the version alongside is a
+      // comment the runner never reads. Deterministic, so it holds whatever the label says.
+      if (isVersionClaimRefutedByPin({ title, body, anchorContent })) {
+        deniedClaimCounts.version_claim_on_pinned_sha = (deniedClaimCounts.version_claim_on_pinned_sha ?? 0) + 1;
+        orphanedComments.push(`- **[refuted:pinned-sha] ${title}:** ${body}`);
+        return null;
+      }
+
       // SHADOW ONLY -- counted, never acted on. The false-refutation surface is the least-measured
       // part of this design, so the funnel runs first and enforcement waits on its numbers. Promote
       // to a drop only once `refuted` is non-zero on real absence claims AND the known-true fixtures
@@ -701,6 +726,13 @@ export function parseFileReviewResponse(
         evidence: typeof finding.evidence === 'string' && finding.evidence.trim() ? finding.evidence.trim() : undefined,
         fingerprint: buildFindingFingerprint(file.path, title),
         anchorHash: anchorContent ? buildAnchorHash(anchorContent) : undefined,
+        // Second, title-independent identity, matched with OR against the first so a reworded repeat
+        // is still recognised. See buildFindingFingerprintV2.
+        fingerprintV2: buildFindingFingerprintV2(
+          file.path,
+          claimType,
+          anchorContent ? buildAnchorHash(anchorContent) : undefined,
+        ) ?? undefined,
       });
     })
     .filter((comment): comment is ParsedReviewComment => Boolean(comment));
@@ -736,7 +768,12 @@ const SEVERITY_RANK: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit:
 export function dedupeFindings(comments: ParsedReviewComment[]): ParsedReviewComment[] {
   const best = new Map<string, ParsedReviewComment>();
   for (const comment of comments) {
-    const key = normalizeFindingTitle(comment.title);
+    // A rule's title is a CONSTANT, so title-keying would collapse every empty catch in the PR into
+    // one finding. Rule candidates are therefore keyed on their own identity instead: same rule,
+    // same file, same line is a duplicate; the same rule in another file is not.
+    const key = comment.source === 'rule'
+      ? `rule\u0000${comment.ruleId ?? ''}\u0000${comment.path}\u0000${comment.anchorHash ?? ''}`
+      : normalizeFindingTitle(comment.title);
     if (!key) {
       // Untitled/odd finding — keep as-is under a unique key so it isn't merged away.
       best.set(`__unique__${best.size}`, comment);
@@ -757,24 +794,3 @@ export function dedupeFindings(comments: ParsedReviewComment[]): ParsedReviewCom
   return Array.from(best.values());
 }
 
-export function parseSummaryResponse(raw: string): string {
-  const extracted = extractJson(raw);
-  const preprocessed = preprocessJson(extracted);
-
-  let repaired = preprocessed;
-  try {
-    repaired = jsonrepair(preprocessed);
-  } catch (e) {
-    // Fall back to original preprocessed text if repair fails
-  }
-
-  try {
-    const parsedJson = JSON.parse(repaired);
-    const validated = summaryModelOutputSchema.parse(parsedJson);
-    return Array.isArray(validated) ? validated[0]?.summary : validated.summary;
-  } catch (error) {
-    // If it's not valid JSON or doesn't match the schema, return the raw text as a fallback
-    // This handles cases where the model might still ignore the JSON constraint
-    return raw.trim() || 'Review completed with no summary provided.';
-  }
-}

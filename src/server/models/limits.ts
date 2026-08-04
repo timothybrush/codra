@@ -1,50 +1,34 @@
 /**
  * Shared throttling/timeout policy for outbound model calls.
  *
- * Two hard Cloudflare Workers Free-plan constraints shape everything here:
- *
- * 1. Each Worker invocation may have at most SIX connections simultaneously waiting for
- *    response headers. Anything beyond that (fetch, AI binding, KV, Hyperdrive) is silently
- *    QUEUED by the runtime -- it does not error, it just doesn't start. A model call that sits
- *    queued behind other long-running model calls will burn its own client-side timeout without
- *    the request ever being dispatched, which shows up in logs as a provider "timing out" at
- *    exactly the configured timeout on every attempt.
- * 2. 50 subrequests per invocation, so retries are expensive and every queued-then-timed-out
- *    call is a wasted subrequest.
+ * Two Workers Free-plan constraints shape all of it:
+ *  1. At most SIX connections per invocation may await response headers at once. Beyond that the
+ *     runtime silently QUEUES — it does not error. A queued model call burns its own client-side
+ *     timeout without ever being dispatched, which reads in the logs as a provider timing out at
+ *     exactly the configured value on every attempt.
+ *  2. 50 subrequests per invocation, so every queued-then-timed-out call is a wasted one.
  */
 
-/** Base wall-clock budget for a model call reviewing a small diff. A fast, suitable model
- * (e.g. a Gemini flash model) answers in ~1-5s, so 20s is generous headroom; anything slower is a
- * stuck/overloaded/queued model and we fail over quickly. */
+/** Base budget for a small diff. A suitable model answers in ~1-5s; slower means stuck or queued. */
 export const MODEL_TIMEOUT_BASE_MS = 20_000;
-/** Extra time granted per diff line beyond MODEL_TIMEOUT_FREE_LINES -- large diffs legitimately
- * need longer generations. */
 export const MODEL_TIMEOUT_PER_LINE_MS = 100;
-/** Diff lines included in the base budget before per-line scaling kicks in. */
 export const MODEL_TIMEOUT_FREE_LINES = 100;
 /**
- * Hard ceiling for a single model call. CRITICAL: this must stay well under the Cloudflare Worker
- * *invocation* wall-clock limit (~120s). If one call is allowed to run near 120s (as the old
- * 120_000 ceiling permitted for large diffs), a hung/queued call makes the whole workflow
- * invocation get killed as `exceededCpu` -- losing all progress and looping -- instead of the call
- * timing out gracefully and failing over. 40s leaves room for a couple of sequential fallback
- * attempts within one invocation while never approaching the platform limit.
+ * Hard ceiling for one call, and it must stay well under the ~120s invocation wall clock. At the
+ * old 120s ceiling a hung call took the whole workflow invocation down as `exceededCpu` — losing
+ * all progress and looping — instead of timing out and failing over. 40s leaves room for a couple
+ * of sequential fallback attempts inside one invocation.
  */
 export const MODEL_TIMEOUT_MAX_MS = 40_000;
 
 /**
- * Wall-clock budget for a single file's entire fallback chain within one invocation. Even with a
- * short per-call ceiling, a file that fails over through many configured models could otherwise
- * run several calls back-to-back and push the invocation past the ~120s platform limit. Once a
- * file's chain has spent this long, stop trying more models and defer it -- it resumes from the
- * (fast) primary model in a fresh invocation. Keeps one file's chain safely under the invocation cap.
+ * Budget for one file's entire fallback chain. Even with a short per-call ceiling, a file failing
+ * over through many models can run enough calls back-to-back to pass the invocation limit. Past
+ * this, defer the file: it resumes from the fast primary model in a fresh invocation.
  */
 export const MODEL_FALLBACK_CHAIN_BUDGET_MS = 55_000;
 
-/**
- * Wall-clock timeout for one model call, scaled by the size of the (already truncated) diff
- * the model has to review. Small diffs fail over fast; large diffs get up to MODEL_TIMEOUT_MAX_MS.
- */
+/** Per-call timeout, scaled by the size of the (already truncated) diff being reviewed. */
 export function adaptiveModelTimeoutMs(diffLineCount: number | null | undefined): number {
   const lines = typeof diffLineCount === 'number' && Number.isFinite(diffLineCount) ? Math.max(0, diffLineCount) : 0;
   const scaled = MODEL_TIMEOUT_BASE_MS + Math.max(0, lines - MODEL_TIMEOUT_FREE_LINES) * MODEL_TIMEOUT_PER_LINE_MS;
@@ -52,16 +36,14 @@ export function adaptiveModelTimeoutMs(diffLineCount: number | null | undefined)
 }
 
 /**
- * Max model calls in flight at once for a single invocation. Kept below the runtime's
- * 6-connection cap so short-lived KV/Hyperdrive/GitHub requests issued by concurrent file
- * reviews still have free connection slots and model calls are never queued behind each other
- * by the runtime (queued calls burn their timeout without ever being dispatched).
+ * Kept below the runtime's 6-connection cap so the KV/Hyperdrive/GitHub requests that concurrent
+ * file reviews issue still find a free slot, and model calls are never queued behind each other.
  */
 export const MAX_CONCURRENT_MODEL_CALLS = 3;
 
 /**
- * Tiny FIFO semaphore. Callers wait *before* their provider timeout starts, so waiting for a
- * slot never eats into a model call's own time budget.
+ * Tiny FIFO semaphore. Callers wait *before* their provider timeout starts, so queueing for a slot
+ * never eats into a call's own time budget.
  */
 export class ModelCallGate {
   private active = 0;
@@ -69,13 +51,24 @@ export class ModelCallGate {
 
   constructor(private readonly limit = MAX_CONCURRENT_MODEL_CALLS) {}
 
-  async run<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * `onAcquired` reports how long this caller queued. Callers that budget wall clock need it —
+   * charging queue time to a per-file budget makes a busy gate look like a slow model.
+   */
+  async run<T>(fn: () => Promise<T>, onAcquired?: (waitedMs: number) => void): Promise<T> {
+    const startedWaiting = Date.now();
     await this.acquire();
+    onAcquired?.(Date.now() - startedWaiting);
     try {
       return await fn();
     } finally {
       this.release();
     }
+  }
+
+  /** How many callers are queued behind the active ones. */
+  get queueDepth() {
+    return this.waiters.length;
   }
 
   private acquire(): Promise<void> {
@@ -87,8 +80,8 @@ export class ModelCallGate {
   }
 
   private release() {
-    // Hand the slot directly to the next waiter (active count unchanged) so a newly arriving
-    // caller can't sneak in between the release and the waiter resuming.
+    // Hand the slot straight to the next waiter (active count unchanged) so a newly arriving caller
+    // cannot sneak in between the release and the waiter resuming.
     const next = this.waiters.shift();
     if (next) {
       next();

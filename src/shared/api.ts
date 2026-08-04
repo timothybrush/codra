@@ -9,10 +9,6 @@ export type AuthSessionUser = {
   signedInAt: string;
 };
 
-export type ApiErrorPayload = {
-  error: string;
-};
-
 export type JobsResponse = {
   jobs: JobSummary[];
   total: number;

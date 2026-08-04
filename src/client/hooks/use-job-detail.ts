@@ -84,6 +84,19 @@ export function useJobDetail(id: string) {
     pollTimeout.current = window.setTimeout(() => fetchJob(true), delay);
   };
 
+  /**
+   * `fetchJob` and `schedulePolling` are mutually recursive, so neither can be memoized without the
+   * other and both get a new identity every render. Holding them in refs gives the effects below a
+   * stable thing to call, which is what lets their dependency arrays be honest about what actually
+   * triggers them rather than being silenced.
+   */
+  const fetchJobRef = useRef(fetchJob);
+  const schedulePollingRef = useRef(schedulePolling);
+  useEffect(() => {
+    fetchJobRef.current = fetchJob;
+    schedulePollingRef.current = schedulePolling;
+  });
+
   useEffect(() => {
     if (id) {
       etag.current = null;
@@ -96,21 +109,23 @@ export function useJobDetail(id: string) {
         latestJob.current = null;
         setJob(null);
       }
-      fetchJob();
+      fetchJobRef.current();
     }
     return () => stopPolling();
   }, [id]);
 
+  // Only the two fields `getPollDelay` reads. `latestJob.current` is not assigned here because
+  // `fetchJob` already sets it on every successful response, and those are the only writes to `job`.
   useEffect(() => {
-    latestJob.current = job;
-    schedulePolling();
+    schedulePollingRef.current();
   }, [job?.status, job?.nextRetryAt]);
 
+  // Mount-only: the listener reads through the ref, so it never needs rebinding.
   useEffect(() => {
-    const reschedule = () => schedulePolling();
+    const reschedule = () => schedulePollingRef.current();
     document.addEventListener('visibilitychange', reschedule);
     return () => document.removeEventListener('visibilitychange', reschedule);
-  }, [id, job?.status, job?.nextRetryAt]);
+  }, []);
 
   const handleRetry = async () => {
     if (!job) return;

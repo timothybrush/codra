@@ -6,7 +6,6 @@ import {
   createContext,
   type ReactNode,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -237,33 +236,4 @@ export function SmoothScroll({
       </ReactLenis>
     </SmoothScrollContext.Provider>
   );
-}
-
-/**
- * Read the page's smooth-scroll state. Inside <SmoothScroll> it returns the
- * shared motion values; outside it falls back to a native window scroll
- * listener so scroll-driven components still work without the provider.
- */
-export function useSmoothScroll(): SmoothScrollApi {
-  const ctx = useContext(SmoothScrollContext);
-  const scrollY = useMotionValue(0);
-  const progress = useMotionValue(0);
-  const velocity = useMotionValue(0);
-
-  const windowSource = useCallback((): ScrollSource => window, []);
-  useNativeScrollSync(ctx === null, windowSource, scrollY, progress, velocity);
-
-  const scrollTo = useCallback((target: ScrollTarget, options?: ScrollToOptions) => {
-    window.scrollTo({
-      top: resolveTop(target, window, options?.offset),
-      behavior: options?.immediate ? 'auto' : 'smooth',
-    });
-  }, []);
-
-  const fallback = useMemo<SmoothScrollApi>(
-    () => ({ lenis: null, scrollY, progress, velocity, scrollTo }),
-    [scrollY, progress, velocity, scrollTo],
-  );
-
-  return ctx ?? fallback;
 }

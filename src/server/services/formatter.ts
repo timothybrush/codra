@@ -4,7 +4,10 @@ import type { ParsedReviewComment } from '@shared/schema';
  * Matches the identity marker appended to every inline comment. Kept next to the writer so the two
  * can never drift.
  */
-export const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)\s*-->/;
+// The third field is OPTIONAL so every comment already on GitHub still parses. Requiring it would
+// silently stop recording deletions of every historical comment -- and the failure would be invisible,
+// because parseFindingMarker simply returns null and the webhook records zero feedback.
+export const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)(?::([0-9a-f]*))?\s*-->/;
 
 /**
  * An HTML comment carrying the finding's identity. Invisible in rendered markdown, echoed back
@@ -15,16 +18,18 @@ export const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)\s
  * outdated, i.e. when the developer edited the flagged code, which is the strongest signal in the
  * dataset. The marker also survives file renames and force-pushes.
  */
-export function formatFindingMarker(comment: Pick<ParsedReviewComment, 'fingerprint' | 'anchorHash'>) {
+export function formatFindingMarker(
+  comment: Pick<ParsedReviewComment, 'fingerprint' | 'anchorHash' | 'fingerprintV2'>,
+) {
   if (!comment.fingerprint) return '';
-  return `\n\n<!-- codra-fp:${comment.fingerprint}:${comment.anchorHash ?? ''} -->`;
+  return `\n\n<!-- codra-fp:${comment.fingerprint}:${comment.anchorHash ?? ''}:${comment.fingerprintV2 ?? ''} -->`;
 }
 
 export function parseFindingMarker(body: string | null | undefined) {
   if (!body) return null;
   const match = FINDING_MARKER_PATTERN.exec(body);
   if (!match) return null;
-  return { fingerprint: match[1], anchorHash: match[2] || null };
+  return { fingerprint: match[1], anchorHash: match[2] || null, fingerprintV2: match[3] || null };
 }
 
 export class FormatterService {

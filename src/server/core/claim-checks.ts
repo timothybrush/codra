@@ -60,6 +60,42 @@ const IDENTIFIER_STOPLIST = new Set([
   'result', 'response', 'request', 'req', 'res', 'params', 'options', 'config', 'args',
 ]);
 
+/**
+ * Wording that marks a claim as being about the EXISTENCE or validity of an external version, tag or
+ * config key, rather than about the code in front of it.
+ */
+const VERSION_CLAIM_PATTERNS: readonly RegExp[] = [
+  /\b(?:does not|doesn't|do not|don't)\s+exist\b/i,
+  /\b(?:non-?existent|nonexistent)\b/i,
+  /\bis not a valid\b/i,
+  /\blatest (?:major )?version\b/i,
+  /\bno such (?:version|tag|release)\b/i,
+  /\bnot a valid (?:configuration )?(?:option|key|property)\b/i,
+];
+
+/** A full git object id. `uses: owner/action@<40 hex>` is a pin; any version beside it is a comment. */
+const FULL_SHA_PATTERN = /\b[0-9a-f]{40}\b/;
+
+export function looksLikeExternalVersionClaim(title: string, body: string): boolean {
+  const text = `${title}\n${body}`;
+  return VERSION_CLAIM_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * Whether a version-existence claim is refuted by the very line it cites.
+ *
+ * A GitHub Actions step pinned to a full commit SHA resolves by SHA; the trailing `# v7.0.0` is a
+ * human-readable comment that the runner never reads. So "version v7.0.0 does not exist" cannot be a
+ * defect on such a line even if the comment were stale -- it would be a comment nit. Two P0s were
+ * posted against exactly this shape while the CI job using those steps was green.
+ *
+ * Deterministic and one-directional: it only ever refutes a claim, never confirms one.
+ */
+export function isVersionClaimRefutedByPin(input: { title: string; body: string; anchorContent: string }): boolean {
+  if (!looksLikeExternalVersionClaim(input.title, input.body)) return false;
+  return FULL_SHA_PATTERN.test(input.anchorContent);
+}
+
 type PresenceEntry = { line: DiffLine; hunkIndex: number; code: string };
 
 export type PresenceIndex = {
@@ -91,7 +127,7 @@ type CommentSyntax = { line: readonly string[]; block: boolean };
  * treated as a comment universally. Getting this wrong only ever loses a refutation, but there is no
  * reason to lose one.
  */
-function commentSyntaxFor(path: string): CommentSyntax {
+export function commentSyntaxFor(path: string): CommentSyntax {
   const ext = path.toLowerCase().split('.').pop() ?? '';
   if (ext === 'py' || ext === 'rb' || ext === 'sh' || ext === 'yaml' || ext === 'yml' || ext === 'toml') {
     return { line: ['#'], block: false };

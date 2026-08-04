@@ -219,6 +219,63 @@ export function parseUnifiedDiff(rawDiff: string, reviewConfig?: RepoConfig['rev
   return files.filter((file) => file.path);
 }
 
+/** One entry of GitHub's `GET /pulls/{n}/files` (and `/compare`) response, narrowed to what we use. */
+export type GitHubDiffFileEntry = {
+  filename: string;
+  previous_filename?: string | null;
+  status?: string;
+  /** Absent for binary files, and for individual files GitHub considers too large to patch. */
+  patch?: string | null;
+};
+
+/**
+ * Rebuilds unified-diff text from GitHub's per-file JSON.
+ *
+ * Needed because `application/vnd.github.v3.diff` returns **406 `too_large`** once a pull request's
+ * diff exceeds 20,000 lines -- a hard server-side cap, permanent for that PR, so there is nothing to
+ * retry. The per-file endpoint has no such limit; it just hands back the same hunks split up.
+ *
+ * Synthesising text rather than building `FileDiff[]` directly is deliberate: the KV diff cache, the
+ * dashboard's diff view and `job.diffInput` all speak raw unified diff, so one representation keeps
+ * `parseUnifiedDiff` as the single place that understands the format.
+ *
+ * The emitted headers match real `git diff` output exactly, including `new file mode` /
+ * `deleted file mode` (which is what sets `isNew` / `isDeleted` -- the `/dev/null` markers alone
+ * would not) and `rename from` / `rename to`.
+ */
+export function buildUnifiedDiffFromFiles(files: GitHubDiffFileEntry[]): string {
+  const out: string[] = [];
+
+  for (const file of files) {
+    const newPath = file.filename;
+    const oldPath = file.previous_filename || file.filename;
+    const isAdded = file.status === 'added';
+    const isRemoved = file.status === 'removed';
+
+    out.push(`diff --git a/${oldPath} b/${newPath}`);
+    if (isAdded) out.push('new file mode 100644');
+    if (isRemoved) out.push('deleted file mode 100644');
+    if (file.previous_filename && file.previous_filename !== newPath) {
+      out.push(`rename from ${file.previous_filename}`);
+      out.push(`rename to ${newPath}`);
+    }
+
+    // No patch means binary, or a single file GitHub declined to diff. Say so in the form the parser
+    // already recognises, so it is marked binary and skipped -- rather than silently disappearing and
+    // being reported as a reviewed-and-clean file.
+    if (!file.patch) {
+      out.push(`Binary files a/${oldPath} and b/${newPath} differ`);
+      continue;
+    }
+
+    out.push(isAdded ? '--- /dev/null' : `--- a/${oldPath}`);
+    out.push(isRemoved ? '+++ /dev/null' : `+++ b/${newPath}`);
+    out.push(file.patch);
+  }
+
+  return out.length > 0 ? `${out.join('\n')}\n` : '';
+}
+
 export function getValidNewLines(file: FileDiff) {
   return new Set(
     file.hunks.flatMap((hunk) =>

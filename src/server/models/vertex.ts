@@ -1,0 +1,213 @@
+import { logger } from '@server/core/logger';
+import { withTimeout } from '@server/core/timeout';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
+import { assertPublicBaseUrl } from './url-guard';
+
+/**
+ * Vertex AI is a distinct provider from Google AI Studio ('gemini' elsewhere in this codebase):
+ * its REST API rejects plain API keys outright and requires an OAuth2 access token asserting a
+ * service-account principal (RFC 7523 JWT-bearer grant). The `apiKey` field on this provider
+ * therefore holds the full service-account JSON key, not a short API key string.
+ */
+const VERTEX_TIMEOUT_MS = 45_000;
+const VERTEX_MAX_OUTPUT_TOKENS = 8192;
+const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
+const ACCESS_TOKEN_LIFETIME_S = 3600;
+// Refresh a bit before the token's real expiry so an in-flight review never starts a call with a
+// token that expires mid-request.
+const TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+interface ServiceAccountKey {
+  client_email: string;
+  private_key: string;
+}
+
+interface CachedToken {
+  accessToken: string;
+  expiresAt: number;
+}
+
+/**
+ * Per-isolate cache, not per-request: Workers reuse a warm isolate across many invocations, so
+ * caching here saves a token mint (and a subrequest) on every file review after the first one to
+ * hit this isolate. It is not shared across isolates -- a cold start just mints its own token.
+ */
+const tokenCache = new Map<string, CachedToken>();
+
+function parseServiceAccountKey(raw: string): ServiceAccountKey {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Vertex AI credentials must be the full service-account JSON key (paste the downloaded .json file contents), not an API key.');
+  }
+
+  const obj = parsed as Partial<ServiceAccountKey> | null;
+  if (!obj || typeof obj.client_email !== 'string' || typeof obj.private_key !== 'string') {
+    throw new Error('Vertex AI service-account JSON is missing client_email or private_key.');
+  }
+  return { client_email: obj.client_email, private_key: obj.private_key };
+}
+
+function base64Url(bytes: Uint8Array) {
+  return Buffer.from(bytes)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+async function importPrivateKey(pem: string) {
+  const der = Buffer.from(
+    pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s+/g, ''),
+    'base64',
+  );
+  return crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+}
+
+async function mintAccessToken(serviceAccount: ServiceAccountKey): Promise<CachedToken> {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const encoder = new TextEncoder();
+  const header = base64Url(encoder.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const claimSet = base64Url(encoder.encode(JSON.stringify({
+    iss: serviceAccount.client_email,
+    scope: OAUTH_SCOPE,
+    aud: OAUTH_TOKEN_URL,
+    iat: nowSeconds,
+    exp: nowSeconds + ACCESS_TOKEN_LIFETIME_S,
+  })));
+  const signingInput = `${header}.${claimSet}`;
+
+  const key = await importPrivateKey(serviceAccount.private_key);
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, encoder.encode(signingInput));
+  const assertion = `${signingInput}.${base64Url(new Uint8Array(signature))}`;
+
+  const response = await withTimeout('Google OAuth token', 10_000, (signal) =>
+    fetch(OAUTH_TOKEN_URL, {
+      method: 'POST',
+      signal,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+    }),
+  );
+
+  if (!response.ok) {
+    const message = providerErrorMessage(await response.text());
+    throw new ProviderRequestError('Google Vertex AI', response.status, `Could not mint an access token for the service account -- check that the JSON key is valid and the Vertex AI API is enabled (${message})`);
+  }
+
+  const data = (await response.json()) as { access_token?: string; expires_in?: number };
+  if (!data.access_token) throw new Error('Google OAuth token endpoint returned no access_token.');
+
+  return {
+    accessToken: data.access_token,
+    expiresAt: Date.now() + (data.expires_in ?? ACCESS_TOKEN_LIFETIME_S) * 1000,
+  };
+}
+
+async function getAccessToken(
+  serviceAccount: ServiceAccountKey,
+  tracker?: { incrementSubrequests(count?: number): void },
+) {
+  const cached = tokenCache.get(serviceAccount.client_email);
+  if (cached && cached.expiresAt - TOKEN_REFRESH_MARGIN_MS > Date.now()) {
+    return cached.accessToken;
+  }
+
+  if (tracker) tracker.incrementSubrequests(1);
+  const token = await mintAccessToken(serviceAccount);
+  tokenCache.set(serviceAccount.client_email, token);
+  return token.accessToken;
+}
+
+export async function reviewWithVertex(
+  config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
+  model: string,
+  input: { systemPrompt: string; userPrompt: string },
+  tracker?: { incrementSubrequests(count?: number): void },
+): Promise<ModelResponse> {
+  const providerName = config.providerName ?? 'Google Vertex AI';
+  const timeoutMs = config.timeoutMs ?? VERTEX_TIMEOUT_MS;
+  logger.info(`Calling Vertex AI model: ${model}`);
+
+  assertPublicBaseUrl(config.baseUrl, providerName);
+  if (!config.baseUrl) {
+    throw new ProviderRequestError(
+      providerName,
+      400,
+      'Vertex AI requires a base URL with your project and region, e.g. https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1',
+    );
+  }
+
+  const serviceAccount = parseServiceAccountKey(config.apiKey);
+  const accessToken = await getAccessToken(serviceAccount, tracker);
+  const prompts = jsonOnlyPrompts(input);
+
+  const startTime = Date.now();
+  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  const url = `${baseUrl}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
+
+  if (tracker) tracker.incrementSubrequests(1);
+  const response = await withTimeout('Vertex AI', timeoutMs, (signal) =>
+    fetch(url, {
+      method: 'POST',
+      signal,
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: prompts.system }],
+        },
+        contents: [
+          { role: 'user', parts: [{ text: prompts.user }] },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: VERTEX_MAX_OUTPUT_TOKENS,
+          temperature: 0,
+        },
+      }),
+    }),
+  );
+
+  if (!response.ok) {
+    const message = providerErrorMessage(await response.text());
+    throw new ProviderRequestError(providerName, response.status, message);
+  }
+
+  const durationMs = Date.now() - startTime;
+  logger.info(`AI model ${model} responded in ${durationMs}ms`);
+
+  const data = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+    usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+    };
+  };
+
+  const candidate = data.candidates?.[0];
+  const rawText = candidate?.content?.parts?.map((part) => part.text ?? '').join('')?.trim();
+  if (!rawText) {
+    const finishReason = candidate?.finishReason;
+    if (finishReason && finishReason !== 'STOP') {
+      throw new UnparseableModelResponseError(model, `finishReason=${finishReason}`);
+    }
+    throw new Error('Vertex AI returned an empty response.');
+  }
+
+  return {
+    rawText,
+    inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+    modelUsed: model,
+    provider: providerName,
+  };
+}

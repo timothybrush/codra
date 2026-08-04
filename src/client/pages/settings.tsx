@@ -14,8 +14,6 @@ import { SteppedSlider } from '@client/components/motion/stepped-slider';
 import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
 import {
   Save,
-  ShieldAlert,
-  Layers,
   RefreshCw,
   Plus,
   Trash2,
@@ -26,27 +24,32 @@ import {
 import { LayerCard } from '@client/components/ui/layer-card';
 import { Text } from '@client/components/ui/text';
 import { Badge } from '@client/components/ui/badge';
-import type { LlmApiFormat, LlmProvider, ModelConfig, RepoConfig, ReviewSettings } from '@shared/schema';
-import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, reviewMaxFilesRange, type ReviewConcurrencyLevel } from '@shared/schema';
+import {
+  REVIEW_CONCURRENCY_LIMITS,
+  reviewMaxCommentsOptions,
+  reviewMaxFilesRange,
+  type LlmApiFormat,
+  type LlmProvider,
+  type ModelConfig,
+  type ReviewConcurrencyLevel,
+  type ReviewSettings,
+} from '@shared/schema';
 import type { ModelConfigsResponse } from '@shared/api';
 import {
   ModelRouteEditor,
+  normalizeModelRoute,
+  routesEqual,
   type ModelOption,
   type ModelRouteConfig,
   type ProviderOption,
 } from '@client/components/features/models/model-chain';
 import { cn } from '@client/lib/utils';
 
-const EMPTY_GLOBAL_CONFIG: ModelRouteConfig = {
-  main: null,
-  fallbacks: [],
-  size_overrides: [],
-};
-
 const API_FORMAT_OPTIONS: Array<{ value: LlmApiFormat; label: string }> = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'gemini', label: 'Google' },
+  { value: 'vertex', label: 'Google Vertex AI' },
   { value: 'cloudflare-workers-ai', label: 'Cloudflare' },
 ];
 
@@ -54,13 +57,19 @@ const PROVIDER_PRESETS = [
   { value: 'custom-openai', label: 'Custom OpenAI-style API', apiFormat: 'openai' as const, baseUrl: '', name: 'Custom OpenAI', exampleUrl: 'https://api.example.com/v1' },
   { value: 'custom-anthropic', label: 'Custom Anthropic-style API', apiFormat: 'anthropic' as const, baseUrl: '', name: 'Custom Anthropic', exampleUrl: 'https://api.example.com/v1' },
   { value: 'custom-google', label: 'Custom Google-style API', apiFormat: 'gemini' as const, baseUrl: '', name: 'Custom Google', exampleUrl: 'https://generativelanguage.googleapis.com/v1beta' },
+  { value: 'custom-vertex', label: 'Google Vertex AI', apiFormat: 'vertex' as const, baseUrl: '', name: 'Vertex AI', exampleUrl: 'https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1' },
 ];
 
 const FIXED_PROVIDER_NAMES = new Set(['OpenAI', 'OpenRouter', 'Anthropic', 'Google', 'Cloudflare', 'xAI']);
 
-function providerKeyPlaceholder(providerName: string) {
+function providerKeyPlaceholder(providerName: string, apiFormat: LlmApiFormat) {
+  if (apiFormat === 'vertex') return '{ "type": "service_account", … }';
   if (providerName === 'xAI') return 'xai-…';
   return 'sk-…';
+}
+
+function apiKeyFieldLabel(apiFormat: LlmApiFormat) {
+  return apiFormat === 'vertex' ? 'Service account JSON key' : 'API key';
 }
 
 const CONCURRENCY_LEVEL_ORDER: ReviewConcurrencyLevel[] = ['low', 'medium', 'high', 'max'];
@@ -92,49 +101,16 @@ type NewProviderDraft = {
 };
 type SyncError = { providerId: string; providerName: string; error: string };
 
-type GlobalConfigInput = RepoConfig['model'] | Partial<ModelRouteConfig> | null | undefined;
-
-export function normalizeGlobalConfig(config: GlobalConfigInput): ModelRouteConfig {
-  return {
-    main: typeof config?.main === 'string' && config.main.trim() ? config.main : null,
-    fallbacks: Array.isArray(config?.fallbacks) ? config.fallbacks : EMPTY_GLOBAL_CONFIG.fallbacks,
-    size_overrides: Array.isArray(config?.size_overrides) ? config.size_overrides : EMPTY_GLOBAL_CONFIG.size_overrides,
-  };
-}
-
-function stringArraysEqual(a: string[] = [], b: string[] = []) {
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-function tiersEqual(a: ModelRouteConfig['size_overrides'] = [], b: ModelRouteConfig['size_overrides'] = []) {
-  return a.length === b.length && a.every((tier, index) => {
-    const other = b[index];
-    return Boolean(
-      other &&
-      tier.max_lines === other.max_lines &&
-      tier.model === other.model &&
-      stringArraysEqual(tier.fallbacks ?? [], other.fallbacks ?? []),
-    );
-  });
-}
-
-function routeEqual(a: ModelRouteConfig | null, b: ModelRouteConfig | null) {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.main === b.main &&
-    stringArraysEqual(a.fallbacks ?? [], b.fallbacks ?? []) &&
-    tiersEqual(a.size_overrides ?? [], b.size_overrides ?? [])
-  );
-}
+/**
+ * Kept as a named export from this module because `test/settings.spec.ts` imports it from here.
+ * The implementation lives with the ModelRouteConfig type it operates on.
+ */
+export const normalizeGlobalConfig = normalizeModelRoute;
 
 function providerToDraft(provider: LlmProvider): ProviderDraft {
   return { ...provider, apiKey: '' };
 }
 
-function formatLabel(format: LlmApiFormat) {
-  return API_FORMAT_OPTIONS.find(option => option.value === format)?.label ?? format;
-}
 
 function domId(prefix: string, value: string) {
   return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
@@ -208,20 +184,11 @@ function FieldLabel({ htmlFor, id, children }: { htmlFor: string; id?: string; c
   );
 }
 
-/* ─── Stat pill ───────────────────────────────────────────────────────────── */
-function StatPill({ label }: { label: string }) {
-  return (
-    <span className="rounded-full border border-border bg-muted/30 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-      {label}
-    </span>
-  );
-}
 
 export function SettingsPage() {
   const [providers, setProviders] = useState<ProviderDraft[]>([]);
   const [savedProviders, setSavedProviders] = useState<LlmProvider[]>([]);
   const [configs, setConfigs] = useState<ModelConfig[]>([]);
-  const [savedConfigs, setSavedConfigs] = useState<ModelConfig[]>([]);
   const [globalConfig, setGlobalConfig] = useState<ModelRouteConfig | null>(null);
   const [savedGlobalConfig, setSavedGlobalConfig] = useState<ModelRouteConfig | null>(null);
   const [reviewSettings, setReviewSettings] = useState<ReviewSettings | null>(null);
@@ -278,7 +245,7 @@ export function SettingsPage() {
   );
 
   const globalDirty = useMemo(
-    () => !routeEqual(globalConfig, savedGlobalConfig),
+    () => !routesEqual(globalConfig, savedGlobalConfig),
     [globalConfig, savedGlobalConfig],
   );
 
@@ -286,7 +253,6 @@ export function SettingsPage() {
     setProviders(modelsRes.providers.map(providerToDraft));
     setSavedProviders(modelsRes.providers);
     setConfigs(modelsRes.configs);
-    setSavedConfigs(modelsRes.configs);
     setSyncErrors(modelsRes.syncErrors ?? []);
   };
 
@@ -367,6 +333,9 @@ export function SettingsPage() {
       if (mounted && loaded) void refreshModelCatalog({ quiet: true });
     });
     return () => { mounted = false; };
+    // Mount-only bootstrap. Both callbacks close over the page's 15+ state setters and are recreated
+    // every render, so listing them would re-fetch the whole model catalog on each keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const persistGlobalConfig = async (next: ModelRouteConfig) => {
@@ -601,7 +570,6 @@ export function SettingsPage() {
   return (
     <section className="page-enter flex flex-col gap-5 pb-20">
       <PageHeader
-        category="Defaults"
         title="Settings"
         description="Manage LLM providers, model routing, and usage limits."
       />
@@ -798,13 +766,13 @@ export function SettingsPage() {
                 />
               </div>
               <div>
-                <FieldLabel htmlFor="new-provider-api-key">API key</FieldLabel>
+                <FieldLabel htmlFor="new-provider-api-key">{apiKeyFieldLabel(newProvider.apiFormat)}</FieldLabel>
                 <Input
                   id="new-provider-api-key"
                   type="password"
                   autoComplete="new-password"
                   spellCheck={false}
-                  placeholder="sk-…"
+                  placeholder={providerKeyPlaceholder(newProvider.name, newProvider.apiFormat)}
                   value={newProvider.apiKey}
                   onChange={e => setNewProvider(current => ({ ...current, apiKey: e.target.value }))}
                 />
@@ -977,10 +945,13 @@ export function SettingsPage() {
                               <FieldLabel htmlFor={providerBaseUrlId}>Base URL</FieldLabel>
                               <Input
                                 id={providerBaseUrlId}
-                                placeholder="https://llm.example.com/v1"
+                                placeholder={provider.apiFormat === 'vertex' ? 'https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1' : 'https://llm.example.com/v1'}
                                 value={provider.baseUrl ?? ''}
                                 onChange={e => updateProviderDraft(provider.id, { baseUrl: e.target.value || null })}
                               />
+                              {provider.apiFormat === 'vertex' && (
+                                <p className="mt-1.5 text-xs text-ui-subtle">Must include your GCP project ID and region.</p>
+                              )}
                             </div>
                           </>
                         )}
@@ -990,14 +961,14 @@ export function SettingsPage() {
                           </p>
                         ) : (
                           <div className="col-span-full">
-                            <FieldLabel htmlFor={providerApiKeyId}>API key</FieldLabel>
+                            <FieldLabel htmlFor={providerApiKeyId}>{apiKeyFieldLabel(provider.apiFormat)}</FieldLabel>
                             <div className="flex flex-wrap items-center gap-2">
                               <Input
                                 id={providerApiKeyId}
                                 type="password"
                                 autoComplete="new-password"
                                 spellCheck={false}
-                                placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : providerKeyPlaceholder(provider.name)}
+                                placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : providerKeyPlaceholder(provider.name, provider.apiFormat)}
                                 value={provider.apiKey}
                                 onChange={e => {
                                   const apiKey = e.target.value;

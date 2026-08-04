@@ -35,6 +35,16 @@ export const claimTypes = [
   'swallowed_error',
   'mutable_default_arg',
   'destructive_migration',
+  /**
+   * "This dependency / action / API version does not exist", "this config key is not valid".
+   *
+   * Its own type because it is not a claim about the diff at all -- it is a claim about the outside
+   * world, which a model with a training cutoff cannot check and which no amount of diff grounding
+   * can verify. Measured as the worst-performing family in this corpus: 21 generated, 4 posted, all
+   * four wrong, mean self-reported confidence 0.964. Then it recurred and posted two P0s asserting
+   * actions/checkout v7 "does not exist" while the CI job using it was passing.
+   */
+  'external_version_claim',
   'other',
 ] as const;
 
@@ -61,6 +71,7 @@ export const CLAIM_TYPE_CATEGORY: Record<ClaimType, typeof reviewCategories[numb
   redos_regex: 'performance',
   destructive_migration: 'correctness',
   react_missing_cleanup: 'correctness',
+  external_version_claim: 'correctness',
   other: 'quality',
 };
 
@@ -87,7 +98,7 @@ export function toClaimType(value: unknown): ClaimType {
  * classifies it, exactly as CLAIM_TYPE_CATEGORY already forces a category. An array would let a new
  * type default silently into "allowed".
  */
-export const CLAIM_TYPE_DECIDABILITY: Record<ClaimType, 'diff_local' | 'needs_whole_file'> = {
+export const CLAIM_TYPE_DECIDABILITY: Record<ClaimType, 'diff_local' | 'needs_whole_file' | 'needs_external_facts'> = {
   // Lexically visible in the added line itself.
   sql_injection: 'diff_local',
   unsafe_dom_sink: 'diff_local',
@@ -110,20 +121,44 @@ export const CLAIM_TYPE_DECIDABILITY: Record<ClaimType, 'diff_local' | 'needs_wh
   react_hook_missing_deps: 'needs_whole_file',   // needs the enclosing component and what's in scope
   react_missing_cleanup: 'needs_whole_file',     // needs to know whether cleanup exists outside the hunk
   resource_leak: 'needs_whole_file',             // interprocedural lifetime reasoning
-  null_or_undefined_deref: 'needs_whole_file',   // nullability of values declared elsewhere + path feasibility
   redos_regex: 'needs_whole_file',               // regex complexity AND reachability from untrusted input
+
+  // Was held out of the denylist pending measurement. Measured: 3 generated, 0 valid -- one non-null
+  // assertion the compiler simply can't narrow, one `!` that erases at compile time and could not
+  // throw at all, and one cast with no reachable call site. Deciding it needs the nullability of
+  // values declared outside the diff plus path feasibility, which is the LLIFT class (~50% precision).
+  null_or_undefined_deref: 'needs_whole_file',
+
+  // Not decidable from ANY amount of source, at any context level: the fact lives in a registry whose
+  // state postdates the model's training data. The only sound way to answer it is a network lookup,
+  // which the reviewer does not and should not do mid-review.
+  external_version_claim: 'needs_external_facts',
 };
 
 /**
- * Claim types not reportable by default.
+ * Claim types not reportable by default: everything not decidable from the diff the model was shown.
  *
- * `null_or_undefined_deref` is classified above but deliberately EXCLUDED from this list for now: it
- * is the most FP-prone class, but unlike the hook claims there is no corpus measurement showing it
- * never posts, so it is scored in the shadow harness first. Move it in once that data exists.
+ * Derived from the table rather than listed by hand, so classifying a new type is the only step
+ * needed to police it.
  */
 export const DEFAULT_DENIED_CLAIM_TYPES: ClaimType[] = claimTypes.filter(
-  (type) => CLAIM_TYPE_DECIDABILITY[type] === 'needs_whole_file' && type !== 'null_or_undefined_deref',
+  (type) => CLAIM_TYPE_DECIDABILITY[type] !== 'diff_local',
 );
+
+/**
+ * Rules that generate candidates but never post them. Deliberately every shipped rule: the channel
+ * proves itself on real pull requests before any of it reaches a reviewer. Promote by removing an id
+ * from `review.rules.shadow_rule_ids`, which lives in the replayable config snapshot.
+ */
+export const DEFAULT_SHADOW_RULE_IDS = [
+  'empty-catch',
+  'debugger-statement',
+  'focused-test',
+  'dynamic-code-exec',
+  'dynamic-html-sink',
+  'mutable-default-arg',
+  'destructive-migration',
+] as const;
 
 /** How a finding ended its life. Distinguishes the six reasons `posted = false` used to conflate. */
 export const findingDispositions = [
@@ -137,6 +172,9 @@ export const findingDispositions = [
   // failing to answer for a finding at all, which is our defect. Collapsing them would make the
   // tuning data useless in exactly the way `posted = false` was.
   'verify_unanswered',
+  // A rule-channel candidate that verification could not confirm. Rule findings fail CLOSED: an
+  // unverified deterministic hit is dropped, where an unverified LLM finding is kept.
+  'rule_unverified',
   'cap',
   // NOTE: there is deliberately no value here for the parser's own drops (unmatched evidence, denied
   // claim types, refuted absence claims). Those findings never become review_comments rows, so a
@@ -147,7 +185,7 @@ export const findingDispositions = [
 ] as const;
 
 export type FindingDisposition = typeof findingDispositions[number];
-export const llmApiFormats = ['openai', 'anthropic', 'gemini', 'cloudflare-workers-ai'] as const;
+export const llmApiFormats = ['openai', 'anthropic', 'gemini', 'cloudflare-workers-ai', 'vertex'] as const;
 
 export const dateStringSchema = z.union([z.string(), z.date()]).transform((d) => (d instanceof Date ? d.toISOString() : d));
 export const coerceNumberSchema = z.coerce.number();
@@ -200,6 +238,16 @@ export const parsedReviewCommentSchema = z.object({
   // A human's verdict from the dashboard, if any. `null` means UNLABELLED, which is not a verdict --
   // precision may only be computed over the labelled subset.
   humanLabel: z.enum(['marked_right', 'marked_wrong']).nullable().optional(),
+  // Title-independent identity, OR-matched with `fingerprint` for cross-run suppression.
+  fingerprintV2: z.string().min(1).nullable().optional(),
+  // Which channel produced this finding. Absent means 'llm', so every pre-existing row and every
+  // hand-constructed comment reads correctly with no backfill and no ceremony. Always test for
+  // `=== 'rule'` positively rather than `!== 'llm'`: everything that COUNTS findings must partition
+  // on this, or the numbers used to judge the LLM channel silently include deterministic hits.
+  source: z.enum(['llm', 'rule']).nullable().optional(),
+  // Which rule fired, when source is 'rule'. The retirement signal: a rule with many generated and
+  // no posted findings is one the filter always rejects, and should be deleted or fixed.
+  ruleId: z.string().min(1).nullable().optional(),
 });
 
 export const findingLabelSchema = z.object({ label: z.enum(['right', 'wrong']) });
@@ -286,6 +334,43 @@ export const reviewConfigSchema = z.object({
   // Config-driven rather than hardcoded so it lands in the job's replayable configSnapshot and a
   // retried job filters against the same list it originally ran with.
   deny_claim_types: z.array(z.enum(claimTypes)).default([...DEFAULT_DENIED_CLAIM_TYPES]),
+  /**
+   * How much restraint the GENERATOR prompt carries. Gating happens downstream either way.
+   *
+   * 'strict' is the historical prompt: it tells the model to prefer an empty findings array and to
+   * report only what a senior engineer would "confidently agree" is a defect. Behind four serial
+   * filters, that composition produced 0.039-0.067 findings per file and no true positives — it fails
+   * in both directions at once, inventing claims about real code while barely producing any.
+   *
+   * 'balanced' removes only the restraint that duplicates a downstream gate, and keeps every
+   * restraint encoding something the gates cannot check (context limits, the evidence mandate, the
+   * claim-type honesty rules). Cursor measured this exact inversion: moving the gating out of the
+   * generator and into a validator took bugs/run 0.4 -> 0.7 AND resolution 52% -> >70%.
+   *
+   * Config-driven, like deny_claim_types, so it lands in the job's replayable configSnapshot and a
+   * bad outcome is revertible per-repo without a deploy.
+   */
+  generator_profile: z.enum(['strict', 'balanced']).default('balanced'),
+  /**
+   * The deterministic rule channel: a second finding source that costs no model call and still
+   * produces candidates when the LLM returns nothing or the file review fails outright.
+   *
+   * `shadow_rule_ids` lists rules that are SCORED BUT NEVER POSTED. Every Tier-1 rule starts there,
+   * because the governing risk is unmeasured: BitsAI-CR's filter was fine-tuned for triage, and this
+   * one is zero-shot gemma. If it cannot do that job, promoting a rule ships a firehose behind a
+   * filter that does nothing. Read `byRule` over a few real PRs, then promote individually.
+   */
+  rules: z
+    .object({
+      enabled: z.boolean().default(true),
+      disabled_rule_ids: z.array(z.string().min(1)).default([]),
+      shadow_rule_ids: z.array(z.string().min(1)).default([...DEFAULT_SHADOW_RULE_IDS]),
+    })
+    .default({
+      enabled: true,
+      disabled_rule_ids: [],
+      shadow_rule_ids: [...DEFAULT_SHADOW_RULE_IDS],
+    }),
   custom_rules: z.array(z.string().min(1)).default([]),
   labels: labelsSchema.default({
     p1: 'review: needs-attention',
@@ -319,6 +404,12 @@ export const repoConfigSchema = z.object({
     min_confidence: 0,
     focus: [...reviewCategories],
     deny_claim_types: [...DEFAULT_DENIED_CLAIM_TYPES],
+    generator_profile: 'balanced',
+    rules: {
+      enabled: true,
+      disabled_rule_ids: [],
+      shadow_rule_ids: [...DEFAULT_SHADOW_RULE_IDS],
+    },
     custom_rules: [],
     labels: {
       p1: 'review: needs-attention',
@@ -429,7 +520,6 @@ export const jobsQuerySchema = z.object({
   offset: z.preprocess((v) => Number(v), z.number().int().min(0)).default(0),
 });
 
-export type JobsQuery = z.infer<typeof jobsQuerySchema>;
 export type JobStep = z.infer<typeof jobStepSchema>;
 
 export const fileReviewRecordSchema = z.object({
@@ -550,7 +640,6 @@ export const statsSchema = z.object({
 });
 
 export type ParsedReviewComment = z.infer<typeof parsedReviewCommentSchema>;
-export type FileReviewModelOutput = z.infer<typeof fileReviewModelOutputSchema>;
 export type RepoConfig = z.infer<typeof repoConfigSchema>;
 export const KIMI_K2_5_MODEL = '@cf/moonshotai/kimi-k2.5';
 export const KIMI_K2_6_MODEL = '@cf/moonshotai/kimi-k2.6';

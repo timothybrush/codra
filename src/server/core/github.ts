@@ -1,6 +1,11 @@
 import type { AppBindings } from '@server/env';
 import { withTimeout } from '@server/core/timeout';
 import { logger } from '@server/core/logger';
+import { buildUnifiedDiffFromFiles, type GitHubDiffFileEntry } from '@server/core/diff';
+
+const DIFF_FILES_PER_PAGE = 100;
+/** See getPullRequestDiffFromFiles: each page costs a subrequest, and 500 files is the maxFiles ceiling. */
+const MAX_DIFF_FILE_PAGES = 5;
 
 export class GitHubError extends Error {
   constructor(
@@ -12,6 +17,18 @@ export class GitHubError extends Error {
     super(message);
     this.name = 'GitHubError';
   }
+}
+
+/**
+ * GitHub's unified-diff media type refuses any diff over 20,000 lines with 406 `too_large`.
+ *
+ * Matched narrowly on purpose: a 406 for any other reason, or any other status, must still surface as
+ * a real failure rather than quietly taking the slower rebuild path.
+ */
+function isDiffTooLargeError(error: unknown): boolean {
+  return error instanceof GitHubError
+    && error.status === 406
+    && /too_large|maximum number of lines/i.test(error.body ?? '');
 }
 
 async function withRetry<T>(
@@ -384,7 +401,7 @@ export class GitHubClient {
           Authorization: `Bearer ${token}`,
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': this.env.BOT_USERNAME ?? 'codra-bot',
-          ...(init.headers ?? {}),
+          ...init.headers,
         },
       }),
     );
@@ -458,14 +475,57 @@ export class GitHubClient {
   }
 
   async getPullRequestDiff(owner: string, repo: string, pullNumber: number) {
-    return withRetry(`getPullRequestDiff ${owner}/${repo}#${pullNumber}`, async () => {
-      const response = await this.requestAndCheck(
-        `${repoApiPath(owner, repo)}/pulls/${pullNumber}`,
-        {},
-        'application/vnd.github.v3.diff',
+    try {
+      return await withRetry(`getPullRequestDiff ${owner}/${repo}#${pullNumber}`, async () => {
+        const response = await this.requestAndCheck(
+          `${repoApiPath(owner, repo)}/pulls/${pullNumber}`,
+          {},
+          'application/vnd.github.v3.diff',
+        );
+        return response.text();
+      });
+    } catch (error) {
+      if (!isDiffTooLargeError(error)) throw error;
+      logger.warn(
+        `Diff for ${owner}/${repo}#${pullNumber} exceeds GitHub's 20,000-line media-type cap; rebuilding it from the per-file endpoint`,
       );
-      return response.text();
-    });
+      return this.getPullRequestDiffFromFiles(owner, repo, pullNumber);
+    }
+  }
+
+  /**
+   * Rebuilds a pull request's diff from `GET /pulls/{n}/files`.
+   *
+   * The `application/vnd.github.v3.diff` media type is capped at 20,000 lines server-side and answers
+   * 406 `too_large` beyond it. That is permanent for the pull request, not transient -- `withRetry`
+   * correctly declines to retry it -- so without this fallback a large PR simply cannot be reviewed.
+   */
+  private async getPullRequestDiffFromFiles(owner: string, repo: string, pullNumber: number) {
+    const files: GitHubDiffFileEntry[] = [];
+
+    // Bounded because each page is a subrequest against an invocation budget of ~25, and this runs
+    // before the per-file chunking that would otherwise get to spend it. 5 pages covers 500 files,
+    // which is the ceiling `maxFiles` itself allows, so the cap can only bite on a PR that is already
+    // far past what would be reviewed.
+    for (let page = 1; page <= MAX_DIFF_FILE_PAGES; page++) {
+      const pageFiles = await withRetry(`getPullRequestFiles ${owner}/${repo}#${pullNumber} p${page}`, async () => {
+        const response = await this.requestAndCheck(
+          `${repoApiPath(owner, repo)}/pulls/${pullNumber}/files?per_page=${DIFF_FILES_PER_PAGE}&page=${page}`,
+        );
+        return (await response.json()) as GitHubDiffFileEntry[];
+      });
+
+      files.push(...pageFiles);
+      if (pageFiles.length < DIFF_FILES_PER_PAGE) break;
+
+      if (page === MAX_DIFF_FILE_PAGES) {
+        logger.warn(
+          `Stopped rebuilding the diff for ${owner}/${repo}#${pullNumber} at ${files.length} files; later files are not reviewed`,
+        );
+      }
+    }
+
+    return buildUnifiedDiffFromFiles(files);
   }
 
   /**
@@ -474,14 +534,24 @@ export class GitHubClient {
    * job's diff on demand once its short-lived KV cache has expired.
    */
   async getCompareDiff(owner: string, repo: string, base: string, head: string) {
-    return withRetry(`getCompareDiff ${owner}/${repo} ${base}...${head}`, async () => {
-      const response = await this.requestAndCheck(
-        `${repoApiPath(owner, repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
-        {},
-        'application/vnd.github.v3.diff',
-      );
-      return response.text();
-    });
+    const comparePath = `${repoApiPath(owner, repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
+    try {
+      return await withRetry(`getCompareDiff ${owner}/${repo} ${base}...${head}`, async () => {
+        const response = await this.requestAndCheck(comparePath, {}, 'application/vnd.github.v3.diff');
+        return response.text();
+      });
+    } catch (error) {
+      if (!isDiffTooLargeError(error)) throw error;
+      // Same 20,000-line cap. Note the compare endpoint returns at most 300 files and does NOT
+      // paginate them, so this is best-effort -- it backs the dashboard's diff view, where a partial
+      // reconstruction beats an error page.
+      logger.warn(`Compare diff ${owner}/${repo} ${base}...${head} is over the line cap; rebuilding from the JSON file list`);
+      return withRetry(`getCompareFiles ${owner}/${repo} ${base}...${head}`, async () => {
+        const response = await this.requestAndCheck(comparePath);
+        const payload = (await response.json()) as { files?: GitHubDiffFileEntry[] };
+        return buildUnifiedDiffFromFiles(payload.files ?? []);
+      });
+    }
   }
 
   async getRepoFileOrNull(owner: string, repo: string, path: string) {

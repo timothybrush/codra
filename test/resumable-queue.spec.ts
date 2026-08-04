@@ -2,10 +2,8 @@ import worker from '@server/index';
 import { claimJobLease, getJobForProcessing, insertJob, markJobContinuationQueued, recoverExpiredJobLeases, releaseJobLease } from '@server/db/jobs';
 import { getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
 import { getDb } from '@server/db/client';
-import { createTestEnv, hasConfiguredTestDatabaseUrl } from './helpers';
+import { createTestEnv, dbDescribe, sha } from './helpers';
 
-const sha = (char: string) => char.repeat(40);
-const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 
 dbDescribe('resumable queue primitives', () => {
   const env = createTestEnv();

@@ -75,3 +75,18 @@ export function providerErrorMessage(errorText: string) {
 
   return errorText.trim() || 'The provider returned an error.';
 }
+
+/**
+ * The JSON-only framing every adapter appends to the prompts before sending them.
+ *
+ * Shared because copy-pasting it has already failed twice: the Google adapter spent a period sending
+ * both prompts unmodified, which mattered most there because gemma is the one model in the chain
+ * that gets no `responseMimeType` -- the prompt is the only thing keeping its output parseable.
+ * A new adapter now gets this by construction rather than by remembering.
+ */
+export function jsonOnlyPrompts(input: ModelInput) {
+  return {
+    system: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.`,
+    user: `${input.userPrompt}\n\nRespond with the required JSON object only.`,
+  };
+}

@@ -30,32 +30,12 @@ function spawnAsync(command, args) {
 const WRANGLER_JSONC_PATH = path.join(process.cwd(), 'wrangler.jsonc');
 const DEV_VARS_PATH = path.join(process.cwd(), '.dev.vars');
 
-async function runWranglerCmd(cmd, spinnerMessage) {
-  const spinner = ora(spinnerMessage).start();
-  try {
-    const { stdout } = await execAsync(cmd);
-    spinner.succeed();
-    return stdout;
-  } catch (error) {
-    spinner.fail();
-    console.error(chalk.red(`\n❌ Error executing: ${cmd}`));
-    const errorMsg = error.stderr || error.message;
-    console.error(chalk.red(errorMsg));
-    
-    if (errorMsg.includes('[code: 10000]') || errorMsg.includes('Authentication error')) {
-      console.log(chalk.yellow('\n💡 Hint: Alternatively, run `npx wrangler login` to use your global Cloudflare session instead.'));
-    }
-    process.exit(1);
-  }
-}
-
 function extractId(output) {
   const match = output.match(/[a-f0-9]{32}/);
   return match ? match[0] : null;
 }
 
 async function handleKVNamespace(baseBinding, isPreview) {
-  const previewFlag = isPreview ? ' --preview' : '';
   let currentBinding = baseBinding;
   
   while (true) {
@@ -94,7 +74,7 @@ async function handleKVNamespace(baseBinding, isPreview) {
              try {
                const jsonStr = listOut.substring(listOut.indexOf('['), listOut.lastIndexOf(']') + 1);
                parsed = JSON.parse(jsonStr);
-             } catch(e) {}
+             } catch { /* not JSON: fall through to the non-parsed path below */ }
 
              if (parsed && Array.isArray(parsed)) {
                 const found = parsed.find(ns => ns.title.includes(searchTitle));
@@ -177,7 +157,7 @@ async function handleHyperdrive(dbUrl) {
              try {
                const jsonStr = listOut.substring(listOut.indexOf('['), listOut.lastIndexOf(']') + 1);
                parsed = JSON.parse(jsonStr);
-             } catch(e) {}
+             } catch { /* not JSON: fall through to the non-parsed path below */ }
 
              if (parsed && Array.isArray(parsed)) {
                 const found = parsed.find(hd => hd.name === currentBinding);
@@ -355,8 +335,8 @@ async function main() {
     ]
   }, { onCancel: () => process.exit(1) });
 
-  let appUrl = '';
-  let routesConfigStr = '';
+  let appUrl;
+  let routesConfigStr;
 
   if (domainChoice === 'workers_dev') {
     routesConfigStr = `"workers_dev": true`;
@@ -413,7 +393,7 @@ async function main() {
   console.log(chalk.cyan.bold('⚙️  Configuration'));
   const configSpinner = ora('Updating wrangler.jsonc...').start();
   let wranglerConfig = fs.readFileSync(WRANGLER_JSONC_PATH, 'utf-8');
-  let configChanged = false;
+  let configChanged;
 
   // Escape a string for safe embedding inside JSON double-quoted literals.
   // Use JSON.stringify (which correctly escapes backslashes, quotes, and control

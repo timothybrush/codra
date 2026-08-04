@@ -65,6 +65,19 @@ const CLOUDFLARE_TEXT_GENERATION_MODELS = [
   '@cf/meta/llama-3.1-8b-instruct-fast',
 ];
 
+// Vertex's publisher-model catalog is a Model Garden listing covering every publisher and
+// framework, not a clean "Gemini chat models" list, so (like the Cloudflare fallback above) this
+// is a curated static list rather than a live call. Update as new Gemini model IDs ship.
+const VERTEX_GEMINI_MODELS = [
+  'gemini-3-pro-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+];
+
 interface OpenAIModelsResponse {
   data?: Array<{ id?: unknown }>;
 }
@@ -158,6 +171,10 @@ export async function listProviderModels(input: {
     return extractAnthropicModels(await response.json() as AnthropicModelsResponse);
   }
 
+  if (input.apiFormat === 'vertex') {
+    return VERTEX_GEMINI_MODELS;
+  }
+
   if (input.apiFormat === 'gemini') {
     if (!input.apiKey) throw new Error('Google API key is required to list models.');
     const apiKey = input.apiKey;
@@ -234,6 +251,8 @@ async function limitedErrorBody(response: Response) {
 
 function defaultBaseUrl(apiFormat: LlmApiFormat) {
   if (apiFormat === 'cloudflare-workers-ai') return '';
+  // No universal default: a Vertex base URL embeds the caller's project ID and region.
+  if (apiFormat === 'vertex') return '';
   if (apiFormat === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta';
   if (apiFormat === 'anthropic') return 'https://api.anthropic.com/v1';
   return 'https://api.openai.com/v1';

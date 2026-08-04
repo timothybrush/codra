@@ -5,6 +5,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import { ChevronRight } from 'lucide-react';
 import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
 import { CommentCard } from './comment-card';
+import { preventToggleOnTextSelection } from '@client/lib/selection';
 import { MonoPath, StatusDot, VerdictPill, statusLabel } from './job-chips';
 
 const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
@@ -20,7 +21,13 @@ export function FileFinding({ file }: FileFindingProps) {
     <details key={file.id} className="ui-panel ui-font-sans group min-w-0 overflow-hidden">
       {/* Fixed 48px summary row, matching the jobs table's row height: mono path
           on the left, then the status dot + verdict pill + finding count. */}
-      <summary className="flex h-12 cursor-pointer select-none list-none items-center justify-between gap-3 px-4 transition-colors hover:bg-ui-fill/40 [&::-webkit-details-marker]:hidden sm:px-5">
+      {/* `select-none` used to sit here, which made the file path -- the one thing in this row worth
+          copying -- impossible to select at all. Selection is allowed instead, and the click guard
+          keeps a drag-select from collapsing the panel on mouse-up. */}
+      <summary
+        onClick={preventToggleOnTextSelection}
+        className="flex h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 transition-colors hover:bg-ui-fill/40 [&::-webkit-details-marker]:hidden sm:px-5"
+      >
         <div className="flex min-w-0 items-center gap-2">
           <ChevronRight
             size={14}

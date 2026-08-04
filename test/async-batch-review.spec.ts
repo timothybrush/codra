@@ -1,11 +1,10 @@
 import { runReviewJob } from '@server/core/review';
-import { createTestEnv, generateMockDiff, hasConfiguredTestDatabaseUrl } from './helpers';
+import { createTestEnv, dbDescribe, generateMockDiff, sha } from './helpers';
 import { vi, expect } from 'vitest';
 import { findExistingJobForHead, getJobForProcessing } from '@server/db/jobs';
 import { getFileReviewsForJobs } from '@server/db/file-reviews';
 import { runWithDb, queryRows } from '@server/db/client';
 
-const sha = (char: string) => char.repeat(40);
 
 vi.mock('@server/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<any>();
@@ -59,7 +58,6 @@ vi.mock('@server/services/model', () => {
   return { ModelService: MockModelService, isRetryableModelError: (e: unknown) => Boolean(e && typeof e === 'object' && (e as any).retryable === true) };
 });
 
-const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 
 dbDescribe('Async batch review flow', () => {
   const env = createTestEnv();

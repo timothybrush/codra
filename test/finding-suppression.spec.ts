@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createTestEnv, hasConfiguredTestDatabaseUrl } from './helpers';
+import { createTestEnv, dbDescribe, sha } from './helpers';
 import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
 import { runWithDb, queryRows } from '@server/db/client';
 import { insertJob } from '@server/db/jobs';
 import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@server/db/file-reviews';
 import type { ParsedReviewComment } from '@shared/schema';
 
-const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 
-const sha = (seed: string) => seed.repeat(40).slice(0, 40);
 
 const finding = (over: Partial<ParsedReviewComment> = {}): ParsedReviewComment => ({
   path: 'a.ts',

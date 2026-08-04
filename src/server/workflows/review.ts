@@ -1,4 +1,4 @@
-import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { AppBindings } from '@server/env';
 import { runReviewJob } from '@server/core/review';
 import { type ReviewJobMessage } from '@shared/schema';

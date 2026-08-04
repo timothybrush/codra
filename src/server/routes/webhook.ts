@@ -59,6 +59,9 @@ async function handleFeedbackEvent(
       prNumber,
       fingerprint: marker.fingerprint,
       anchorHash: marker.anchorHash,
+      // Null on comments posted before the marker gained a third field; suppression then falls back to
+      // the v1 fingerprint alone, exactly as it did before.
+      fingerprintV2: marker.fingerprintV2,
       githubCommentId: comment.id,
       outcome,
     });

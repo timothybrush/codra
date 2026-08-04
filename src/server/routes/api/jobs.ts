@@ -3,13 +3,12 @@ import type { Context } from 'hono';
 import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@shared/schema';
 import { getFindingLabelTarget } from '@server/db/file-reviews';
 import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
-import type { AppEnv } from '@server/env';
+import type { AppBindings, AppEnv } from '@server/env';
 import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@server/db/jobs';
 import { jsonError } from '@server/core/http';
 import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';
 import { logger } from '@server/core/logger';
-import type { AppBindings } from '@server/env';
 import { getOrFetchRawDiffForCompletedJob } from '@server/core/review';
 import { parseUnifiedDiff } from '@server/core/diff';
 import { buildFileReviewPrompts } from '@server/prompts/file-review';
@@ -111,6 +110,19 @@ export function createJobsRouter() {
       return c.json({ diffs: {} });
     }
 
+    // This endpoint reconstructs the prompt the MODEL SAW, so it has to include the PR description --
+    // the review path passes `pr.body` (fetched live) and the description block is a substantial part of
+    // the prompt. Passing null here rendered a prompt that silently differed from the real one, which is
+    // actively misleading in a view whose whole purpose is debugging what the model was given.
+    let prDescription: string | null = null;
+    try {
+      prDescription = (await github.getPullRequest(job.owner, job.repo, job.prNumber)).body ?? null;
+    } catch (error) {
+      // Best-effort: a missing description degrades fidelity, it must not fail the diffs view.
+      logger.warn(`Could not load the PR body for job ${job.id}; prompts will omit the description`,
+        error instanceof Error ? error : new Error(String(error)));
+    }
+
     // The ENTIRE PR diff (every reviewable file), not just files that already have a
     // review row -- so the Files-changed view matches GitHub's diff even while a job
     // is still mid-review and most files haven't been processed yet.
@@ -120,7 +132,7 @@ export function createJobsRouter() {
       diffs[file.path] = buildFileReviewPrompts({
         file,
         prTitle: job.prTitle,
-        prDescription: null,
+        prDescription,
         config: config.review,
       }).userPrompt;
     }
@@ -251,6 +263,8 @@ export function createJobsRouter() {
       prNumber: target.pr_number,
       fingerprint,
       anchorHash: target.anchor_hash,
+      // Carried so a rejected claim stays rejected even when the model rewords its title next run.
+      fingerprintV2: target.fingerprint_v2,
       jobId,
       labelledBy: c.get('sessionUser')?.githubUserId ?? null,
       outcome: parsed.data.label === 'wrong' ? 'marked_wrong' : 'marked_right',

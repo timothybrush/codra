@@ -56,7 +56,7 @@ export async function upsertRepoConfig(
     env,
     `
       INSERT INTO repo_configs (repository_id, parsed_json, updated_at, main_model, fallback_models, size_overrides, enabled)
-      VALUES ($1, $2::jsonb, now(), $3, $4::jsonb, $5::jsonb, COALESCE($6, TRUE))
+      VALUES ($1, $2::text::jsonb, now(), $3, $4::text::jsonb, $5::text::jsonb, COALESCE($6, TRUE))
       ON CONFLICT (repository_id)
       DO UPDATE
       SET parsed_json = EXCLUDED.parsed_json,
@@ -98,7 +98,7 @@ export async function syncRepoConfig(
     env,
     `
       INSERT INTO repo_configs (repository_id, parsed_json, updated_at, main_model, fallback_models, size_overrides, enabled)
-      VALUES ($1, $2::jsonb, now(), NULL, NULL, NULL, TRUE)
+      VALUES ($1, $2::text::jsonb, now(), NULL, NULL, NULL, TRUE)
       ON CONFLICT (repository_id) DO NOTHING
     `,
     [repositoryId, JSON.stringify(defaultRepoConfig)],
@@ -161,10 +161,12 @@ export async function updateRepoConfigEnabled(
   );
 }
 
-export async function listRepoConfigs(env: Pick<AppBindings, 'HYPERDRIVE'>) {
-  const rows = await queryRows<RepoConfigRow>(
-    env,
-    `
+/**
+ * Repo config joined to its most recent job. Shared by the list and single-record queries, which
+ * differ only in their WHERE/ORDER BY -- the LATERAL join and the eleven-column projection were
+ * duplicated verbatim.
+ */
+const REPO_CONFIG_SELECT = `
       SELECT
         r.installation_id,
         r.owner,
@@ -186,6 +188,13 @@ export async function listRepoConfigs(env: Pick<AppBindings, 'HYPERDRIVE'>) {
         ORDER BY created_at DESC
         LIMIT 1
       ) lj ON true
+`;
+
+export async function listRepoConfigs(env: Pick<AppBindings, 'HYPERDRIVE'>) {
+  const rows = await queryRows<RepoConfigRow>(
+    env,
+    `
+      ${REPO_CONFIG_SELECT}
       ORDER BY r.owner ASC, r.repo ASC
     `,
   );
@@ -197,27 +206,7 @@ export async function getRepoConfigRecord(env: Pick<AppBindings, 'HYPERDRIVE'>, 
   const [row] = await queryRows<RepoConfigRow>(
     env,
     `
-      SELECT
-        r.installation_id,
-        r.owner,
-        r.repo,
-        rc.parsed_json,
-        rc.updated_at,
-        rc.main_model,
-        rc.fallback_models,
-        rc.size_overrides,
-        rc.enabled,
-        lj.created_at AS last_job_created_at,
-        lj.verdict AS last_job_verdict
-      FROM repo_configs rc
-      JOIN repositories r ON rc.repository_id = r.id
-      LEFT JOIN LATERAL (
-        SELECT created_at, verdict
-        FROM jobs
-        WHERE repository_id = r.id
-        ORDER BY created_at DESC
-        LIMIT 1
-      ) lj ON true
+      ${REPO_CONFIG_SELECT}
       WHERE r.owner = $1 AND r.repo = $2
       LIMIT 1
     `,

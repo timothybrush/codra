@@ -27,17 +27,14 @@ import { formatDateTime } from '@client/lib/timezone';
 import type { RepoConfig, RepoConfigRecord } from '@shared/schema';
 import {
   describeModelRoute,
+  EMPTY_MODEL_ROUTE,
   ModelRouteEditor,
+  normalizeModelRoute,
+  routesEqual,
   type ModelOption,
   type ModelRouteConfig,
   type ProviderOption,
 } from '@client/components/features/models/model-chain';
-
-const EMPTY_MODEL_ROUTE: ModelRouteConfig = {
-  main: null,
-  fallbacks: [],
-  size_overrides: [],
-};
 
 type GlobalModelConfig = RepoConfig['model'];
 
@@ -49,18 +46,8 @@ function hasStoredModelStrategy(repo: RepoConfigRecord) {
   return repo.mainModel !== null || repo.fallbackModels !== null || repo.sizeOverrides !== null;
 }
 
-function normalizeRoute(config: GlobalModelConfig | ModelRouteConfig | null | undefined): ModelRouteConfig {
-  return {
-    main: typeof config?.main === 'string' && config.main.trim() ? config.main : null,
-    fallbacks: Array.isArray(config?.fallbacks) ? config.fallbacks : EMPTY_MODEL_ROUTE.fallbacks,
-    size_overrides: Array.isArray(config?.size_overrides)
-      ? config.size_overrides
-      : EMPTY_MODEL_ROUTE.size_overrides,
-  };
-}
-
 function getGlobalRoute(globalConfig: GlobalModelConfig | ModelRouteConfig | null): ModelRouteConfig {
-  return normalizeRoute(globalConfig);
+  return normalizeModelRoute(globalConfig);
 }
 
 function getStoredRepoRoute(repo: RepoConfigRecord): ModelRouteConfig | null {
@@ -71,30 +58,6 @@ function getStoredRepoRoute(repo: RepoConfigRecord): ModelRouteConfig | null {
     fallbacks: repo.fallbackModels ?? [],
     size_overrides: Array.isArray(repo.sizeOverrides) ? repo.sizeOverrides : [],
   };
-}
-
-function stringArraysEqual(a: string[] = [], b: string[] = []) {
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-function tiersEqual(a: ModelRouteConfig['size_overrides'] = [], b: ModelRouteConfig['size_overrides'] = []) {
-  return a.length === b.length && a.every((tier, index) => {
-    const other = b[index];
-    return Boolean(
-      tier && other &&
-      tier.max_lines === other.max_lines &&
-      tier.model === other.model &&
-      stringArraysEqual(tier.fallbacks ?? [], other.fallbacks ?? []),
-    );
-  });
-}
-
-function routesEqual(a: ModelRouteConfig, b: ModelRouteConfig) {
-  return (
-    a.main === b.main &&
-    stringArraysEqual(a.fallbacks ?? [], b.fallbacks ?? []) &&
-    tiersEqual(a.size_overrides ?? [], b.size_overrides ?? [])
-  );
 }
 
 function hasMeaningfulCustomStrategy(repo: RepoConfigRecord, globalConfig: GlobalModelConfig | ModelRouteConfig | null) {
@@ -235,6 +198,11 @@ function RepoModelModal({
     setInitialRoute(nextRoute);
     setSaving(null);
     setError(null);
+    // Keyed on VALUE identity, not object identity: `selectedRepoId` and `globalRouteKey` are a
+    // string id and a JSON serialization of exactly the inputs `getRepoRoute` reads. Depending on
+    // `repo`/`globalConfig` directly would reset the user's unsaved edits every time the poll
+    // returned a structurally identical object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRepoId, globalRouteKey]);
 
   const dirty = useMemo(() => !routesEqual(route, initialRoute), [initialRoute, route]);
@@ -401,7 +369,7 @@ export function ReposPage() {
         const configs = Array.isArray(modelsRes?.configs) ? modelsRes.configs : [];
 
         setRepos(nextRepos);
-        setGlobalConfig(normalizeRoute(globalRes?.config));
+        setGlobalConfig(normalizeModelRoute(globalRes?.config));
         setProviderOptions(providers.map(provider => ({ value: provider.id, label: provider.name })));
         setModelOptions(configs.map(config => ({
           value: config.modelId,

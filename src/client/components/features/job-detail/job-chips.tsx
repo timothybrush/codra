@@ -9,66 +9,13 @@ import { useState, type ReactNode } from 'react';
 import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import { formatDateTime } from '@client/lib/timezone';
+import { STATUS_DOT, jobDuration, statusLabel } from '@client/lib/job-format';
+
+// Re-exported so the sibling job-detail components keep importing the row vocabulary from one place.
+export { formatRelativeDate, formatRunDuration, jobDuration, statusLabel } from '@client/lib/job-format';
 
 import type { JobDetail, JobSummary } from '@shared/schema';
 
-/* ── Formatters (terser than Intl, matching the jobs table) ───────────────── */
-
-/** Dot tone per status — same semantic tokens the jobs table uses. */
-const STATUS_DOT: Record<string, string> = {
-  done: 'bg-success',
-  running: 'bg-info',
-  queued: 'bg-warning',
-  failed: 'bg-danger',
-  superseded: 'bg-ui-subtle',
-  cancelled: 'bg-ui-subtle',
-  stopped: 'bg-ui-subtle',
-  // File- and step-level statuses reuse the same vocabulary. `pending` means
-  // "not reached yet", so it stays neutral rather than borrowing queued's amber.
-  pending: 'bg-ui-subtle',
-  skipped: 'bg-ui-subtle',
-};
-
-export function statusLabel(status: string) {
-  return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
-}
-
-/** Whole seconds/minutes/hours — no decimals, so the chip stays narrow. */
-export function formatRunDuration(ms: number) {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-/** Wall-clock run time: start → finish, or start → now while still running. */
-export function jobDuration(job: Pick<JobSummary, 'startedAt' | 'finishedAt'>) {
-  if (!job.startedAt) return null;
-  const start = new Date(job.startedAt).getTime();
-  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
-  return formatRunDuration(end - start);
-}
-
-/** Compact "16m ago" / "15h ago" / "3d ago" stamp. */
-export function formatRelativeDate(value: string | Date | null | undefined) {
-  if (!value) return '—';
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return '—';
-  const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
-}
 
 /**
  * Full stamp for `title` tooltips, so the terse relative text stays precise.

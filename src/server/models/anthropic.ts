@@ -1,6 +1,7 @@
 import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
-import { ProviderRequestError, providerErrorMessage, type ModelResponse } from './types';
+import { ProviderRequestError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
+import { assertPublicBaseUrl } from './url-guard';
 
 const ANTHROPIC_TIMEOUT_MS = 80_000;
 const ANTHROPIC_MAX_OUTPUT_TOKENS = 4096;
@@ -21,6 +22,8 @@ export async function reviewWithAnthropic(
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<ModelResponse> {
   logger.info(`Calling Anthropic model: ${model}`);
+  assertPublicBaseUrl(config.baseUrl, config.providerName);
+  const prompts = jsonOnlyPrompts(input);
   const baseUrl = (config.baseUrl || DEFAULT_ANTHROPIC_BASE_URL).replace(/\/+$/, '');
   const timeoutMs = config.timeoutMs ?? ANTHROPIC_TIMEOUT_MS;
 
@@ -36,9 +39,9 @@ export async function reviewWithAnthropic(
       },
       body: JSON.stringify({
         model,
-        system: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.`,
+        system: prompts.system,
         messages: [
-          { role: 'user', content: `${input.userPrompt}\n\nRespond with the required JSON object only.` },
+          { role: 'user', content: prompts.user },
           { role: 'assistant', content: '{' }
         ],
         max_tokens: ANTHROPIC_MAX_OUTPUT_TOKENS,

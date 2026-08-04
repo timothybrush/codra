@@ -28,7 +28,7 @@ export async function recordWebhookDelivery(
     env,
     `
       INSERT INTO webhook_deliveries (delivery_id, event_name, repository_id, payload)
-      VALUES ($1, $2, $3, $4::jsonb)
+      VALUES ($1, $2, $3, $4::text::jsonb)
       ON CONFLICT (delivery_id) DO NOTHING
       RETURNING id
     `,

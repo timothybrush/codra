@@ -29,8 +29,67 @@ export type ModelRouteConfig = {
   size_overrides: ModelRouteTier[];
 };
 
-export function getProviderLabel(provider: string, providers: ProviderOption[] = []) {
-  return providers.find(p => p.value === provider)?.label ?? provider;
+export const EMPTY_MODEL_ROUTE: ModelRouteConfig = {
+  main: null,
+  fallbacks: [],
+  size_overrides: [],
+};
+
+/**
+ * Route normalization and comparison, owned here because this module owns `ModelRouteConfig`.
+ *
+ * `repos.tsx` and `settings.tsx` each carried their own copies and they had drifted in opposite
+ * directions — the repo page guarded `tier` in the tier comparison and the settings page did not,
+ * while the settings page handled null routes and the repo page did not. These keep the safer half
+ * of each.
+ */
+/**
+ * Deliberately wider than `Partial<ModelRouteConfig>`: the stored `RepoConfig['model']` types every
+ * field as nullable, and the API returns it raw. The `Array.isArray` guards below are what make
+ * those nulls safe, so the input type has to admit them rather than force a cast at each call site.
+ */
+type ModelRouteInput =
+  | { [K in keyof ModelRouteConfig]?: ModelRouteConfig[K] | null }
+  | null
+  | undefined;
+
+export function normalizeModelRoute(config: ModelRouteInput): ModelRouteConfig {
+  return {
+    main: typeof config?.main === 'string' && config.main.trim() ? config.main : null,
+    fallbacks: Array.isArray(config?.fallbacks) ? config.fallbacks : EMPTY_MODEL_ROUTE.fallbacks,
+    size_overrides: Array.isArray(config?.size_overrides)
+      ? config.size_overrides
+      : EMPTY_MODEL_ROUTE.size_overrides,
+  };
+}
+
+export function stringArraysEqual(a: string[] = [], b: string[] = []) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+export function tiersEqual(
+  a: ModelRouteConfig['size_overrides'] = [],
+  b: ModelRouteConfig['size_overrides'] = [],
+) {
+  return a.length === b.length && a.every((tier, index) => {
+    const other = b[index];
+    return Boolean(
+      tier && other &&
+      tier.max_lines === other.max_lines &&
+      tier.model === other.model &&
+      stringArraysEqual(tier.fallbacks ?? [], other.fallbacks ?? []),
+    );
+  });
+}
+
+export function routesEqual(a: ModelRouteConfig | null, b: ModelRouteConfig | null) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.main === b.main &&
+    stringArraysEqual(a.fallbacks ?? [], b.fallbacks ?? []) &&
+    tiersEqual(a.size_overrides ?? [], b.size_overrides ?? [])
+  );
 }
 
 export function getModelLabel(model: string, models: ModelOption[] = []) {

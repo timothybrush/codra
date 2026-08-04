@@ -10,6 +10,7 @@ import {
 import { Skeleton } from '@client/components/shared/skeleton';
 import { cn } from '@client/lib/utils';
 import { formatDateTime } from '@client/lib/timezone';
+import { STATUS_DOT, formatRelativeDate, jobDuration, statusLabel } from '@client/lib/job-format';
 
 import type { JobSummary } from '@shared/schema';
 
@@ -62,39 +63,6 @@ const COLUMN_CLASSES: Record<Column, string> = {
   author: 'w-12 pr-4',
 };
 
-/** Dot tone per job status — mirrors the semantic tokens used by StatusBadge. */
-const STATUS_DOT: Record<string, string> = {
-  done: 'bg-success',
-  running: 'bg-info',
-  queued: 'bg-warning',
-  failed: 'bg-danger',
-  superseded: 'bg-ui-subtle',
-  cancelled: 'bg-ui-subtle',
-  stopped: 'bg-ui-subtle',
-};
-
-function statusLabel(status: string) {
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function formatDuration(ms: number) {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-/** Wall-clock run time: start → finish, or start → now while still running. */
-function jobDuration(job: JobSummary) {
-  if (!job.startedAt) return null;
-  const start = new Date(job.startedAt).getTime();
-  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
-  return formatDuration(end - start);
-}
-
 function formatDate(value: JobSummary['createdAt']) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -105,27 +73,6 @@ function formatDate(value: JobSummary['createdAt']) {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-/**
- * Compact "15h ago" / "3d ago" relative stamp. Deliberately terser than
- * Intl.RelativeTimeFormat's "16 minutes ago" so the column stays narrow and
- * the row reads like a deployment list.
- */
-function formatRelativeDate(value: JobSummary['createdAt']) {
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return '—';
-  const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
 }
 
 /* ── Row pieces ───────────────────────────────────────────────────────────── */

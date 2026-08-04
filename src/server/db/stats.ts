@@ -80,12 +80,14 @@ export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30, 
         SELECT r.owner, r.repo, COUNT(*)::int AS jobs
         FROM jobs j
         JOIN repositories r ON j.repository_id = r.id
+        WHERE j.created_at >= now() - ($1::int * interval '1 day')
         GROUP BY r.owner, r.repo
         ORDER BY jobs DESC, r.owner ASC, r.repo ASC
         LIMIT 10
       `,
+      [clampedDays],
     ),
-    getModelUsageStats(env),
+    getModelUsageStats(env, clampedDays),
     queryRows<{ status: string; count: number }>(
       env,
       `

@@ -1,6 +1,12 @@
 import type { ParsedReviewComment } from '@shared/schema';
 import type { AppBindings } from '@server/env';
 import { parseJsonColumn, queryRows, queryTransaction } from './client';
+import {
+  REVIEW_COMMENT_INSERT_CASTS,
+  REVIEW_COMMENT_INSERT_COLUMNS,
+  reviewCommentInsertValues,
+  reviewCommentsAggregate,
+} from './review-comment-sql';
 
 export async function insertFileReview(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
@@ -69,31 +75,12 @@ export async function insertFileReview(
     );
 
     if (input.parsedComments.length > 0) {
-      const paths = input.parsedComments.map(c => c.path);
-      const lines = input.parsedComments.map(c => c.line ?? null);
-      const positions = input.parsedComments.map(c => c.position ?? null);
-      const severities = input.parsedComments.map(c => c.severity);
-      const categories = input.parsedComments.map(c => c.category);
-      const titles = input.parsedComments.map(c => c.title);
-      const bodies = input.parsedComments.map(c => c.body);
-      const codeSuggestions = input.parsedComments.map(c => c.codeSuggestion ?? null);
-      const confidenceScores = input.parsedComments.map(c => c.confidenceScore ?? null);
-      const evidences = input.parsedComments.map(c => c.evidence ?? null);
-      const fingerprints = input.parsedComments.map(c => c.fingerprint ?? null);
-      const anchorHashes = input.parsedComments.map(c => c.anchorHash ?? null);
-      const claimTypes = input.parsedComments.map(c => c.claimType ?? null);
-      const contextSnippets = input.parsedComments.map(c => c.contextSnippet ?? null);
-      const dispositions = input.parsedComments.map(c => c.disposition ?? null);
-
       await tx.query(
         `
-          INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash, claim_type, context_snippet, disposition
-          )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[])
+          INSERT INTO review_comments (file_review_id, ${REVIEW_COMMENT_INSERT_COLUMNS.join(', ')})
+          SELECT $1::uuid, * FROM UNNEST(${REVIEW_COMMENT_INSERT_CASTS})
         `,
-        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions, confidenceScores, evidences, fingerprints, anchorHashes, claimTypes, contextSnippets, dispositions]
+        [review.id, ...reviewCommentInsertValues(input.parsedComments)],
       );
     }
   });
@@ -155,7 +142,7 @@ export async function upsertFileReview(
           async_model,
           withheld_counts
         )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text::jsonb)
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = EXCLUDED.file_status,
           model_used = EXCLUDED.model_used,
@@ -196,6 +183,12 @@ export async function upsertFileReview(
         input.modelProvider ?? null,
         input.asyncRequestId ?? null,
         input.asyncModel ?? null,
+        // JSON text into a `::text::jsonb` placeholder -- the one jsonb-writing idiom, documented at
+        // normalizeParam in db/client.ts. Binding the raw object also happens to work here, but only
+        // for objects, and having two idioms in the codebase is precisely how the string-scalar bug
+        // spread to five columns. This column is where it was caught: `withheld_counts->>'evidence'`
+        // returned NULL and the SQL aggregate read zero for a review that had withheld five findings,
+        // while the TypeScript path kept working because parseJsonColumn tolerates both shapes.
         input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
       ],
     );
@@ -205,30 +198,10 @@ export async function upsertFileReview(
     if (input.parsedComments.length > 0) {
       await tx.query(
         `
-          INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash, claim_type, context_snippet, disposition
-          )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::real[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[])
+          INSERT INTO review_comments (file_review_id, ${REVIEW_COMMENT_INSERT_COLUMNS.join(', ')})
+          SELECT $1::uuid, * FROM UNNEST(${REVIEW_COMMENT_INSERT_CASTS})
         `,
-        [
-          review.id,
-          input.parsedComments.map(c => c.path),
-          input.parsedComments.map(c => c.line ?? null),
-          input.parsedComments.map(c => c.position ?? null),
-          input.parsedComments.map(c => c.severity),
-          input.parsedComments.map(c => c.category),
-          input.parsedComments.map(c => c.title),
-          input.parsedComments.map(c => c.body),
-          input.parsedComments.map(c => c.codeSuggestion ?? null),
-          input.parsedComments.map(c => c.confidenceScore ?? null),
-          input.parsedComments.map(c => c.evidence ?? null),
-          input.parsedComments.map(c => c.fingerprint ?? null),
-          input.parsedComments.map(c => c.anchorHash ?? null),
-          input.parsedComments.map(c => c.claimType ?? null),
-          input.parsedComments.map(c => c.contextSnippet ?? null),
-          input.parsedComments.map(c => c.disposition ?? null),
-        ],
+        [review.id, ...reviewCommentInsertValues(input.parsedComments)],
       );
     }
   });
@@ -348,10 +321,14 @@ export async function bulkInheritFileReviews(
         `
           INSERT INTO review_comments (
             file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash, posted, claim_type, context_snippet, disposition
+            evidence, fingerprint, anchor_hash, posted, claim_type, context_snippet, disposition, fingerprint_v2,
+            source, rule_id
           )
           SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score,
-                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE, rc.claim_type, rc.context_snippet, NULL
+                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE, rc.claim_type, rc.context_snippet, NULL, rc.fingerprint_v2,
+                 -- Carried, not defaulted: omitting these would turn every retried job's rule
+                 -- findings into LLM findings, and fail-closed would stop applying to them.
+                 rc.source, rc.rule_id
           FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
           JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
           JOIN review_comments rc ON rc.file_review_id = pf.id
@@ -391,7 +368,7 @@ export async function bulkMarkFilesFailed(
   );
 }
 
-export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>) {
+export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days: number) {
   return queryRows<{
     model_used: string;
     model_provider: string | null;
@@ -408,9 +385,11 @@ export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>) {
         COALESCE(SUM(input_tokens), 0)::int AS input_tokens,
         COALESCE(SUM(output_tokens), 0)::int AS output_tokens
       FROM file_reviews
+      WHERE created_at >= now() - ($1::int * interval '1 day')
       GROUP BY model_used
       ORDER BY calls DESC, model_used ASC
     `,
+    [days],
   );
 }
 
@@ -445,33 +424,7 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
     `
       SELECT
         fr.*,
-        COALESCE(
-          (
-            SELECT JSON_AGG(
-              JSON_BUILD_OBJECT(
-                'path', rc.path,
-                'line', rc.line,
-                'position', rc.position,
-                'severity', rc.severity,
-                'category', rc.category,
-                'title', rc.title,
-                'body', rc.body,
-                'codeSuggestion', rc.code_suggestion,
-                'confidenceScore', rc.confidence_score,
-                'evidence', rc.evidence,
-                'fingerprint', rc.fingerprint,
-                'anchorHash', rc.anchor_hash,
-                'posted', rc.posted,
-                'claimType', rc.claim_type,
-                'contextSnippet', rc.context_snippet,
-                'disposition', rc.disposition,
-                'verifyReason', rc.verify_reason
-              )
-            ORDER BY rc.id ASC
-            ) FROM review_comments rc WHERE rc.file_review_id = fr.id
-          ),
-          '[]'::json
-        ) AS parsed_comments
+        ${reviewCommentsAggregate()} AS parsed_comments
       FROM file_reviews fr
       WHERE fr.job_id = ANY($1::uuid[])
       ORDER BY fr.created_at ASC
@@ -487,9 +440,11 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
 }
 
 export type SuppressedFinding = {
-  fingerprint: string;
+  fingerprint: string | null;
   /** Null for repo-wide rejections, which suppress regardless of what the code now says. */
   anchor_hash: string | null;
+  /** Title-independent identity; already includes the anchor, so it needs no separate anchor check. */
+  fingerprint_v2: string | null;
   /** True when this came from an earlier posted comment rather than from human rejection. */
   anchored: boolean;
 };
@@ -520,7 +475,7 @@ export async function getSuppressedFindings(
         SELECT repository_id, pr_number, commit_sha FROM jobs WHERE id = $1::uuid
       ),
       already_posted AS (
-        SELECT DISTINCT rc.fingerprint, rc.anchor_hash
+        SELECT DISTINCT rc.fingerprint, rc.anchor_hash, rc.fingerprint_v2
         FROM me
         JOIN jobs            j  ON j.repository_id = me.repository_id AND j.pr_number = me.pr_number
         JOIN file_reviews    fr ON fr.job_id = j.id
@@ -528,20 +483,23 @@ export async function getSuppressedFindings(
         WHERE j.id <> $1::uuid
           AND j.commit_sha <> me.commit_sha
           AND rc.posted
-          AND rc.fingerprint IS NOT NULL
+          -- Either identity is enough. v1 alone missed reworded repeats: on PR #55 six of ten findings
+          -- were re-reports and only one shared a v1 fingerprint.
+          AND (rc.fingerprint IS NOT NULL OR rc.fingerprint_v2 IS NOT NULL)
       ),
       rejected AS (
         -- Only the NEGATIVE outcomes. 'resolved' and 'marked_right' are stored but never read here:
         -- suppressing on them would silence the findings that turned out to be correct. And note
         -- there is no branch for "no row" -- an unlabelled finding is not a negative signal.
-        SELECT DISTINCT cf.fingerprint, NULL::text AS anchor_hash
+        SELECT DISTINCT cf.fingerprint, NULL::text AS anchor_hash, cf.fingerprint_v2
         FROM me
         JOIN comment_feedback cf ON cf.repository_id = me.repository_id
-        WHERE cf.outcome IN ('deleted', 'marked_wrong') AND cf.fingerprint IS NOT NULL
+        WHERE cf.outcome IN ('deleted', 'marked_wrong')
+          AND (cf.fingerprint IS NOT NULL OR cf.fingerprint_v2 IS NOT NULL)
       )
-      SELECT fingerprint, anchor_hash, TRUE  AS anchored FROM already_posted
+      SELECT fingerprint, anchor_hash, fingerprint_v2, TRUE  AS anchored FROM already_posted
       UNION ALL
-      SELECT fingerprint, anchor_hash, FALSE AS anchored FROM rejected
+      SELECT fingerprint, anchor_hash, fingerprint_v2, FALSE AS anchored FROM rejected
     `,
     [jobId],
   );
@@ -559,11 +517,11 @@ export async function getFindingLabelTarget(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
   fingerprint: string,
-): Promise<{ repository_id: number; pr_number: number | null; anchor_hash: string | null } | null> {
-  const rows = await queryRows<{ repository_id: number; pr_number: number | null; anchor_hash: string | null }>(
+): Promise<{ repository_id: number; pr_number: number | null; anchor_hash: string | null; fingerprint_v2: string | null } | null> {
+  const rows = await queryRows<{ repository_id: number; pr_number: number | null; anchor_hash: string | null; fingerprint_v2: string | null }>(
     env,
     `
-      SELECT j.repository_id, j.pr_number, rc.anchor_hash
+      SELECT j.repository_id, j.pr_number, rc.anchor_hash, rc.fingerprint_v2
       FROM jobs j
       JOIN file_reviews    fr ON fr.job_id = j.id
       JOIN review_comments rc ON rc.file_review_id = fr.id
@@ -623,14 +581,25 @@ export async function markCommentDispositions(
   const dispositions = fingerprints.map((fp) => byFingerprint.get(fp)!.disposition);
   const reasons = fingerprints.map((fp) => byFingerprint.get(fp)!.reason);
 
-  // COALESCE on both columns, and it is load-bearing on `disposition`: a KEPT finding is entered
-  // here with a null disposition purely to carry its verifier reason, and this statement runs AFTER
-  // markCommentsPosted. Assigning unconditionally would overwrite `posted` with NULL.
+  // A posted finding's disposition is never rewritten.
+  //
+  // Two reasons, and the second was observed corrupting production data. First, a KEPT finding is
+  // entered here with a null disposition purely to carry its verifier reason, so an unconditional
+  // assignment would null out `posted`. Second -- and this is the subtle one -- the disposition map is
+  // keyed on FINGERPRINT, and fingerprints are `hash(path + normalized title)`, so two findings on the
+  // same file with the same title share one. When one of them is suppressed and the other is posted,
+  // this UPDATE matches BOTH rows and wrote 'suppression' over 'posted'. Observed on two P0s that were
+  // genuinely posted to GitHub yet recorded as suppressed, which corrupts the disposition data this
+  // exists to produce.
+  //
+  // `posted` is the fact GitHub gave us; a disposition is our inference about why something did not
+  // post. The fact wins.
   await queryRows(
     env,
     `
       UPDATE review_comments rc
-      SET disposition   = COALESCE(d.disposition, rc.disposition),
+      SET disposition   = CASE WHEN rc.posted THEN rc.disposition
+                               ELSE COALESCE(d.disposition, rc.disposition) END,
           verify_reason = COALESCE(d.reason, rc.verify_reason)
       FROM file_reviews fr,
            UNNEST($2::text[], $3::text[], $4::text[]) AS d(fingerprint, disposition, reason)

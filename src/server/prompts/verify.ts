@@ -114,7 +114,17 @@ export function renderDiffSnippet(file: FileDiff | undefined, line: number | und
   if (flat.length === 0) return '';
 
   if (line == null) return '';
-  const anchor = flat.findIndex((l) => l.newLineNumber === line || l.oldLineNumber === line);
+
+  // NEW-file numbers first, in a separate pass. Callers always pass a post-image line
+  // (`ParsedReviewComment.line` comes from `evidence.line.newLineNumber`), but a single findIndex with
+  // `newLineNumber === line || oldLineNumber === line` returns whichever matches EARLIER in the
+  // flattened list -- and in a deletion-heavy file a context line whose OLD number equals the target
+  // sits before the correct row. The window then lands N-deletions away from the finding, so the
+  // verifier judges the claim against unrelated code and drops it, and the same wrong window is
+  // persisted as `contextSnippet`, which is unrecoverable later. The old-number pass is retained only
+  // as a fallback for a finding about removed code.
+  const byNewLine = flat.findIndex((l) => l.newLineNumber === line);
+  const anchor = byNewLine !== -1 ? byNewLine : flat.findIndex((l) => l.oldLineNumber === line);
   if (anchor === -1) return '';
 
   const start = Math.max(0, anchor - radius);

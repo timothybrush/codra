@@ -8,19 +8,6 @@ export type RepositoryRow = {
   repo: string;
 };
 
-export async function getRepository(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  owner: string,
-  repo: string,
-): Promise<RepositoryRow | null> {
-  const [row] = await queryRows<RepositoryRow>(
-    env,
-    `SELECT id, installation_id, owner, repo FROM repositories WHERE owner = $1 AND repo = $2`,
-    [owner, repo],
-  );
-  return row ?? null;
-}
-
 export async function getOrCreateRepository(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: { installationId: string; owner: string; repo: string }

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { LoadError } from '@client/components/shared/load-error';
+import { CopyButton } from '@client/components/shared/copy-button';
+import { preventToggleOnTextSelection } from '@client/lib/selection';
 import {
   ChevronLeft, FileCode2, Clock, Cpu, Hash,
   AlertCircle, CheckCircle2, SkipForward, Hourglass,
@@ -12,7 +14,7 @@ import { Badge } from '@client/components/ui/badge';
 import { api } from '@client/lib/api';
 import type { FileReviewRecord } from '@shared/schema';
 
-import { formatDuration } from '@client/lib/utils';
+import { formatPreciseDuration } from '@client/lib/utils';
 
 /* diff_input isn't persisted in Postgres (reconstructed on demand from KV/GitHub — see
    GET /api/jobs/:id/diffs); fetched lazily here and session-cached per job, sharing the
@@ -56,14 +58,20 @@ const STATUS_META: Record<FileStatus, {
 function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading: boolean }) {
   const meta = STATUS_META[file.fileStatus] ?? STATUS_META.pending;
   const { Icon } = meta;
-  const duration = formatDuration(file.durationMs);
+  const duration = formatPreciseDuration(file.durationMs);
   const inTok    = fmtK(file.inputTokens);
   const outTok   = fmtK(file.outputTokens);
   const modelShort = file.modelUsed?.split('/').pop() ?? null;
 
   return (
     <details className="group min-w-0">
-      <summary className="flex cursor-pointer select-none list-none items-center gap-3 px-4 py-3 transition-colors hover:bg-ui-fill/40 [&::-webkit-details-marker]:hidden sm:px-5">
+      {/* Selection is deliberately allowed here (it used to be `select-none`): the path, model name and
+          token counts are all things you want to copy out of a log. The click guard stops a
+          drag-select from collapsing the row. */}
+      <summary
+        onClick={preventToggleOnTextSelection}
+        className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 transition-colors hover:bg-ui-fill/40 [&::-webkit-details-marker]:hidden sm:px-5"
+      >
 
         {/* Status icon */}
         <Icon size={14} className={`shrink-0 ${meta.iconCls}`} />
@@ -132,17 +140,23 @@ function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading:
         {/* Two-column content */}
         <div className="grid grid-cols-1 divide-y divide-ui-line/60 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
           <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
-              Prompt / diff
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+                Prompt / diff
+              </p>
+              {file.diffInput && <CopyButton value={file.diffInput} />}
+            </div>
             <pre className="code-block thin-scroll max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
               {file.diffInput ?? (diffsLoading ? '— Loading… —' : '— Prompt unavailable —')}
             </pre>
           </div>
           <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
-              Raw model output
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+                Raw model output
+              </p>
+              {file.rawAiOutput && <CopyButton value={file.rawAiOutput} />}
+            </div>
             <pre className="code-block thin-scroll max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
               {file.rawAiOutput ?? '— No output saved —'}
             </pre>

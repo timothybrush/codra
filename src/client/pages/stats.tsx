@@ -502,7 +502,6 @@ function MetricsGridSkeleton() {
 
 export function StatsPage() {
   const [stats, setStats] = useState<StatsPayload | null>(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(14);
@@ -524,7 +523,6 @@ export function StatsPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load stats.');
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   };
@@ -534,7 +532,6 @@ export function StatsPage() {
   return (
     <section className="page-enter flex flex-col gap-6">
       <PageHeader
-        category="Reports"
         title="Review metrics"
         description="Daily review and comment activity for the selected range."
         actions={

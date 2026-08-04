@@ -172,9 +172,94 @@ describe('claim type denylist', () => {
     }
   });
 
-  it('excludes null_or_undefined_deref from the default denylist pending measurement', () => {
-    expect(DEFAULT_DENIED_CLAIM_TYPES).not.toContain('null_or_undefined_deref');
+  // Measured on PR #55: 3 generated, 0 valid. It was held out pending exactly that data.
+  it('denies null_or_undefined_deref now that it has been measured', () => {
+    expect(DEFAULT_DENIED_CLAIM_TYPES).toContain('null_or_undefined_deref');
     expect(DEFAULT_DENIED_CLAIM_TYPES).toContain('react_hook_missing_deps');
+  });
+
+  it('denies every claim type that is not decidable from the diff', () => {
+    for (const type of claimTypes) {
+      const denied = DEFAULT_DENIED_CLAIM_TYPES.includes(type);
+      expect(denied).toBe(CLAIM_TYPE_DECIDABILITY[type] !== 'diff_local');
+    }
+  });
+});
+
+/**
+ * The worst-performing family in the corpus: 21 generated, 4 posted, all four wrong, mean confidence
+ * 0.964 -- then two P0s asserting actions/checkout v7 "does not exist" while the CI job using it was
+ * green. Unfixable by grounding, because the fact lives in a registry, not in the diff.
+ */
+describe('external version claims', () => {
+  const yml: FileDiff = {
+    path: '.github/workflows/ci.yml',
+    previousPath: null,
+    isNew: false,
+    isDeleted: false,
+    isBinary: false,
+    lineCount: 2,
+    hunks: [{
+      header: '@@ -1,2 +1,2 @@',
+      lines: [
+        { kind: 'add', content: '        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0', newLineNumber: 1, position: 1 },
+        { kind: 'add', content: '        run: npm ci', newLineNumber: 2, position: 2 },
+      ],
+    }],
+  };
+
+  const versionFinding = (over: Record<string, unknown> = {}) => JSON.stringify({
+    findings: [{
+      title: 'Invalid GitHub Action version',
+      body: "The specified version 'v7.0.0' for 'actions/checkout' does not exist. The latest major version is v4.",
+      priority: 0,
+      confidence_score: 1,
+      claim_type: 'other',
+      evidence: '        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0',
+      code_location: { absolute_file_path: '.github/workflows/ci.yml', line: 1 },
+      ...over,
+    }],
+    overall_correctness: 'patch is incorrect',
+    overall_explanation: 'explanation',
+  });
+
+  // The model labels these `other`, so the denylist only sees them once the wording is recognised.
+  it('relabels an other-typed version-existence claim and denies it', () => {
+    const result = parseFileReviewResponse(versionFinding(), yml, {
+      deniedClaimTypes: [...DEFAULT_DENIED_CLAIM_TYPES],
+    });
+
+    expect(result.comments).toHaveLength(0);
+    expect(result.deniedClaimCounts.external_version_claim).toBe(1);
+  });
+
+  // Belt and braces: a full commit SHA on the cited line refutes the claim whatever it is labelled,
+  // because the version beside a SHA pin is a comment the runner never reads.
+  it('refutes a version claim on a SHA-pinned line even when the type is not denied', () => {
+    const result = parseFileReviewResponse(versionFinding(), yml, { deniedClaimTypes: [] });
+
+    expect(result.comments).toHaveLength(0);
+    expect(result.fileSummary).toContain('[refuted:pinned-sha]');
+  });
+
+  it('leaves an ordinary finding on the same file alone', () => {
+    const raw = JSON.stringify({
+      findings: [{
+        title: 'Install step skips the lockfile',
+        body: 'This runs a plain install rather than a clean, reproducible one.',
+        priority: 2,
+        confidence_score: 0.7,
+        claim_type: 'other',
+        evidence: '        run: npm ci',
+        code_location: { absolute_file_path: '.github/workflows/ci.yml', line: 2 },
+      }],
+      overall_correctness: 'patch is incorrect',
+      overall_explanation: 'explanation',
+    });
+
+    const result = parseFileReviewResponse(raw, yml, { deniedClaimTypes: [...DEFAULT_DENIED_CLAIM_TYPES] });
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0].claimType).toBe('other');
   });
 
   it('captures the diff context needed to re-judge the finding later', () => {

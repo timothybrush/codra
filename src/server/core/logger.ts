@@ -70,7 +70,7 @@ export class Logger {
   }
 
   runWithContext<T>(context: Record<string, any>, fn: () => T): T {
-    return storage.run({ ...(storage.getStore() || {}), ...context }, fn);
+    return storage.run({ ...storage.getStore(), ...context }, fn);
   }
 
   info(message: string, data?: any) {

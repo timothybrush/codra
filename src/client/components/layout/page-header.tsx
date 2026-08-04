@@ -3,16 +3,14 @@ import { cn } from '@client/lib/utils';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
 
 interface PageHeaderProps extends React.HTMLAttributes<HTMLElement> {
-  category?: string;
   title: string;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   versionBadge?: string;
 }
 
-export function PageHeader({ 
-  category, 
-  title, 
+export function PageHeader({
+  title,
   description, 
   actions, 
   className, 

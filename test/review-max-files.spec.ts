@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createTestEnv, hasConfiguredTestDatabaseUrl } from './helpers';
+import { createTestEnv, dbDescribe } from './helpers';
 import { runWithDb, queryRows } from '@server/db/client';
 import { getReviewSettings, updateReviewSettings } from '@server/db/app-settings';
 import { defaultRepoConfig, reviewMaxFilesRange, reviewSettingsSchema } from '@shared/schema';
 
-const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 
 describe('review max files settings', () => {
   it('defaults to 200', () => {

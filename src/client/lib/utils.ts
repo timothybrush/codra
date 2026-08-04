@@ -21,7 +21,7 @@ export function fmtStat(n: number): { value: string; unit: string } {
   return { value: n.toLocaleString(), unit: '' };
 }
 
-export function formatDuration(ms: number | null | undefined): string {
+export function formatPreciseDuration(ms: number | null | undefined): string {
   if (ms == null) return '';
   // Sub-minute: show one decimal second so sub-second work (e.g. a 724ms file review) reads as
   // "0.7s" rather than flooring to a misleading "0s".

@@ -1,6 +1,14 @@
 import { logger } from './logger';
-import { isSupportedGitHubWebhookEvent, type GitHubWebhookEventName, type GitHubWebhookPayload, type IssueCommentWebhookPayload, type PullRequestWebhookPayload } from '@shared/github';
-import { defaultRepoConfig, normalizeModelId, type ParsedReviewComment, type RepoConfig, type ReviewJobMessage } from '@shared/schema';
+import { isSupportedGitHubWebhookEvent, type GitHubWebhookPayload, type PullRequestWebhookPayload } from '@shared/github';
+import {
+  defaultRepoConfig,
+  normalizeModelId,
+  REVIEW_CONCURRENCY_LIMITS,
+  type FindingDisposition,
+  type ParsedReviewComment,
+  type RepoConfig,
+  type ReviewJobMessage,
+} from '@shared/schema';
 import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
 import type { AppBindings } from '@server/env';
 import { bulkInheritFileReviews, bulkMarkFilesFailed, getFileReviewsForJobs, getSuppressedFindings, markCommentDispositions, markCommentsPosted, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
@@ -26,9 +34,27 @@ import {
   updateJobCheckRun,
   updateJobStep,
 } from '@server/db/jobs';
-import { filterReviewableFiles, parseUnifiedDiff, type FileDiff } from './diff';
+import { parseUnifiedDiff, type FileDiff } from './diff';
 import { dedupeFindings } from './model-output';
-import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from '../prompts/verify';
+import { extractReviewRequest } from './review-request';
+import { shadowEvaluate, verifyFindings } from './verify-findings';
+import { budgetAwareFileLimit } from './review-budget';
+import { getDiffFiles } from './review-diff-cache';
+import { ruleHitsToComments, scanFileForRuleHits, type RuleScanStats } from './rules/detect';
+import { getRejectedExemplars, getRepositoryIdForJob } from '@server/db/learning';
+import type { RejectedExemplar } from '@server/prompts/file-review';
+
+// Re-exported so routes/api/jobs.ts and review-resilience.spec.ts keep their existing specifiers.
+export { diffCacheKey, getDiffFiles, getOrFetchRawDiffForCompletedJob } from './review-diff-cache';
+
+// Re-exported so chunk-concurrency.spec.ts keeps importing these from '@server/core/review'.
+export { budgetAwareFileLimit, estimatedSubrequestsPerFile } from './review-budget';
+
+// Re-exported so the specs and gold set keep importing these from '@server/core/review'.
+export { verifyFindings, type VerifyDrop, type VerifyOutcome } from './verify-findings';
+
+// Re-exported so `routes/webhook.ts` and the specs keep importing it from '@server/core/review'.
+export { extractReviewRequest, type ReviewRequest } from './review-request';
 
 import { GitHubService } from '../services/github';
 import { GitHubClient } from './github';
@@ -39,22 +65,18 @@ import { loadRepoConfig } from './config';
 import { getWebhookDelivery } from '@server/db/webhook-deliveries';
 import { sendTelemetryEvent } from './telemetry';
 import { getReviewSettings } from '@server/db/app-settings';
-import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange, type FindingDisposition } from '@shared/schema';
 
 type PersistedReviewJob = ReturnType<typeof mapJob>;
 
 export type ReviewJobRunResult =
   | { action: 'ack' }
   | { action: 'retry'; delaySeconds: number }
-  // jobId is the RESOLVED job id (not the delivery id): mention-triggered jobs don't carry a jobId
-  // in the queue message, so the workflow can't otherwise know it. The workflow uses it to re-enqueue
-  // the next phase as a fresh instance.
+  // jobId is the RESOLVED job id, not the delivery id — mention-triggered jobs carry no jobId in the
+  // queue message, so the workflow cannot otherwise know it.
   //
-  // freshInstance signals the workflow to run the next phase in a BRAND-NEW instance rather than
-  // continuing this one. It's set when the current instance can't get a usable per-invocation
-  // subrequest budget anymore: either a subrequest-limit deferral (a long-lived instance has stopped
-  // hibernating, so its budget never resets) or the transition into finalize (which needs ~20
-  // subrequests at once to post the review). A fresh instance's first step always gets a clean budget.
+  // freshInstance runs the next phase in a BRAND-NEW workflow instance, whose first step always gets
+  // a clean subrequest budget. Set when this instance can no longer get one: a subrequest deferral
+  // (a long-lived instance has stopped hibernating) or the move into finalize (~20 at once).
   | { action: 'next_phase'; phase: 'prepare' | 'review' | 'finalize'; delaySeconds: number; jobId?: string; freshInstance?: boolean };
 
 const REVIEW_CHUNK_WALL_CLOCK_MS = 12 * 60 * 1000;
@@ -66,21 +88,15 @@ const BUSY_RETRY_SECONDS = 60;
 // so a long first delay just makes reviews grind. Later attempts back off harder in case the
 // provider really is having an outage.
 const RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS = [30, 2 * 60, 5 * 60];
-// Yield used when a review chunk / phase transition MUST run in a fresh Worker invocation to get a
-// fresh per-invocation subrequest budget (Workers Free: 50/invocation). Cloudflare only hibernates
-// a Workflow -- running -> waiting -> resume in a NEW invocation -- when the step.sleep is long
-// enough; a "very short" sleep keeps the instance warm in the SAME invocation, so the real
-// subrequest budget accumulates across every chunk until it's exhausted and the whole review loops
-// in one invocation until "Too many subrequests" (the observed failure). This yield is deliberately
-// long enough to force hibernation so each continuation starts with a clean budget. It is only
-// applied when a fresh budget is actually needed (multi-chunk reviews, budget-pressured finalize),
-// so small PRs that fit in a single invocation stay fast.
-// Raised from 2s: Cloudflare documents no minimum sleep for a Workflow to be parked, and at 2s
-// large reviews began failing with "Too many subrequests" -- the signature of consecutive chunks
-// sharing one invocation (and therefore one 50-subrequest budget) while each chunk's TokenTracker
-// restarted at zero and believed the budget was untouched. 8s keeps nearly all of the speed win
-// over the original 60s (a 30-chunk review pays ~4 minutes here rather than ~30) while giving the
-// runtime a far more plausible window to actually hibernate.
+// Sleep long enough to force the Workflow to HIBERNATE, so the next chunk resumes in a new
+// invocation with a fresh 50-subrequest budget.
+//
+// The duration is the whole point. Cloudflare documents no minimum, but a short sleep keeps the
+// instance warm in the SAME invocation: the real budget then accumulates across chunks while each
+// chunk's TokenTracker restarts at zero and believes it is untouched, until the review loops on
+// "Too many subrequests". That is what 2s produced. 8s keeps most of the speed win over the
+// original 60s (~4 minutes on a 30-chunk review rather than ~30) and reliably parks the instance.
+// Only applied when a fresh budget is actually needed, so single-invocation PRs stay fast.
 const FRESH_INVOCATION_YIELD_SECONDS = 8;
 // Delay between polls of an in-flight Workers AI async batch review. Batches typically complete
 // within a few minutes, so poll on a short cadence; a stuck batch is bounded by the shared
@@ -101,69 +117,6 @@ const MAX_JOB_CONTINUATIONS = 20;
 // a clean budget, more retries won't help -- so cap them low and fail fast (the check-run reconciler
 // and an inheriting re-run recover) instead of churning ~20 min against the shared ceiling.
 const MAX_FINALIZE_CONTINUATIONS = 3;
-// A job's commit (and therefore its diff) never changes, so the raw diff can be
-// cached for the job's entire lifetime instead of being re-fetched from GitHub on
-// every prepare/review-chunk/finalize phase. 6h comfortably covers even a job that
-// hits every retryable-failure backoff (up to 15 min each, several times over).
-const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
-// Subrequest cost of reviewing one file, used to size how many files a chunk may review
-// concurrently against the invocation's remaining budget (see budgetAwareFileLimit below).
-//
-// This was a flat 5, on the assumption that a file walks ~3 models and the per-model config
-// lookup is invocation-cached. That holds while the primary model answers. It does not hold when
-// the primary is rate-limited and the chain is nine models deep, which is what blew the
-// 50-subrequest cap in production -- so the estimate is now derived from the configured chain.
-//
-// Keep the short-chain result at 5 or below: with the TokenTracker's SAFE_MARGIN reserve the
-// fresh-budget headroom is 25, and floor(25 / 5) == 5 keeps even the highest concurrency level
-// (max == 4) fully honored. An estimate of 8 would make floor(25 / 8) == 3 and silently cap the
-// "max" slider at 3 -- the "concurrency slider is dead above medium" regression pinned by
-// chunk-concurrency.spec.ts.
-/** Per-file cost that isn't the model call: the persisted-review write and its lookups. */
-const FILE_FIXED_SUBREQUESTS = 2;
-/**
- * Ceiling on how many model attempts we budget for per file. Chains longer than this are common
- * (nine is not unusual) but a file that needs more than four attempts is failing for a reason that
- * a fifth won't fix, and budgeting for the full chain would collapse concurrency to one.
- */
-const MAX_MODEL_ATTEMPTS_ESTIMATE = 4;
-
-/**
- * How many files a single review chunk may process concurrently: the configured concurrency
- * level, capped only by what the invocation's remaining subrequest budget can safely cover.
- *
- * The cap is deliberately sized so it does NOT silently override the user's chosen concurrency
- * at a healthy budget -- that would make the concurrency setting a no-op above the cap. It
- * only throttles once earlier failures in this invocation have actually eaten into the budget;
- * if there is not enough safe budget for one more file, the chunk yields and resumes in a fresh
- * invocation instead of gambling past the margin. Any files a throttled chunk can't reach roll
- * into the next chunk. The
- * chunk-file-limit-honors-configured-level invariant is pinned by a regression test.
- */
-export function budgetAwareFileLimit(
-  remainingSafeBudget: number,
-  configuredChunkFileLimit: number,
-  modelChainLength = 1,
-) {
-  const budgetLimit = Math.floor(remainingSafeBudget / estimatedSubrequestsPerFile(modelChainLength));
-  return Math.min(configuredChunkFileLimit, budgetLimit);
-}
-
-/**
- * What one file can actually cost, given how many models it may walk through.
- *
- * The flat estimate of 5 assumed the primary model answers. With a long fallback chain and a
- * rate-limited primary it doesn't: the file walks the chain, each attempt is a subrequest, and
- * three files started on the strength of a 5-per-file estimate can spend far more than the
- * invocation's whole budget. Quota failures are now capped, so the realistic worst case is a
- * couple of quota attempts or a handful of genuine errors -- but with a nine-model chain that is
- * still well above 5, and concurrency has to shrink to match rather than discover it by failing.
- */
-export function estimatedSubrequestsPerFile(modelChainLength: number) {
-  const modelAttempts = Math.max(1, Math.min(modelChainLength, MAX_MODEL_ATTEMPTS_ESTIMATE));
-  return FILE_FIXED_SUBREQUESTS + modelAttempts;
-}
-
 function isRetryableFileReviewErrorMessage(message: string | null | undefined) {
   if (!message) return false;
   const lower = message.toLowerCase();
@@ -280,84 +233,6 @@ async function resolveModelProviderName(env: Pick<AppBindings, 'HYPERDRIVE'>, mo
     });
     return null;
   }
-}
-
-function shouldTriggerFromPullRequest(action: PullRequestWebhookPayload['action'], config: RepoConfig['review']) {
-  return (config.on as string[]).includes(action);
-}
-
-export type ReviewRequest = {
-  installationId: string;
-  owner: string;
-  repo: string;
-  prNumber: number;
-  prTitle: string | null;
-  prAuthor: string | null;
-  commitSha: string;
-  baseSha: string;
-  headRef: string | null;
-  baseRef: string | null;
-  trigger: 'auto' | 'mention';
-};
-
-export function extractReviewRequest(input: {
-  eventName: GitHubWebhookEventName;
-  payload: GitHubWebhookPayload;
-  botUsername: string;
-  config: RepoConfig;
-}): ReviewRequest | null {
-  if (input.eventName === 'pull_request') {
-    const payload = input.payload as PullRequestWebhookPayload;
-    if (input.config.review.ignore_drafts && payload.pull_request.draft) {
-      return null;
-    }
-    if (!shouldTriggerFromPullRequest(payload.action, input.config.review)) {
-      return null;
-    }
-
-    return {
-      installationId: String(payload.installation?.id ?? ''),
-      owner: payload.repository.owner.login,
-      repo: payload.repository.name,
-      prNumber: payload.pull_request.number,
-      prTitle: payload.pull_request.title,
-      prAuthor: payload.pull_request.user.login,
-      commitSha: payload.pull_request.head.sha,
-      baseSha: payload.pull_request.base.sha,
-      headRef: payload.pull_request.head.ref,
-      baseRef: payload.pull_request.base.ref,
-      trigger: 'auto' as const,
-    };
-  }
-
-  if (input.eventName === 'issue_comment') {
-    const payload = input.payload as IssueCommentWebhookPayload;
-    const mentionTrigger = input.config.review.mention_trigger;
-
-    if (!payload.issue?.pull_request || payload.action !== 'created' || !mentionTrigger) {
-      return null;
-    }
-
-    if (!payload.comment?.body?.includes(mentionTrigger)) {
-      return null;
-    }
-
-    return {
-      installationId: String(payload.installation?.id ?? ''),
-      owner: payload.repository.owner.login,
-      repo: payload.repository.name,
-      prNumber: payload.issue.number,
-      prTitle: null,
-      prAuthor: null,
-      commitSha: '',
-      baseSha: '',
-      headRef: null,
-      baseRef: null,
-      trigger: 'mention' as const,
-    };
-  }
-
-  return null;
 }
 
 export async function runReviewJob(env: AppBindings, message: ReviewJobMessage): Promise<ReviewJobRunResult> {
@@ -746,6 +621,28 @@ async function runPreparePhase(
   await enqueueJobPhase(env, job.id, 'review');
 }
 
+/**
+ * Negative few-shot exemplars for this repository, loaded once per review chunk.
+ *
+ * Best-effort in every direction: a DB hiccup here must not fail a review, and an empty result is
+ * the normal case until someone has labelled something. Loaded per chunk rather than per file so it
+ * costs one query, not one per file.
+ */
+async function loadRejectedExemplars(env: AppBindings, job: PersistedReviewJob): Promise<RejectedExemplar[]> {
+  try {
+    const repositoryId = await getRepositoryIdForJob(env, job.id);
+    if (repositoryId === null) return [];
+    const rows = await getRejectedExemplars(env, { repositoryId, limit: 5 });
+    return rows.map((row) => ({ title: row.title, claimType: row.claim_type }));
+  } catch (error) {
+    logger.warn('Could not load rejected exemplars; reviewing without them', {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
 async function runReviewPhase(
   env: AppBindings,
   job: PersistedReviewJob,
@@ -760,6 +657,8 @@ async function runReviewPhase(
   }
 
   await updateJobStep(env, job.id, 'Reviewing Files', { status: 'running' });
+
+  const rejectedExemplars = await loadRejectedExemplars(env, job);
 
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
@@ -863,7 +762,7 @@ async function runReviewPhase(
           logger.warn(`Async batch poll failed for ${file.path}; falling back to synchronous review`, {
             error: poll.error instanceof Error ? poll.error.message : String(poll.error),
           });
-          await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview);
+          await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
           terminalProgress += 1;
           return;
         }
@@ -906,14 +805,14 @@ async function runReviewPhase(
           awaitingAsync += 1;
           return;
         }
-        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview);
+        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
         terminalProgress += 1;
         return;
       }
 
       if (!canInheritParentFileReview(config, inherited)) {
         logger.info(`Ignoring inherited review for ${file.path}; parent model ${inherited.model_used} is not in the current model strategy`);
-        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview);
+        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
         terminalProgress += 1;
       } else {
         await upsertFileReview(env, job.id, {
@@ -1106,6 +1005,11 @@ async function persistFailedFileReview(
     durationMs?: number | null;
     errorMessage: string;
     clearAsync?: boolean;
+    /**
+     * Deterministic findings for a file whose MODEL review failed. This is the case the rule channel
+     * exists for: the file is marked failed and still contributes what a regex could establish.
+     */
+    parsedComments?: ParsedReviewComment[];
   },
 ) {
   await upsertFileReview(env, jobId, {
@@ -1116,7 +1020,7 @@ async function persistFailedFileReview(
     diffLineCount: input.diffLineCount,
     diffInput: null,
     rawAiOutput: null,
-    parsedComments: [],
+    parsedComments: input.parsedComments ?? [],
     inputTokens: null,
     outputTokens: null,
     durationMs: input.durationMs ?? null,
@@ -1125,6 +1029,36 @@ async function persistFailedFileReview(
     errorMessage: input.errorMessage,
     ...(input.clearAsync ? { asyncRequestId: null, asyncModel: null } : {}),
   });
+}
+
+/**
+ * Runs the deterministic rule channel over one file.
+ *
+ * Returns comments for rules that are live and stats for everything, including shadow hits. Never
+ * throws: a bug in a regex must not fail a file review that the model completed successfully.
+ */
+function scanRuleChannel(
+  file: FileDiff,
+  config: RepoConfig,
+): { comments: ParsedReviewComment[]; stats: RuleScanStats | null } {
+  const rules = config.review.rules;
+  if (!rules?.enabled) return { comments: [], stats: null };
+
+  try {
+    const result = scanFileForRuleHits(file, {
+      disabledRuleIds: rules.disabled_rule_ids,
+      shadowRuleIds: rules.shadow_rule_ids,
+      // A rule whose claim type the repo denies must not produce a candidate the parser would
+      // have thrown away had the model claimed it.
+      deniedClaimTypes: config.review.deny_claim_types,
+    });
+    return { comments: ruleHitsToComments(file, result), stats: result.stats };
+  } catch (error) {
+    logger.warn(`Rule scan failed for ${file.path}; continuing with LLM findings only`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { comments: [], stats: null };
+  }
 }
 
 async function reviewAndPersistFile(
@@ -1137,9 +1071,16 @@ async function reviewAndPersistFile(
   model: ModelService,
   resolveFailureModelProvider: () => Promise<string | null>,
   previousReview?: { transient_error_count: number },
+  rejectedExemplars: readonly RejectedExemplar[] = [],
 ) {
   const startedAt = Date.now();
   const compactPrompt = (previousReview?.transient_error_count ?? 0) > 0;
+
+  // Scanned BEFORE the model call, and used on both the success and failure paths. That ordering is
+  // the entire recall argument for this channel: a deterministic hit still reaches finalize when the
+  // model returns nothing, and when every model in the chain fails outright.
+  const ruleScan = scanRuleChannel(file, config);
+
   try {
     const response = await model.reviewFile({
       file,
@@ -1148,6 +1089,7 @@ async function reviewAndPersistFile(
       config,
       totalLineCount,
       compactPrompt,
+      rejectedExemplars,
     });
 
     await upsertFileReview(env, job.id, {
@@ -1158,7 +1100,7 @@ async function reviewAndPersistFile(
       diffLineCount: file.lineCount,
       diffInput: null,
       rawAiOutput: response.rawText,
-      parsedComments: response.parsed.comments,
+      parsedComments: [...response.parsed.comments, ...ruleScan.comments],
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
       durationMs: Date.now() - startedAt,
@@ -1193,7 +1135,21 @@ async function reviewAndPersistFile(
       // Shadow only. `refuted` staying 0 while `absenceShaped` climbs means the check is reaching
       // real claims but never resolving an identifier -- the extraction, not the idea, is the problem.
       absenceCheck: response.parsed.absenceCheckStats,
+      ruleChannel: ruleScan.stats,
     });
+
+    // `wasPromptTruncated` and `reviewedLineCount` were both computed by reviewFile and consumed by
+    // nobody, which is what made truncation silent rather than merely lossy. A file reviewed in part
+    // is not a clean file, and if this warns routinely the chunk cap -- not the model -- is the reason
+    // findings are missing from large files.
+    if (response.wasPromptTruncated) {
+      logger.warn(`Reviewed only part of ${file.path}; findings from the remainder are missing.`, {
+        jobId: job.id,
+        model: response.modelUsed,
+        reviewedLineCount: response.reviewedLineCount,
+        diffLineCount: file.lineCount,
+      });
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown file review error';
     const modelId = config.model?.main ?? 'unconfigured';
@@ -1235,6 +1191,7 @@ async function reviewAndPersistFile(
           diffLineCount: file.lineCount,
           durationMs: Date.now() - startedAt,
           errorMessage: finalError,
+          parsedComments: ruleScan.comments,
         });
         logger.error(`File review failed permanently for ${file.path} after transient retries`, {
           attempts: failureCount,
@@ -1277,6 +1234,7 @@ async function reviewAndPersistFile(
       diffLineCount: file.lineCount,
       durationMs: Date.now() - startedAt,
       errorMessage,
+      parsedComments: ruleScan.comments,
     });
   }
 }
@@ -1353,14 +1311,20 @@ async function sendReviewTelemetry(
 async function loadSuppressedFingerprints(env: AppBindings, jobId: string) {
   const posted = new Map<string, Set<string>>();
   const rejected = new Set<string>();
+  // v2 already contains the anchor hash, so these need no companion anchor check -- membership alone
+  // means "same file, same claim class, byte-identical line", and editing the line changes the key.
+  const postedV2 = new Set<string>();
+  const rejectedV2 = new Set<string>();
 
   try {
     for (const row of await getSuppressedFindings(env, jobId)) {
       if (!row.anchored) {
-        rejected.add(row.fingerprint);
+        if (row.fingerprint) rejected.add(row.fingerprint);
+        if (row.fingerprint_v2) rejectedV2.add(row.fingerprint_v2);
         continue;
       }
-      if (!row.anchor_hash) continue;
+      if (row.fingerprint_v2) postedV2.add(row.fingerprint_v2);
+      if (!row.fingerprint || !row.anchor_hash) continue;
       const anchors = posted.get(row.fingerprint) ?? new Set<string>();
       anchors.add(row.anchor_hash);
       posted.set(row.fingerprint, anchors);
@@ -1372,281 +1336,7 @@ async function loadSuppressedFingerprints(env: AppBindings, jobId: string) {
     });
   }
 
-  return { posted, rejected };
-}
-
-/**
- * Evaluates the Phase-2 candidate filters WITHOUT applying them.
- *
- * A/B testing is not available here: one operator, one pull request at a time, and retried jobs
- * replay their stored `configSnapshot`, so any date-based arm assignment is contaminated. The
- * workable substitute is a paired within-run comparison -- score both the live chain and the
- * candidate rules on the same findings, post using the live chain, and log the difference. That
- * yields paired data on every real review and is valid at n=1.
- *
- * It exists because the corpus cannot currently justify any of these rules. "P3 has never been
- * posted" (0 of 173) looked decisive until it turned out P3 sorts last and `max_comments` slices
- * from the end -- the statistic was measuring the sort order, not the findings. These counters
- * measure the rules against findings that reached the end of the live chain, which is the
- * comparison that actually discriminates.
- */
-const LOW_YIELD_TITLE = /missing|redundant|repetitive|inconsisten|documentation|\btype\b|\bany\b|potential/i;
-
-function shadowEvaluate(candidates: ParsedReviewComment[], posted: ParsedReviewComment[]) {
-  const postedSet = new Set(posted);
-  const count = (predicate: (c: ParsedReviewComment) => boolean) => ({
-    wouldDrop: candidates.filter(predicate).length,
-    // The number that matters: how many findings the rule would have taken off the pull request.
-    wouldDropPosted: posted.filter(predicate).length,
-  });
-
-  return {
-    candidates: candidates.length,
-    posted: postedSet.size,
-    dropP3AndNit: count((c) => c.severity === 'P3' || c.severity === 'nit'),
-    dropLowYieldTitle: count((c) => LOW_YIELD_TITLE.test(c.title)),
-    dropUnmatchedEvidence: count((c) => !c.evidence),
-    // The one denylist candidate deliberately NOT enforced yet. It is the most FP-prone claim class,
-    // but unlike the hook claims there is no corpus measurement showing it never posts -- so it is
-    // scored here first. Move it into DEFAULT_DENIED_CLAIM_TYPES once `wouldDropPosted` is reliably 0
-    // over ~10 reviews. (`react_hook_missing_deps` left this harness when it became enforced; a rule
-    // that is already applied always scores 0 here and tells you nothing.)
-    dropNullDeref: count((c) => c.claimType === 'null_or_undefined_deref'),
-  };
-}
-
-/**
- * How many findings the verification pass will look at.
- *
- * Scaled to what can actually be posted rather than fixed at 40: verification runs BEFORE the
- * max_comments cap, so a fixed ceiling spends context (and wall clock, on a call already pinned at
- * the model timeout maximum) judging findings that would be sliced off regardless.
- */
-function verifyCandidateLimit(effectiveMaxComments: number) {
-  return Math.min(40, Math.max(10, effectiveMaxComments * 2));
-}
-
-/**
- * Below this share of answered indices the response is treated as a non-answer and everything is
- * kept. A model that returned 3 verdicts for 20 findings did not do the task, and letting the 17
- * silent ones fail closed would be a mass deletion dressed up as judgement.
- *
- * A guess, pending data. `droppedUnanswered` is logged separately so it can be tuned; if it is
- * routinely non-zero the batch is too large and `verifyCandidateLimit` should come down instead.
- */
-const VERIFY_MIN_ANSWER_RATIO = 0.6;
-
-/**
- * Above this share of un-snippetable candidates, verification is skipped entirely.
- *
- * Unverifiable candidates now fail closed, which makes a path-normalization mismatch between the
- * diff and the stored comments capable of deleting every finding in a file. That is an
- * infrastructure failure and must never read as a wall of model verdicts.
- */
-const UNVERIFIABLE_CIRCUIT_BREAKER_RATIO = 0.5;
-
-export type VerifyDrop = {
-  comment: ParsedReviewComment;
-  disposition: Extract<FindingDisposition, 'verify' | 'verify_unanswered' | 'unverifiable_passthrough'>;
-  reason?: string;
-};
-
-export type VerifyOutcome = {
-  /** A strict SUBSEQUENCE of the input: this pass may only ever subtract. */
-  comments: ParsedReviewComment[];
-  dropped: VerifyDrop[];
-  /** Verifier reasoning per judged candidate, for the kept ones too. The tuning surface. */
-  reasons: Map<ParsedReviewComment, string>;
-  stats: {
-    candidates: number;
-    answered: number;
-    droppedByVerdict: number;
-    droppedUnanswered: number;
-    droppedUnverifiable: number;
-    /** Candidates past the limit, never judged at all. A pre-existing hole, now at least visible. */
-    unverifiedTail: number;
-    failedOpen: false | 'error' | 'no_verdicts' | 'under_response' | 'unverifiable_ratio';
-  };
-};
-
-/**
- * The Gatekeeper: one consolidated model call re-checks the top candidate findings against their
- * diff context and subtracts the ones that don't hold up.
- *
- * Two structural properties, both load-bearing:
- *
- * 1. It can only SUBTRACT. The return is `comments.filter(...)`, so the severity sort established by
- *    the caller survives by construction rather than by remembering to re-sort. This used to return
- *    `[...kept, ...unverifiable, ...passthrough]`, which reordered the array before `max_comments`
- *    sliced it -- so the cap was cutting from a list that was no longer in severity order.
- * 2. Verdicts are read from a SPARSE MAP keyed on the model's own `index` field, never by position.
- *    A renumbered or truncated list can therefore no longer delete the wrong finding; the worst it
- *    can do is leave an index unanswered, which is a separate, separately-labelled outcome.
- */
-export async function verifyFindings(params: {
-  job: Pick<PersistedReviewJob, 'id'>;
-  config: RepoConfig;
-  files: FileDiff[];
-  comments: ParsedReviewComment[];
-  model: Pick<ModelService, 'verifyFindings'>;
-  maxCandidates?: number;
-}): Promise<VerifyOutcome> {
-  const { comments, files, model, config, job } = params;
-  const keepAll = (failedOpen: VerifyOutcome['stats']['failedOpen'], extra?: Partial<VerifyOutcome['stats']>): VerifyOutcome => ({
-    comments,
-    dropped: [],
-    reasons: new Map(),
-    stats: {
-      candidates: 0, answered: 0, droppedByVerdict: 0, droppedUnanswered: 0,
-      droppedUnverifiable: 0, unverifiedTail: 0, failedOpen, ...extra,
-    },
-  });
-
-  if (comments.length === 0) return keepAll(false);
-
-  const limit = verifyCandidateLimit(params.maxCandidates ?? config.review.max_comments);
-  const toVerify = comments.slice(0, limit);
-  const unverifiedTail = comments.length - toVerify.length;
-
-  const fileByPath = new Map(files.map((file) => [file.path, file]));
-  const prepared = toVerify.map((comment) => ({
-    comment,
-    snippet: renderDiffSnippet(fileByPath.get(comment.path), comment.line ?? undefined),
-  }));
-
-  const verifiable = prepared.filter((entry) => entry.snippet !== '' || entry.comment.evidence);
-  const unverifiable = prepared.filter((entry) => entry.snippet === '' && !entry.comment.evidence);
-
-  // Circuit breaker before anything else: a wholesale failure to render snippets is infrastructure,
-  // not judgement, and the fail-closed rule below would turn it into a silent mass deletion.
-  const unverifiableRatio = prepared.length > 0 ? unverifiable.length / prepared.length : 0;
-  if (verifiable.length === 0 || unverifiableRatio > UNVERIFIABLE_CIRCUIT_BREAKER_RATIO) {
-    logger.warn('Too many candidates have no diff context; skipping verification', {
-      jobId: job.id,
-      unverifiable: unverifiable.length,
-      prepared: prepared.length,
-      paths: [...new Set(unverifiable.map((entry) => entry.comment.path))].slice(0, 10),
-    });
-    return keepAll('unverifiable_ratio', { unverifiedTail });
-  }
-
-  const candidates: VerifyCandidate[] = verifiable.map((entry, index) => ({
-    index,
-    path: entry.comment.path,
-    line: entry.comment.line ?? null,
-    title: entry.comment.title,
-    body: entry.comment.body,
-    snippet: entry.snippet,
-    evidence: entry.comment.evidence ?? null,
-  }));
-
-  try {
-    const response = await model.verifyFindings({ candidates, config });
-    const results = parseVerifyResponse(response.rawText);
-
-    // Sparse, index-keyed, and tolerant of junk: an out-of-range index is ignored rather than
-    // aborting the whole pass, and two conflicting verdicts for one index cancel out to "unanswered"
-    // instead of letting arrival order decide.
-    const byIndex = new Map<number, { verdict: 'keep' | 'drop'; reason?: string }>();
-    const conflicting = new Set<number>();
-    for (const result of results) {
-      if (!Number.isInteger(result.index) || result.index < 0 || result.index >= candidates.length) continue;
-      const prior = byIndex.get(result.index);
-      if (prior && prior.verdict !== result.verdict) {
-        conflicting.add(result.index);
-        continue;
-      }
-      if (!prior) byIndex.set(result.index, { verdict: result.verdict, reason: result.reason });
-    }
-    for (const index of conflicting) byIndex.delete(index);
-
-    const answered = byIndex.size;
-    if (answered === 0) {
-      logger.warn('Verification returned no usable verdicts; keeping all findings', {
-        jobId: job.id, candidates: candidates.length, results: results.length,
-      });
-      return keepAll('no_verdicts', { candidates: candidates.length, unverifiedTail });
-    }
-    if (answered / candidates.length < VERIFY_MIN_ANSWER_RATIO) {
-      logger.warn('Verification under-responded; keeping all findings', {
-        jobId: job.id, candidates: candidates.length, answered,
-      });
-      return keepAll('under_response', { candidates: candidates.length, answered, unverifiedTail });
-    }
-
-    const dropped: VerifyDrop[] = [];
-    const reasons = new Map<ParsedReviewComment, string>();
-    let droppedByVerdict = 0;
-    let droppedUnanswered = 0;
-
-    verifiable.forEach((entry, index) => {
-      const result = byIndex.get(index);
-      if (result?.reason) reasons.set(entry.comment, result.reason);
-
-      if (result?.verdict === 'drop') {
-        droppedByVerdict += 1;
-        dropped.push({ comment: entry.comment, disposition: 'verify', reason: result.reason });
-        return;
-      }
-      if (!result) {
-        // Fail closed. The prompt demands exactly one result per index, so an index the model never
-        // addressed has not been endorsed. Labelled distinctly from a real 'verify' drop on purpose:
-        // this one is OUR defect, and conflating the two would make the tuning data worthless in
-        // exactly the way `posted = false` was.
-        droppedUnanswered += 1;
-        dropped.push({
-          comment: entry.comment,
-          disposition: 'verify_unanswered',
-          reason: 'the verifier returned no verdict for this finding',
-        });
-      }
-    });
-
-    for (const entry of unverifiable) {
-      dropped.push({
-        comment: entry.comment,
-        disposition: 'unverifiable_passthrough',
-        reason: 'no diff context could be rendered for this location',
-      });
-    }
-
-    const droppedSet = new Set(dropped.map((drop) => drop.comment));
-    logger.info('Verification pass complete', {
-      jobId: job.id,
-      candidates: candidates.length,
-      answered,
-      droppedByVerdict,
-      droppedUnanswered,
-      droppedUnverifiable: unverifiable.length,
-      unverifiedTail,
-      // Severity of every unverifiable drop: a P0 appearing here means the fail-closed rule is
-      // eating high-severity findings for an infrastructure reason and should be reverted.
-      unverifiableSeverities: unverifiable.map((entry) => entry.comment.severity),
-      topReasons: dropped.slice(0, 5).map((drop) => drop.reason),
-    });
-
-    return {
-      // Subtraction only, hence the sort is preserved.
-      comments: comments.filter((comment) => !droppedSet.has(comment)),
-      dropped,
-      reasons,
-      stats: {
-        candidates: candidates.length,
-        answered,
-        droppedByVerdict,
-        droppedUnanswered,
-        droppedUnverifiable: unverifiable.length,
-        unverifiedTail,
-        failedOpen: false,
-      },
-    };
-  } catch (error) {
-    logger.warn('Verification pass failed; posting pre-verification findings', {
-      jobId: job.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return keepAll('error', { candidates: candidates.length, unverifiedTail });
-  }
+  return { posted, rejected, postedV2, rejectedV2 };
 }
 
 async function runFinalizePhase(
@@ -1779,17 +1469,26 @@ async function runFinalizePhase(
   //    tokens re-judging comments that will never be posted.
   const suppressed = await loadSuppressedFingerprints(env, job.id);
   const suppressedComments: ParsedReviewComment[] = [];
-  if (suppressed.rejected.size > 0 || suppressed.posted.size > 0) {
+  const hasSuppressionData = suppressed.rejected.size > 0 || suppressed.posted.size > 0
+    || suppressed.rejectedV2.size > 0 || suppressed.postedV2.size > 0;
+  if (hasSuppressionData) {
     finalComments = finalComments.filter((c) => {
-      if (!c.fingerprint) return true;
-      if (suppressed.rejected.has(c.fingerprint)) {
-        suppressedComments.push(c);
-        return false;
-      }
-      // Only suppress when the anchored code is also unchanged: a different anchor hash means the
-      // developer edited that line, so the finding is legitimately raised again.
-      const anchors = suppressed.posted.get(c.fingerprint);
-      if (anchors && c.anchorHash && anchors.has(c.anchorHash)) {
+      // EITHER identity matching is enough. The v1-only version missed reworded repeats: measured on
+      // PR #55, six of ten findings were re-reports of claims already posted on an earlier commit and
+      // only one shared a v1 fingerprint, because v1 hashes the title and the model rewords it every
+      // run. Note there is no `if (!c.fingerprint) return true` early-out any more -- a finding
+      // carrying only a v2 key must still be matchable.
+      const rejected = (c.fingerprint && suppressed.rejected.has(c.fingerprint))
+        || (c.fingerprintV2 && suppressed.rejectedV2.has(c.fingerprintV2));
+
+      // v1 additionally requires the anchored line to be unchanged, because the title alone says
+      // nothing about the code. v2 needs no such check: the anchor is already part of the key, so an
+      // edit to the line produces a different key and re-raises the finding by construction.
+      const anchors = c.fingerprint ? suppressed.posted.get(c.fingerprint) : undefined;
+      const alreadyPosted = (anchors && c.anchorHash && anchors.has(c.anchorHash))
+        || (c.fingerprintV2 && suppressed.postedV2.has(c.fingerprintV2));
+
+      if (rejected || alreadyPosted) {
         suppressedComments.push(c);
         return false;
       }
@@ -1877,6 +1576,19 @@ async function runFinalizePhase(
     posted: finalComments.length,
     withheldByParser,
     byClaimType,
+    // Partitioned by channel, because rule candidates occupy review_comments rows and count toward
+    // every volume metric. Without this the numbers used to judge the LLM channel silently include
+    // deterministic hits, which is the one thing that would make this experiment uninterpretable.
+    byChannel: {
+      llm: finalComments.filter((c) => c.source !== 'rule').length,
+      rule: finalComments.filter((c) => c.source === 'rule').length,
+    },
+    // The retirement signal: `generated` high with `posted` at zero means the verifier always
+    // rejects that rule, so delete or fix it rather than leaving it to add noise.
+    byRule: reviewedComments.reduce<Record<string, number>>((acc, c) => {
+      if (c.source === 'rule' && c.ruleId) acc[c.ruleId] = (acc[c.ruleId] ?? 0) + 1;
+      return acc;
+    }, {}),
     // Canaries. A review that posts nothing is not automatically wrong, but three in a row means
     // the filters have gone too far -- that is the signal to revert the most recent change.
     postedAny: finalComments.length > 0,
@@ -2113,64 +1825,6 @@ async function enqueueJobPhase(
 
 function hasCompletedStep(job: PersistedReviewJob, stepName: string) {
   return job.steps.some((step) => step.name === stepName && step.status === 'done');
-}
-
-export function diffCacheKey(jobId: string) {
-  return `diff:${jobId}`;
-}
-
-/**
- * Returns the job's reviewable files, fetching and parsing the PR diff from
- * GitHub only once per job (cached in KV) instead of once per phase invocation.
- */
-export async function getDiffFiles(
-  env: AppBindings,
-  job: Pick<PersistedReviewJob, 'id' | 'owner' | 'repo' | 'prNumber'>,
-  github: Pick<GitHubService, 'getPullRequestDiff'>,
-  config: RepoConfig,
-  // Instance-wide file ceiling. Passed in rather than read here so a single settings lookup can
-  // serve both this and the concurrency level in the same phase.
-  maxFiles: number = reviewMaxFilesRange.default,
-): Promise<{ files: FileDiff[]; skipped: number }> {
-  const cacheKey = diffCacheKey(job.id);
-  let rawDiff = await env.APP_KV.get(cacheKey);
-
-  if (!rawDiff) {
-    rawDiff = await github.getPullRequestDiff(job.owner, job.repo, job.prNumber);
-    try {
-      await env.APP_KV.put(cacheKey, rawDiff, { expirationTtl: DIFF_CACHE_TTL_SECONDS });
-    } catch (error) {
-      logger.warn(`Failed to cache PR diff for job ${job.id}; it will be re-fetched on the next phase`, error instanceof Error ? error : new Error(String(error)));
-    }
-  }
-
-  return filterReviewableFiles(parseUnifiedDiff(rawDiff, config.review), config.review, maxFiles);
-}
-
-/**
- * Reconstructs the raw PR diff for a job that has already finished, for the on-demand
- * "diff_input isn't stored in Postgres" reconstruction path (see /api/jobs/:id/diffs).
- * Reuses the same short-lived KV cache `getDiffFiles` writes during processing when it's
- * still warm (fast path, no GitHub call); once that 6h TTL has lapsed, re-derives the exact
- * same diff from GitHub via the job's own base/head commits (NOT the live PR diff, which may
- * have moved on since) and writes it back to the same cache key/TTL for subsequent requests.
- */
-export async function getOrFetchRawDiffForCompletedJob(
-  env: AppBindings,
-  job: { id: string; owner: string; repo: string; baseSha: string; commitSha: string },
-  github: Pick<GitHubService, 'getCompareDiff'>,
-): Promise<string> {
-  const cacheKey = diffCacheKey(job.id);
-  const cached = await env.APP_KV.get(cacheKey);
-  if (cached) return cached;
-
-  const rawDiff = await github.getCompareDiff(job.owner, job.repo, job.baseSha, job.commitSha);
-  try {
-    await env.APP_KV.put(cacheKey, rawDiff, { expirationTtl: DIFF_CACHE_TTL_SECONDS });
-  } catch (error) {
-    logger.warn(`Failed to cache reconstructed diff for job ${job.id}`, error instanceof Error ? error : new Error(String(error)));
-  }
-  return rawDiff;
 }
 
 export async function failJobAndCheckRun(

@@ -6,6 +6,8 @@ import rehypeSanitize from 'rehype-sanitize';
 import { FileText, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import { api } from '@client/lib/api';
+import { CopyButton } from '@client/components/shared/copy-button';
+import { preventToggleOnTextSelection } from '@client/lib/selection';
 import type { ParsedReviewComment } from '@shared/schema';
 import { severityConfig } from './constants';
 
@@ -174,9 +176,15 @@ export function CommentCard({ comment, filePath, jobId }: CommentCardProps) {
           this is the only surviving copy (migration 003 nulls diff_input, the KV cache is 6h). */}
       {comment.contextSnippet && (
         <details className="mb-4 text-xs">
-          <summary className="cursor-pointer text-ui-subtle hover:text-foreground">
+          <summary
+            onClick={preventToggleOnTextSelection}
+            className="cursor-pointer text-ui-subtle hover:text-foreground"
+          >
             Diff context
           </summary>
+          <div className="mt-2 flex justify-end">
+            <CopyButton value={comment.contextSnippet} label="Copy diff" />
+          </div>
           <pre
             className="thin-scroll ui-font-mono mt-2 overflow-x-auto rounded-md border p-3 text-[12px] leading-relaxed"
             style={{ background: 'var(--code-bg)', borderColor: 'var(--code-border)', color: 'var(--code-fg)' }}
@@ -189,9 +197,12 @@ export function CommentCard({ comment, filePath, jobId }: CommentCardProps) {
       {/* Code suggestion (UI view) */}
       {comment.codeSuggestion && (
         <div className="mt-4 border-t border-border/40 pt-4">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
-            Suggested fix
-          </p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+              Suggested fix
+            </p>
+            <CopyButton value={comment.codeSuggestion.replace(/```suggestion\n?|```/g, '').trim()} />
+          </div>
           <pre
             className="thin-scroll ui-font-mono overflow-x-auto rounded-md border p-3 text-[12px] leading-relaxed"
             style={{ background: 'var(--code-bg)', borderColor: 'var(--code-border)', color: 'var(--code-fg)' }}

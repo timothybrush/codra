@@ -1,7 +1,6 @@
 // beui.dev/components/motion/tabs
 import { motion, MotionConfig, useReducedMotion, type Transition } from 'motion/react';
 import { createContext, useContext, useId, useState, type ReactNode } from 'react';
-import { EASE_OUT } from '@client/lib/ease';
 import { cn } from '@client/lib/utils';
 
 type Variant = 'pill' | 'underline' | 'segment';
@@ -156,40 +155,5 @@ export function TabsTrigger({
         {children}
       </button>
     </div>
-  );
-}
-
-export function TabsContent({
-  value,
-  children,
-  className,
-}: {
-  value: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  const { value: current } = useTabs();
-  const reduce = useReducedMotion();
-  const active = current === value;
-  // Inactive panels stay mounted but hidden, so their content (e.g. source
-  // code) is present in the server-rendered HTML for crawlers and assistive
-  // tech, instead of being dropped from the DOM.
-  if (!active) {
-    return (
-      <div hidden className={className}>
-        {children}
-      </div>
-    );
-  }
-  return (
-    <motion.div
-      key={value}
-      initial={{ opacity: 0, y: reduce ? 0 : 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: EASE_OUT }}
-      className={cn('mt-4', className)}
-    >
-      {children}
-    </motion.div>
   );
 }

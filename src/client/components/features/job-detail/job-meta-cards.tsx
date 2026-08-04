@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { AtSign, ExternalLink, Info, ListChecks, RotateCcw, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, formatDuration } from '@client/lib/utils';
+import { cn, formatPreciseDuration } from '@client/lib/utils';
 import type { JobDetail, JobStep } from '@shared/schema';
 import {
   DETAIL_LABEL,
@@ -32,7 +32,7 @@ function elapsedSec(step: JobStep): string | null {
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
     // Reuse the shared formatter so long phases roll up into minutes/hours (e.g. "6m 24s")
     // instead of an unwieldy "383.7s".
-    return formatDuration(end - start);
+    return formatPreciseDuration(end - start);
   }
   return null;
 }

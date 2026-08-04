@@ -24,7 +24,7 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
 
   const renderSummary = () => {
     if (!job.summaryMarkdown) return '';
-    let content = job.summaryMarkdown.replace(/^(✅ \*\*Approved\*\*|💬 \*\*Comments posted\*\*)\n\n/, '').trim();
+    const content = job.summaryMarkdown.replace(/^(✅ \*\*Approved\*\*|💬 \*\*Comments posted\*\*)\n\n/, '').trim();
 
     // Strip only the "### ... Codra Review" heading, keep the intro sentence
     const stripHeader = (md: string) => md

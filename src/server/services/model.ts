@@ -1,123 +1,53 @@
 import type { AppBindings } from '../env';
 import { reviewWithGoogle } from '../models/google';
+import { reviewWithVertex } from '../models/vertex';
 import { reviewWithCloudflare, submitCloudflareBatch, pollCloudflareBatch } from '../models/cloudflare';
 import { reviewWithOpenAI } from '../models/openai';
 import { reviewWithAnthropic } from '../models/anthropic';
-import { buildFileReviewPrompts, buildReviewResponseSchema } from '../prompts/file-review';
+import { buildFileReviewPrompts, buildReviewResponseSchema, type RejectedExemplar } from '../prompts/file-review';
 import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '../prompts/summary';
 import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '../prompts/verify';
 import { parseFileReviewResponse } from '../core/model-output';
 import { truncateFileDiff, chunkFileDiff } from '../core/diff';
 import type { RepoConfig } from '@shared/schema';
 import type { TokenTracker } from '../core/token-tracker';
-import { UnparseableModelResponseError, type ModelInput, type ModelResponse } from '../models/types';
+import type { ModelInput, ModelResponse } from '../models/types';
 import { logger } from '../core/logger';
-import { normalizeModelId } from '@shared/schema';
-import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
 import { getResolvedModelConfig, type ResolvedModelConfig } from '@server/db/model-configs';
 import { decryptLlmApiKey } from '@server/core/llm-crypto';
 import { ModelCallGate, adaptiveModelTimeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
+import {
+  estimatePromptTokens,
+  isCloudflareAllocationError,
+  isGoogleRateLimitError,
+  isTransientModelFailure,
+  MAX_METERED_QUEUE_DEPTH,
+  mergeCounts,
+  normalizeModel,
+  parseRateLimitFromError,
+  PROMPT_FIT_SAFETY_FACTOR,
+  RetryableModelError,
+  uniqueModels,
+} from './model-support';
+
+// Re-exported: core/review.ts and two specs import these from '@server/services/model'.
+export { RetryableModelError, isRetryableModelError } from './model-support';
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
 const COMPACT_REVIEW_PROMPT_LINE_CAP = 400;
 /**
- * How many models may report a quota/rate-limit failure for one file before the file is deferred
- * instead of continuing down the fallback chain.
- *
- * Two, because each model has its own quota bucket -- a Google 429 names the specific model
- * (`limit: 16000, model: gemma-4-31b`), so the next model in the chain genuinely has a fresh
- * allowance and often succeeds. Beyond two, the odds drop and each further attempt is a
- * subrequest spent learning nothing, on an invocation that only gets 50 of them.
+ * Budget that must remain before a file may take a chunk beyond BASE_CHUNKS, sized above the
+ * short-chain per-file estimate so a tail chunk only runs while another whole file still fits.
+ * Deliberately not derived from chain length — that would shrink the tail's availability exactly
+ * when files are already walking the chain and the budget is tightest.
+ */
+const EXTRA_CHUNK_BUDGET_RESERVE = 8;
+/**
+ * Quota failures allowed for one file before it is deferred rather than walking further down the
+ * chain. Two, because each model has its own bucket — a Google 429 names the model — so the next
+ * one often succeeds. Past two the odds drop and each attempt spends a subrequest learning nothing.
  */
 const MAX_QUOTA_FAILURES_PER_FILE = 2;
-const MODEL_ALIASES: Record<string, string> = {
-  'gemma-4-31b': 'gemma-4-31b-it',
-  'gemma-4-26b': 'gemma-4-26b-a4b-it',
-};
-
-/** Sums per-key counters across a file's chunks. */
-function mergeCounts(sources: Array<Record<string, number> | undefined>): Record<string, number> {
-  const merged: Record<string, number> = {};
-  for (const source of sources) {
-    for (const [key, count] of Object.entries(source ?? {})) {
-      merged[key] = (merged[key] ?? 0) + count;
-    }
-  }
-  return merged;
-}
-
-export class RetryableModelError extends Error {
-  readonly retryable = true;
-
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = 'RetryableModelError';
-    if (cause !== undefined) {
-      Object.defineProperty(this, 'cause', {
-        value: cause,
-        writable: true,
-        configurable: true,
-      });
-    }
-  }
-}
-
-export function isRetryableModelError(error: unknown) {
-  return Boolean(error && typeof error === 'object' && 'retryable' in error && error.retryable === true);
-}
-
-function normalizeModel(model: string) {
-  return normalizeModelId(MODEL_ALIASES[model] ?? model);
-}
-
-function uniqueModels(models: string[]) {
-  return Array.from(new Set(models.map(normalizeModel)));
-}
-
-function isCloudflareAllocationError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('4006') || message.toLowerCase().includes('daily free allocation');
-}
-
-function isGoogleRateLimitError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  const lower = message.toLowerCase();
-  
-  if (lower.includes('timed out') || lower.includes('timeout')) {
-    return false;
-  }
-  
-  return lower.includes('429') || lower.includes('resource_exhausted') || lower.includes('quota exceeded');
-}
-
-function isTransientModelFailure(error: unknown) {
-  if (isRetryableModelError(error)) return true;
-  // No reviewable output (reasoning-only / truncated / empty) is deterministic -- never retry it.
-  if (error instanceof UnparseableModelResponseError) return false;
-  if (isCloudflareAllocationError(error)) return false;
-  const message = error instanceof Error ? error.message : String(error);
-  const lower = message.toLowerCase();
-
-  // Explicitly fail fast for timeouts so they don't loop endlessly
-  if (isTimeoutMessage(lower)) {
-    return false;
-  }
-
-  return (
-    isGoogleRateLimitError(error) ||
-    matchesAnyTransientSubstring(lower) ||
-    lower.includes('fetch failed') ||
-    lower.includes('network') ||
-    lower.includes('temporar') ||
-    // Upstream 5xx (e.g. Gemini's frequent "request failed with 500: Internal error encountered")
-    // is a transient server-side outage, not a deterministic client error. Without this a sustained
-    // 5xx run makes every model in the chain throw a non-transient error, so the file is marked
-    // permanently failed instead of being deferred and retried once the provider recovers.
-    /\b50[0-9]\b/.test(lower) ||
-    lower.includes('internal error')
-  );
-}
-
 export class ModelService {
   // Model configs don't change during a single review invocation, but resolveModel() is called
   // once per file *and* once per fallback model. Left uncached that's a Hyperdrive round-trip
@@ -149,11 +79,110 @@ export class ModelService {
   // (potentially full-inference) submit attempt per file.
   private readonly asyncUnsupportedModels = new Set<string>();
 
+  /**
+   * What each model has told us about its own rate limit, this invocation. Google's 429 body states
+   * both the bucket and the cool-off ("limit: 16000, model: gemma-4-26b ... retry in 26.9s"), so
+   * parsing it keeps this adaptive — no model id or quota number is baked into the code.
+   */
+  private readonly modelRateLimits = new Map<string, { limitTokens?: number; cooldownUntil: number }>();
+
+  /**
+   * Models observed to enforce a token-per-minute bucket, each with its own serial gate. A bucket and
+   * concurrency are directly opposed: four parallel files at ~4k prompt tokens each is 16k in the
+   * same instant, tripping a 16k/min limit even though every call would have fit alone.
+   *
+   * KEYED BY MODEL, NOT PROVIDER. Google states the bucket per model, so calls to different models
+   * never contend. Keying by provider serialized every Google call — and a chain can be entirely
+   * Google — which serialized the whole review: concurrency fell 1.21 → 0.85, 32s → 54s per file.
+   */
+  private readonly tokenMeteredModels = new Map<string, ModelCallGate>();
+
   constructor(
     private env: AppBindings,
     private tracker?: TokenTracker,
     private options: { jobId?: string } = {},
   ) {}
+
+  /**
+   * Records what a 429 just taught us, and serializes that provider from here on.
+   *
+   * Deliberately does NOT wait out the cool-off: the file falls through to the next model in the
+   * chain immediately. Waiting would raise the stronger model's share of files at the cost of
+   * review wall-clock, and the chosen policy is to keep reviews fast.
+   */
+  private noteRateLimited(resolved: ResolvedModelConfig, error: unknown) {
+    const { limitTokens, retryAfterMs } = parseRateLimitFromError(error);
+    const existing = this.modelRateLimits.get(resolved.modelName);
+
+    this.modelRateLimits.set(resolved.modelName, {
+      // A learned bucket size is sticky: it describes the model, not this one failure, so a later
+      // 429 that omits the number must not erase it.
+      limitTokens: limitTokens ?? existing?.limitTokens,
+      // Default to a minute when the provider didn't say -- these buckets are per-minute.
+      cooldownUntil: Date.now() + (retryAfterMs ?? 60_000),
+    });
+
+    if (!this.tokenMeteredModels.has(resolved.modelName)) {
+      this.tokenMeteredModels.set(resolved.modelName, new ModelCallGate(1));
+      logger.info(`Serializing calls to ${resolved.modelName}; it enforces a token-per-minute bucket`, {
+        provider: resolved.providerName,
+        limitTokens: limitTokens ?? null,
+      });
+    }
+  }
+
+  /**
+   * Why this model should be skipped for this prompt right now, or null to proceed.
+   *
+   * Both reasons save a call that was going to fail. Before this existed, the quota-failure counter
+   * was a local inside the per-file loop, so every file re-probed a model that had already said
+   * "retry in 50s" -- and each probe spent a subrequest from an invocation budget of ~25, which is
+   * what actually produced the "Too many subrequests" failures rather than any single large file.
+   */
+  private rateLimitSkipReason(modelName: string, estimatedPromptTokens: number): string | null {
+    // Never queue deeply behind a serialized model. Serializing gemma made 39 files line up one at a
+    // time behind ~36s calls, so files at the back waited minutes -- and that wait consumed the
+    // per-file fallback-chain budget, so they were deferred without trying ANY other model and
+    // eventually failed. 16 of 119 files were lost that way. A shallow queue keeps the metered model
+    // busy while sending the overflow straight to a model that is free now.
+    const gate = this.tokenMeteredModels.get(modelName);
+    if (gate && gate.queueDepth >= MAX_METERED_QUEUE_DEPTH) {
+      return `${gate.queueDepth} calls already queued on it`;
+    }
+
+    const known = this.modelRateLimits.get(modelName);
+    if (!known) return null;
+
+    if (known.cooldownUntil > Date.now()) {
+      return `cooling off for another ${Math.ceil((known.cooldownUntil - Date.now()) / 1000)}s`;
+    }
+
+    // A prompt larger than the whole per-minute bucket can never succeed, no matter how long we
+    // wait, so it must not be allowed to consume the bucket's error path either.
+    if (known.limitTokens && estimatedPromptTokens > known.limitTokens * PROMPT_FIT_SAFETY_FACTOR) {
+      return `prompt ~${estimatedPromptTokens} tokens exceeds its ${known.limitTokens}-token bucket`;
+    }
+
+    return null;
+  }
+
+  /**
+   * Runs a provider call under the right gates. The shared gate always applies (it exists for the
+   * runtime's 6-connection cap, unrelated to quotas); a metered model adds a serial gate on top.
+   *
+   * Order is model gate THEN shared gate, and matters both ways: consistent ordering rules out
+   * deadlock, and taking the model gate first stops a queue for one metered model from occupying
+   * connection slots other models could use.
+   */
+  private async runGated<T>(
+    resolved: ResolvedModelConfig,
+    onGateWait: ((waitedMs: number) => void) | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const modelGate = this.tokenMeteredModels.get(resolved.modelName);
+    if (!modelGate) return this.callGate.run(fn, onGateWait);
+    return modelGate.run(() => this.callGate.run(fn, onGateWait), onGateWait);
+  }
 
   private providerUnavailableKey(providerId: string) {
     return this.options.jobId ? `jobs:${this.options.jobId}:provider-unavailable:${providerId}` : null;
@@ -271,20 +300,34 @@ export class ModelService {
     config: ResolvedModelConfig,
     input: ModelInput,
     timeoutMs?: number,
+    /** Reports queue time so a caller budgeting wall clock can exclude it. */
+    onGateWait?: (waitedMs: number) => void,
   ): Promise<ModelResponse> {
     // Resolve credentials *before* taking a gate slot so slow KV/crypto work never occupies a
     // model-call slot, then run the actual provider request under the gate. The provider's
     // timeout only starts inside the gated call, so time spent waiting for a slot is free.
     if (config.apiFormat === 'cloudflare-workers-ai') {
-      return this.callGate.run(() =>
+      return this.runGated(config, onGateWait, () =>
         reviewWithCloudflare(this.env, config.modelName, input, this.tracker, config.providerName, { timeoutMs }),
       );
     }
 
     if (config.apiFormat === 'gemini') {
       const apiKey = await this.decryptApiKey(config);
-      return this.callGate.run(() =>
+      return this.runGated(config, onGateWait, () =>
         reviewWithGoogle(
+          { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
+          config.modelName,
+          input,
+          this.tracker,
+        ),
+      );
+    }
+
+    if (config.apiFormat === 'vertex') {
+      const apiKey = await this.decryptApiKey(config);
+      return this.runGated(config, onGateWait, () =>
+        reviewWithVertex(
           { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
           config.modelName,
           input,
@@ -295,7 +338,7 @@ export class ModelService {
 
     if (config.apiFormat === 'openai') {
       const apiKey = await this.decryptApiKey(config);
-      return this.callGate.run(() =>
+      return this.runGated(config, onGateWait, () =>
         reviewWithOpenAI(
           {
             apiKey,
@@ -311,7 +354,7 @@ export class ModelService {
     }
 
     const apiKey = await this.decryptApiKey(config);
-    return this.callGate.run(() =>
+    return this.runGated(config, onGateWait, () =>
       reviewWithAnthropic(
         { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
         config.modelName,
@@ -332,6 +375,7 @@ export class ModelService {
     config: RepoConfig;
     totalLineCount: number;
     compactPrompt?: boolean;
+    rejectedExemplars?: readonly RejectedExemplar[];
   }) {
     const configuredLineCap = params.config.review.max_diff_lines_per_file;
     const modelLineCap = params.compactPrompt
@@ -343,7 +387,15 @@ export class ModelService {
     const totalChunkCount = chunks.length;
 
     // Cap chunks to prevent single files from burning all subrequests and getting stuck.
-    const MAX_CHUNKS = 4;
+    //
+    // Was a flat 4. At the default 800 lines/chunk that hard-capped any file at 3,200 reviewed diff
+    // lines and dropped the rest without telling anyone: src/server/core/review.ts changed 3,749 lines
+    // in PR #55, so roughly 15% of the PR's largest file was never shown to any model. Chunks beyond
+    // BASE_CHUNKS are now OPPORTUNISTIC -- taken only while the invocation has budget to spare, because
+    // the concurrency estimate (estimatedSubrequestsPerFile) sized the other in-flight files' share on
+    // the assumption that no single file runs away with it.
+    const BASE_CHUNKS = 4;
+    const MAX_CHUNKS = 8;
     if (chunks.length > MAX_CHUNKS) {
       chunks = chunks.slice(0, MAX_CHUNKS);
     }
@@ -354,13 +406,30 @@ export class ModelService {
 
     const results: Array<ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>, reviewedLineCount: number, wasPromptTruncated: boolean, userPrompt: string }> = [];
     
-    for (const chunk of chunks) {
+    for (const [chunkIndex, chunk] of chunks.entries()) {
       // Don't start a new chunk if we are dangerously close to the 50 subrequest limit.
       if (results.length > 0 && this.tracker?.isNearLimit()) {
         logger.warn(`Stopping chunk processing for ${params.file.path} early due to subrequest budget limits.`);
         break;
       }
-      
+
+      // The opportunistic tail. `isNearLimit()` above only fires once the safe margin is already
+      // reached, by which point concurrently-running files are starved -- which is how one large file
+      // took 16 others down with it. Extra chunks therefore need budget genuinely to spare, not merely
+      // budget remaining. Yielding here is safe: the file is reported as truncated, not as failed.
+      if (chunkIndex >= BASE_CHUNKS) {
+        const remaining = this.tracker?.remainingSafeBudget() ?? Number.POSITIVE_INFINITY;
+        if (remaining < EXTRA_CHUNK_BUDGET_RESERVE) {
+          logger.info(`Skipping the opportunistic chunk tail for ${params.file.path}; budget is committed elsewhere.`, {
+            chunkIndex,
+            totalChunks: chunks.length,
+            remainingSafeBudget: remaining,
+          });
+          break;
+        }
+      }
+
+
       try {
         const res = await this.reviewFileChunk({ ...params, file: chunk });
         results.push(res as any);
@@ -521,13 +590,18 @@ export class ModelService {
     config: RepoConfig;
     totalLineCount: number;
     compactPrompt?: boolean;
+    rejectedExemplars?: readonly RejectedExemplar[];
   }) {
     const { systemPrompt, userPrompt } = buildFileReviewPrompts({
       ...params,
       file: params.file,
       config: params.config.review,
+      rejectedExemplars: params.rejectedExemplars,
     });
-    const responseSchema = buildReviewResponseSchema(params.config.review.max_comments);
+    const responseSchema = buildReviewResponseSchema(
+      params.config.review.max_comments,
+      params.config.review.generator_profile,
+    );
 
     const { primary, fallbacks } = this.selectModel({
       totalLineCount: params.totalLineCount,
@@ -538,12 +612,18 @@ export class ModelService {
     // Size the per-call timeout to the diff the model actually sees: small
     // files fail over to the next model fast; large diffs get a proportionally longer budget.
     const timeoutMs = adaptiveModelTimeoutMs(params.file.lineCount);
+    const estimatedPromptTokens = estimatePromptTokens(systemPrompt, userPrompt);
 
     let lastError: unknown;
     let lastTransientError: unknown;
     let sawTransientFailure = false;
     let quotaFailures = 0;
     const chainStartedAt = Date.now();
+    // Queue time is not work time. Gate waiting is already excluded from each call's own timeout by
+    // design; charging it to the chain budget was what made a busy gate look like a slow model and
+    // deferred files before they had tried a single fallback.
+    let gateWaitMs = 0;
+    const recordGateWait = (waitedMs: number) => { gateWaitMs += waitedMs; };
     for (const [modelIndex, currentModel] of modelsToTry.entries()) {
       // Always allow the first (primary) model a shot even if the shared job budget is
       // already tight, so a file isn't punished for other files' earlier failures. But once
@@ -570,9 +650,10 @@ export class ModelService {
       // whole workflow invocation past Cloudflare's ~120s limit (killing it as `exceededCpu` and
       // losing all progress). Defer instead -- the file resumes from the fast primary model in a
       // fresh invocation. Always let the primary (modelIndex 0) run first.
-      if (modelIndex > 0 && Date.now() - chainStartedAt > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
+      if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
         logger.warn(`Deferring ${params.file.path}: fallback chain exceeded its per-invocation time budget`, {
           elapsedMs: Date.now() - chainStartedAt,
+          gateWaitMs,
           skippedModels: modelsToTry.slice(modelIndex),
         });
         // Treat as a transient/deferrable outcome so the file is retried on a fresh budget rather
@@ -598,11 +679,26 @@ export class ModelService {
         continue;
       }
 
+      // Skip a call that is already known to fail, rather than paying a subrequest to be told so.
+      // This is what recovers the stronger models' throughput: their per-minute token bucket stops
+      // being spent on 429s for files that could never fit, and on re-probes of a model that has
+      // already reported a cool-off. Costs nothing -- pure arithmetic on state we were given for free.
+      const skipReason = this.rateLimitSkipReason(resolved.modelName, estimatedPromptTokens);
+      if (skipReason) {
+        logger.info(`Skipping ${currentModel} for ${params.file.path}: ${skipReason}`);
+        continue;
+      }
+
       // One shot per model: a failed call is never retried against the same model (a retryable
       // outage is handled by deferring the whole file to a fresh invocation), so on failure we just
       // fall through to the next model in the fallback chain.
       try {
-        const response = await this.callResolvedModel(resolved, { systemPrompt, userPrompt, responseSchema }, timeoutMs);
+        const response = await this.callResolvedModel(
+          resolved,
+          { systemPrompt, userPrompt, responseSchema },
+          timeoutMs,
+          recordGateWait,
+        );
 
         if (this.tracker) {
           this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
@@ -629,7 +725,13 @@ export class ModelService {
         }
 
         const rateLimited = isGoogleRateLimitError(error);
-        if (rateLimited) quotaFailures += 1;
+        if (rateLimited) {
+          quotaFailures += 1;
+          // Learn the bucket size and cool-off from the provider's own message, so every LATER file
+          // in this invocation can skip this model instead of rediscovering the limit one wasted
+          // subrequest at a time.
+          this.noteRateLimited(resolved, error);
+        }
 
         // A quota 429 means "come back later", not "try a different model". Walking a long chain
         // in response is the single biggest way to blow the invocation's 50-subrequest cap: nine
@@ -754,7 +856,37 @@ export class ModelService {
     const timeoutMs = adaptiveModelTimeoutMs(params.candidates.length * 8);
 
     let lastError: unknown;
-    for (const currentModel of modelsToTry) {
+    const chainStartedAt = Date.now();
+    let gateWaitMs = 0;
+    const recordGateWait = (waitedMs: number) => { gateWaitMs += waitedMs; };
+
+    for (const [modelIndex, currentModel] of modelsToTry.entries()) {
+      // The same two breakers reviewFileChunk has, and they matter MORE here.
+      //
+      // This runs only in finalize, which cannot hibernate -- it posts the GitHub review -- so it has
+      // one invocation's budget for the verify call AND createReview AND the disposition writes AND
+      // the labels. Walking a nine-model chain through a provider outage costs ~36 subrequests against
+      // 50, or ~180s against a ~120s invocation ceiling, and the throw is swallowed by the caller's
+      // fail-open. The review would then never post, three finalize continuations would each burn the
+      // budget the same way, and the job would fail terminally with every file already reviewed.
+      //
+      // Verification is best-effort by design, so giving up on it early is exactly the right trade:
+      // the caller keeps the pre-verification findings and still posts.
+      if (modelIndex > 0 && this.tracker?.isNearLimit()) {
+        logger.warn('Stopping the verification chain; subrequest budget for this invocation is nearly exhausted', {
+          skippedModels: modelsToTry.slice(modelIndex),
+        });
+        break;
+      }
+      if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
+        logger.warn('Stopping the verification chain; it exceeded its per-invocation time budget', {
+          elapsedMs: Date.now() - chainStartedAt,
+          gateWaitMs,
+          skippedModels: modelsToTry.slice(modelIndex),
+        });
+        break;
+      }
+
       let resolved: ResolvedModelConfig;
       try {
         resolved = await this.resolveModel(currentModel);
@@ -768,7 +900,7 @@ export class ModelService {
       }
 
       try {
-        const response = await this.callResolvedModel(resolved, input, timeoutMs);
+        const response = await this.callResolvedModel(resolved, input, timeoutMs, recordGateWait);
         if (this.tracker) {
           this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
         }
