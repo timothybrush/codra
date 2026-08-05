@@ -5,7 +5,7 @@ export type LanguageGuideline = {
   persona?: string;
 };
 
-export const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
+const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
   {
     language: 'TypeScript/JavaScript',
     persona: 'an expert TypeScript engineer focused on correctness and safe async code',
@@ -27,20 +27,14 @@ export const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
       'Flag incorrect exception handling or resource handling (files/sockets not closed).',
     ],
   },
-  // A React entry used to live here with extensions ['tsx', 'jsx'] and a "flag missing
-  // useEffect/useCallback/useMemo dependencies" guideline. Both of those extensions are ALSO in the
-  // TypeScript/JavaScript entry above, so every .tsx file matched twice: getLanguageForFile merged
-  // the two, concatenating both personas ("an expert TypeScript engineer ... and a senior React
-  // engineer focused on hook correctness") and unioning both guideline sets.
+  // A React entry with ['tsx', 'jsx'] and a hook-dependency guideline used to live here. Those
+  // extensions are ALSO in the TypeScript entry above, so every .tsx file matched twice and
+  // getLanguageForFile merged both personas and both guideline sets.
   //
-  // The effect was measurable. Hook-dependency findings were 10x concentrated in .tsx (3.7% of
-  // files vs 0.36% for .ts) while findings-per-file stayed flat -- the checklist did not make the
-  // model find more, it dictated what it "found". That claim family is 0-posted-out-of-28 across
-  // the entire production corpus, and six of them were the false positives that prompted this
-  // change: "useEffect is missing a dependency array" on lines containing no useEffect.
-  //
-  // Removed rather than reworded: the base prompt already covers correctness and async safety for
-  // these files, and a checklist the model completes is worse than no checklist at all.
+  // The effect was measurable: hook-dependency findings ran 10x concentrated in .tsx (3.7% of files
+  // vs 0.36% for .ts) while findings-per-file stayed flat, and that claim family posted 0 of 28.
+  // The checklist did not make the model find more, it dictated what it "found". Removed rather
+  // than reworded, since the base prompt already covers correctness for these files.
   {
     language: 'CSS/SCSS/Less',
     persona: 'a frontend engineer',

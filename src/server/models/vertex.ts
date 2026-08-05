@@ -3,12 +3,10 @@ import { withTimeout } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
 import { assertPublicBaseUrl } from './url-guard';
 
-/**
- * Vertex AI is a distinct provider from Google AI Studio ('gemini' elsewhere in this codebase):
- * its REST API rejects plain API keys outright and requires an OAuth2 access token asserting a
- * service-account principal (RFC 7523 JWT-bearer grant). The `apiKey` field on this provider
- * therefore holds the full service-account JSON key, not a short API key string.
- */
+// Vertex AI is a distinct provider from Google AI Studio ('gemini' elsewhere in this codebase):
+// its REST API rejects plain API keys outright and requires an OAuth2 access token asserting a
+// service-account principal (RFC 7523 JWT-bearer grant). The `apiKey` field on this provider
+// therefore holds the full service-account JSON key, not a short API key string.
 const VERTEX_TIMEOUT_MS = 45_000;
 const VERTEX_MAX_OUTPUT_TOKENS = 8192;
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -28,11 +26,9 @@ interface CachedToken {
   expiresAt: number;
 }
 
-/**
- * Per-isolate cache, not per-request: Workers reuse a warm isolate across many invocations, so
- * caching here saves a token mint (and a subrequest) on every file review after the first one to
- * hit this isolate. It is not shared across isolates -- a cold start just mints its own token.
- */
+// Per-isolate cache, not per-request: Workers reuse a warm isolate across many invocations, so
+// caching here saves a token mint (and a subrequest) on every file review after the first one to
+// hit this isolate. It is not shared across isolates -- a cold start just mints its own token.
 const tokenCache = new Map<string, CachedToken>();
 
 function parseServiceAccountKey(raw: string): ServiceAccountKey {
@@ -171,7 +167,8 @@ export async function reviewWithVertex(
         generationConfig: {
           responseMimeType: 'application/json',
           maxOutputTokens: VERTEX_MAX_OUTPUT_TOKENS,
-          temperature: 0,
+          // Same models as the Google adapter, so the same value keeps the two paths comparable.
+          temperature: 0.9,
         },
       }),
     }),

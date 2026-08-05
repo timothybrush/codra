@@ -1,5 +1,6 @@
 import type { LlmApiFormat } from '@shared/schema';
 import { withTimeout } from '@server/core/timeout';
+import { assertPublicBaseUrl } from './url-guard';
 
 const MODEL_LIST_TIMEOUT_MS = 8_000;
 const ERROR_BODY_LIMIT = 500;
@@ -65,14 +66,7 @@ const CLOUDFLARE_TEXT_GENERATION_MODELS = [
   '@cf/meta/llama-3.1-8b-instruct-fast',
 ];
 
-// Vertex's publisher-model catalog is a Model Garden listing covering every publisher and
-// framework, not a clean "Gemini chat models" list, so (like the Cloudflare fallback above) this
-// is a curated static list rather than a live call. Update as new Gemini model IDs ship.
 const VERTEX_GEMINI_MODELS = [
-  'gemini-3-pro-preview',
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash',
-  'gemini-3.1-flash-lite-preview',
   'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
@@ -138,6 +132,11 @@ export async function listProviderModels(input: {
   cloudflareAccountId?: string;
   cloudflareApiToken?: string;
 }) {
+  // Same guard the review adapters apply. This function is reached from the dashboard's provider
+  // sync with a base URL straight out of `llm_providers`, whose only other validation is a URL
+  // shape check -- so without this it is the one server-side fetcher left pointing anywhere.
+  assertPublicBaseUrl(input.baseUrl, input.apiFormat);
+
   const baseUrl = (input.baseUrl || defaultBaseUrl(input.apiFormat)).replace(/\/+$/, '');
 
   if (input.apiFormat === 'openai') {

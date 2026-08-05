@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { LoadError } from '@client/components/shared/load-error';
 import { CopyButton } from '@client/components/shared/copy-button';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
+import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
 import {
   ChevronLeft, FileCode2, Clock, Cpu, Hash,
   AlertCircle, CheckCircle2, SkipForward, Hourglass,
@@ -15,26 +16,6 @@ import { api } from '@client/lib/api';
 import type { FileReviewRecord } from '@shared/schema';
 
 import { formatPreciseDuration } from '@client/lib/utils';
-
-/* diff_input isn't persisted in Postgres (reconstructed on demand from KV/GitHub — see
-   GET /api/jobs/:id/diffs); fetched lazily here and session-cached per job, sharing the
-   same cache key as the Files-changed tab so switching between the two doesn't refetch. */
-function readDiffsCache(jobId: string): Record<string, string> | null {
-  try {
-    const raw = sessionStorage.getItem(`codra:job-diffs:${jobId}`);
-    return raw ? (JSON.parse(raw) as Record<string, string>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeDiffsCache(jobId: string, diffs: Record<string, string>) {
-  try {
-    sessionStorage.setItem(`codra:job-diffs:${jobId}`, JSON.stringify(diffs));
-  } catch {
-    /* quota exceeded / unavailable — skip */
-  }
-}
 
 function fmtK(n: number | null) {
   if (n === null) return null;
@@ -81,7 +62,7 @@ function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading:
           {file.filePath}
         </span>
 
-        {/* Meta chips — hidden on small screens */}
+        {/* Meta chips - hidden on small screens */}
         <div className="hidden shrink-0 items-center gap-3 md:flex">
           {modelShort && (
             <span className="ui-font-mono flex items-center gap-1 text-[10px] text-ui-subtle">
@@ -95,7 +76,7 @@ function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading:
           )}
           {(inTok || outTok) && (
             <span className="ui-font-mono flex items-center gap-1 text-[10px] tabular-nums text-ui-subtle">
-              <Hash size={10} />{inTok ?? '—'}↑ {outTok ?? '—'}↓
+              <Hash size={10} />{inTok ?? '-'}↑ {outTok ?? '-'}↓
             </span>
           )}
         </div>
@@ -119,7 +100,7 @@ function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading:
         <div className="ui-well ui-font-mono flex flex-wrap gap-x-5 gap-y-1 border-b border-ui-line/60 px-4 py-2.5 text-[10px] text-ui-subtle md:hidden">
           {modelShort && <span><Cpu size={9} className="mr-1 inline" />{modelShort}</span>}
           {duration   && <span><Clock size={9} className="mr-1 inline" />{duration}</span>}
-          {inTok      && <span><Hash size={9} className="mr-1 inline" />{inTok}↑ {outTok ?? '—'}↓</span>}
+          {inTok      && <span><Hash size={9} className="mr-1 inline" />{inTok}↑ {outTok ?? '-'}↓</span>}
         </div>
 
         {/* File-level error */}
@@ -147,7 +128,8 @@ function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading:
               {file.diffInput && <CopyButton value={file.diffInput} />}
             </div>
             <pre className="code-block thin-scroll max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
-              {file.diffInput ?? (diffsLoading ? '— Loading… —' : '— Prompt unavailable —')}
+              {/* No leading dash: this pre holds a unified diff, where `- ` is the deletion marker. */}
+              {file.diffInput ?? (diffsLoading ? 'Loading…' : 'Prompt unavailable')}
             </pre>
           </div>
           <div className="flex min-w-0 flex-col gap-2.5 p-4 sm:p-5">
@@ -158,7 +140,7 @@ function FileRow({ file, diffsLoading }: { file: FileReviewRecord; diffsLoading:
               {file.rawAiOutput && <CopyButton value={file.rawAiOutput} />}
             </div>
             <pre className="code-block thin-scroll max-h-[480px] flex-1 overflow-auto text-[10px] leading-relaxed sm:text-[11px]">
-              {file.rawAiOutput ?? '— No output saved —'}
+              {file.rawAiOutput ?? 'No output saved'}
             </pre>
           </div>
         </div>

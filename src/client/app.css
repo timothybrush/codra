@@ -57,7 +57,7 @@
   --primary:             oklch(64%   0.24  115);
   --primary-foreground:  oklch(100%  0     0);   /* White text on the deeper green */
   /* Brand lime. `--btn-primary-bg` is the solid accent (progress bars, tab
-     underlines, viewed checkboxes) — deepened here to the same AA-accessible
+     underlines, viewed checkboxes) - deepened here to the same AA-accessible
      tone as `--primary` so it doesn't read as a neon slash on white; .dark
      overrides it back to the bright lime. Primary BUTTONS use a lime-tinted
      surface + lime border. Light mode: pale lime fill with near-black text for
@@ -115,7 +115,7 @@
   --code-fg: oklch(27.4% 0.006 286.3);
   --code-border: oklch(90.9% 0.004 286.3);
 
-  /* Diff add/del — a true green/red (not the brand lime), tuned per theme so
+  /* Diff add/del - a true green/red (not the brand lime), tuned per theme so
      rows are clearly distinguishable and +/- counts read correctly. Light. */
   --diff-add-bg: oklch(95% 0.06 150);
   --diff-add-fg: oklch(48% 0.13 150);
@@ -184,7 +184,7 @@
   --code-fg: oklch(86.5% 0.005 286.3);
   --code-border: oklch(27.4% 0.006 286.3);
 
-  /* Diff add/del — green/red bands on the near-black diff panel. Dark. */
+  /* Diff add/del - green/red bands on the near-black diff panel. Dark. */
   --diff-add-bg: oklch(30% 0.06 150);
   --diff-add-fg: oklch(82% 0.15 150);
   --diff-del-bg: oklch(31% 0.08 27);
@@ -246,13 +246,13 @@
   --color-info-bg:        var(--info-bg);
   --color-info-border:    var(--info-border);
 
-  /* Common radius scale — one system across the app. Surfaces (rounded-lg /
+  /* Common radius scale - one system across the app. Surfaces (rounded-lg /
      rounded-xl / `.surface`) match the dashboard stat cards; controls
      (rounded-md: inputs, buttons, dropdown items) sit a touch tighter. */
   --radius-sm:  0.3125rem; /* 5px */
-  --radius-md:  0.4375rem; /* 7px  — controls */
-  --radius-lg:  0.6875rem; /* 11px — cards, panels, dropdown menus */
-  --radius-xl:  0.6875rem; /* 11px — large surfaces (`.surface`) */
+  --radius-md:  0.4375rem; /* 7px  - controls */
+  --radius-lg:  0.6875rem; /* 11px - cards, panels, dropdown menus */
+  --radius-xl:  0.6875rem; /* 11px - large surfaces (`.surface`) */
   --radius-2xl: 0.875rem;  /* 14px */
 
   /* Fluid Typography Scale (Ratio: 1.25) */
@@ -514,7 +514,7 @@
 @utility reveal-delay-4  { transition-delay: 320ms !important; }
 
 /* ─────────────────────────────────────────────────────
-   Scrollbars — ONE treatment everywhere.
+   Scrollbars - ONE treatment everywhere.
    • Neutral (default grey), not the brand colour.
    • Auto-hiding: the thumb is invisible until the container is actively
      scrolling. A global scroll listener (app-shell.tsx) sets `data-scrolling`
@@ -726,7 +726,7 @@
    in app-shell.tsx, so it reads as the same system as the rest of the UI. */
 
 .app-shell-content {
-  --background: oklch(97.8% 0.002 286.3); /* lighter zinc — between zinc-100 and white */
+  --background: oklch(97.8% 0.002 286.3); /* lighter zinc - between zinc-100 and white */
   --card: oklch(100% 0 0); /* #ffffff */
   --muted: oklch(90.9% 0.004 286.3); /* #e4e4e7 */
   --popover: oklch(100% 0 0);
@@ -745,7 +745,7 @@
   --input: oklch(22% 0.02 115);
 }
 
-/* Sidebar rows: the SharedLayoutBg pill is the sole hover affordance — the
+/* Sidebar rows: the SharedLayoutBg pill is the sole hover affordance - the
    row itself never transforms on hover/focus/active. Active rows paint their
    own neutral fill (Tailwind classes in app-shell.tsx). */
 .dashboard-sidebar-action:hover,
@@ -803,7 +803,7 @@
 /* Shared panel chrome matching the dashboard stat cards: white/black surface,
    ui-line border (deeper in dark), Geist, 11px radius. Use for table cards and
    section panels so everything reads as one system. `.ui-well` is the matching
-   recessed strip (table header rows, footers) — the stat cards' inner panel. */
+   recessed strip (table header rows, footers) - the stat cards' inner panel. */
 .ui-panel {
   font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
   border-radius: var(--radius-lg);
@@ -953,7 +953,7 @@
 }
 
 /* ─────────────────────────────────────────────────────
-   Sonner Toast — Premium overrides
+   Sonner Toast - Premium overrides
 ───────────────────────────────────────────────────── */
 
 /* ── Outer list / viewport ───────────────────────── */

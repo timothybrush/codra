@@ -1,28 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createApp } from '@server/app';
 import { createTestEnv } from './helpers';
 import { FormatterService, formatFindingMarker, parseFindingMarker } from '@server/services/formatter';
 import type { ParsedReviewComment } from '@shared/schema';
 
-vi.mock('@server/core/github', async (importOriginal) => {
-  const actual = await importOriginal() as any;
-  return {
-    ...actual,
-    GitHubClient: class {
-      getInstallationToken = vi.fn().mockResolvedValue('fake-token');
-      getRepoFileOrNull = vi.fn().mockResolvedValue(null);
-    },
-  };
-});
+import { signPayload } from './mocks/fixtures';
 
-async function signPayload(secret: string, payload: string) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-  return `sha256=${Array.from(new Uint8Array(signature)).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
-}
+
 
 const comment = (over: Partial<ParsedReviewComment> = {}): ParsedReviewComment => ({
   path: 'a.ts',
@@ -71,6 +55,28 @@ describe('finding marker', () => {
 describe('feedback webhooks', () => {
   const env = createTestEnv();
   const app = createApp();
+
+  // This suite used to mock '@server/core/github' to avoid real JWT signing and network calls. That
+  // mock was dead -- the webhook handler never constructs a GitHubClient (proven by giving the stub a
+  // throwing constructor: the suite still passed). Same dead mock as the one removed from
+  // test/api/webhook-handling.spec.ts, and replaced the same way: with the invariant it was gesturing
+  // at, which is real and worth holding -- recording feedback must not call GitHub, because it runs
+  // inside GitHub's webhook delivery timeout.
+  const githubRequests: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  beforeAll(() => {
+    globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('github.com')) githubRequests.push(url);
+      return originalFetch(input, init);
+    }) as typeof fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+    expect(githubRequests).toEqual([]);
+  });
 
   async function post(eventName: string, payload: unknown) {
     const body = JSON.stringify(payload);

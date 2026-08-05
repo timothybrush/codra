@@ -7,10 +7,10 @@ import { assertPublicBaseUrl } from './url-guard';
  * supply a diff-size-aware budget. */
 const GEMINI_TIMEOUT_MS = 45_000;
 // Retry transient upstream failures (Gemini's frequent 5xx "Internal error encountered.") a
-// couple of times with backoff so a momentary blip doesn't fail an otherwise-fine gemma review.
+// couple of times with backoff so a momentary blip doesn't fail an otherwise-fine review.
 const GEMINI_MAX_RETRIES = 2;
-// Headroom so reasoning/"thinking" models (the gemma-4 family) can spend tokens thinking and
-// still emit the JSON answer instead of getting truncated at the limit with an empty body.
+// Headroom so reasoning models can spend tokens thinking and still emit the JSON answer instead of
+// getting truncated at the limit with an empty body.
 const GEMINI_MAX_OUTPUT_TOKENS = 8192;
 // Hard cap on any single in-call retry sleep. A 429 can carry a `retry-after` of 30-60s on the
 // Free tier; sleeping that long in-call would pin a model-call-gate slot and burn the chunk's
@@ -45,11 +45,9 @@ function retryAfterDelayMs(value: string | null) {
   return null;
 }
 
-/**
- * Google states the cool-off in the response body ("Please retry in 56.158360628s.") rather than
- * only in a `retry-after` header, so read it from there too -- otherwise a quota 429 looks
- * indefinitely retryable and we burn every attempt on it.
- */
+// Google states the cool-off in the response body ("Please retry in 56.158360628s.") rather than
+// only in a `retry-after` header, so read it from there too -- otherwise a quota 429 looks
+// indefinitely retryable and we burn every attempt on it.
 function requestedRetryDelayFromBody(message: string): number | null {
   const match = /retry in ([\d.]+)s/i.exec(message);
   if (!match) return null;
@@ -107,22 +105,16 @@ export async function reviewWithGoogle(
           body: JSON.stringify({
             systemInstruction: {
               role: 'system',
-              // The shared JSON-only framing matters most here: gemma is the one model in the chain
-              // that gets no `responseMimeType` (below), so the prompt is all that keeps its output
-              // parseable. This adapter spent a period sending both prompts unmodified.
               parts: [{ text: prompts.system }],
             },
             contents: [
               { role: 'user', parts: [{ text: prompts.user }] },
             ],
             generationConfig: {
-              ...(model.toLowerCase().includes('gemma') ? {} : { responseMimeType: 'application/json' }),
+              responseMimeType: 'application/json',
               maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-              // Every other adapter sends temperature 0; this one sent nothing, so gemma and gemini
-              // ran at the API default (~1.0) and were the only stochastically-sampled members of
-              // the chain. For a task whose failure mode is inventing code that isn't there, that is
-              // a fabrication source rather than a tuning preference.
-              temperature: 0,
+              // See the note in models/types.ts on sampling. 0.9 on Gemini's 0-2 scale.
+              temperature: 0.9,
             },
           }),
         }),

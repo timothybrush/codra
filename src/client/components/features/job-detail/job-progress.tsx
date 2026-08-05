@@ -38,7 +38,7 @@ export function JobProgress({ job }: JobProgressProps) {
           </span>
         </div>
         <span className="ui-font-mono shrink-0 text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
-          {isQueued ? '—' : `${finishedCount} / ${total}`}
+          {isQueued ? '-' : `${finishedCount} / ${total}`}
         </span>
       </div>
 

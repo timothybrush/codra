@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { assertPublicBaseUrl, isPrivateHost, isValidPublicUrl } from '@server/models/url-guard';
 import { ProviderRequestError } from '@server/models/types';
 
-/**
- * A provider's base URL comes from the dashboard and is then fetched server-side, so an unguarded
- * adapter turns that form into an SSRF primitive.
- *
- * The guard existed in the Google and OpenAI adapters and was simply missing from Anthropic, which
- * fetched `config.baseUrl` unchecked — the copy-paste is why nobody noticed. These tests cover the
- * shared module so all three are protected by the same assertions.
- */
+// A provider's base URL comes from the dashboard and is then fetched server-side, so an unguarded
+// adapter turns that form into an SSRF primitive.
+//
+// The guard existed in the Google and OpenAI adapters and was simply missing from Anthropic, which
+// fetched `config.baseUrl` unchecked - the copy-paste is why nobody noticed. These tests cover the
+// shared module so all three are protected by the same assertions.
 describe('provider base URL guard', () => {
   it('rejects loopback, link-local and RFC1918 hosts', () => {
     const blocked = [
@@ -27,11 +25,9 @@ describe('provider base URL guard', () => {
     }
   });
 
-  /**
-   * The original guard carried `/^::1$/`, which never matched: `URL.hostname` returns an IPv6
-   * literal with its brackets ("[::1]"). IPv6 loopback and the unique-local/link-local ranges were
-   * therefore reachable in both adapters that had a guard at all.
-   */
+  // The original guard carried `/^::1$/`, which never matched: `URL.hostname` returns an IPv6
+  // literal with its brackets ("[::1]"). IPv6 loopback and the unique-local/link-local ranges were
+  // therefore reachable in both adapters that had a guard at all.
   it('rejects IPv6 private ranges, brackets and all', () => {
     const blocked = [
       'http://[::1]/v1',

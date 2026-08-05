@@ -124,7 +124,7 @@ function StatFooter({
               {up ? '▲' : '▼'}
             </span>
             <span className={cn('ui-font-mono text-[11px] font-semibold tabular-nums', toneClass)}>
-              {up ? '+' : '−'}
+              {up ? '+' : '-'}
               {Math.abs(delta!.pct)}%
             </span>
           </>

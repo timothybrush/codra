@@ -1,3 +1,4 @@
+import { isSupportedTimeZone } from '@shared/timezone';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { jsonError } from '@server/core/http';
@@ -9,12 +10,10 @@ const emailSchema = z.object({
   email: z.string().trim().email().max(254),
 }).strict();
 
-/**
- * Both fields are optional so the client can PATCH either independently, but at
- * least one must be present. `timezone: null` means "follow the browser"; a string
- * must be a zone the runtime's Intl actually knows, so we never persist a value
- * that would later throw at format time.
- */
+// Both fields are optional so the client can PATCH either independently, but at
+// least one must be present. `timezone: null` means "follow the browser"; a string
+// must be a zone the runtime's Intl actually knows, so we never persist a value
+// that would later throw at format time.
 const accountUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   timezone: z.string().trim().min(1).max(64).refine(isSupportedTimeZone, {
@@ -24,15 +23,6 @@ const accountUpdateSchema = z.object({
   (body) => body.name !== undefined || body.timezone !== undefined,
   { message: 'Nothing to update.' },
 );
-
-function isSupportedTimeZone(zone: string) {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function createAuthApiRouter() {
   const app = new Hono<AppEnv>();
@@ -78,7 +68,7 @@ export function createAuthApiRouter() {
     if (!parsed.success) {
       const issue = parsed.error.issues[0]?.message;
       return jsonError(
-        issue && issue !== 'Invalid input' ? issue : 'Enter a name (1–120 characters).',
+        issue && issue !== 'Invalid input' ? issue : 'Enter a name (1-120 characters).',
         400,
       );
     }

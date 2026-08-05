@@ -1,10 +1,11 @@
 import {
   chunkFileDiff,
+  filterReviewableFiles,
   findPositionForLine,
-  filterReviewableFiles, 
-  getValidNewLines, 
+  getValidNewLines,
+  parseDiffHeaderPath,
   parseUnifiedDiff,
-  truncateFileDiff 
+  truncateFileDiff,
 } from '@server/core/diff';
 import { defaultRepoConfig } from '@shared/schema';
 
@@ -133,16 +134,14 @@ Binary files a/image.png and b/image.png differ
     });
   });
 
-  /**
-   * First coverage for chunkFileDiff, which had none — and it decides how much of a large file any model
-   * ever sees. `reviewFile` chunks at `max_diff_lines_per_file` and then keeps only the first MAX_CHUNKS,
-   * so a silent partition bug here means whole regions of a file are never reviewed and nothing reports it.
-   *
-   * The invariant that matters is exact partition: every original line appears in exactly one chunk, in
-   * order. Truncation is allowed (it is capped and reported); losing a line in the middle is not.
-   */
+  // First coverage for chunkFileDiff, which had none - and it decides how much of a large file any model
+  // ever sees. `reviewFile` chunks at `max_diff_lines_per_file` and then keeps only the first MAX_CHUNKS,
+  // so a silent partition bug here means whole regions of a file are never reviewed and nothing reports it.
+  //
+  // The invariant that matters is exact partition: every original line appears in exactly one chunk, in
+  // order. Truncation is allowed (it is capped and reported); losing a line in the middle is not.
   describe('chunkFileDiff', () => {
-    // Distinct content per line so a dropped or duplicated line is detectable — Array(n).fill(sameObject)
+    // Distinct content per line so a dropped or duplicated line is detectable - Array(n).fill(sameObject)
     // would hide exactly the bug this is looking for.
     const fileOf = (hunkSizes: number[]) => {
       let n = 0;
@@ -259,5 +258,48 @@ Binary files a/image.png and b/image.png differ
       expect(filtered.files).toHaveLength(1);
       expect(filtered.skipped).toBe(0);
     });
+  });
+});
+
+describe('diff --git header paths', () => {
+  const header = (line: string) => parseDiffHeaderPath(line);
+
+  it('reads an ordinary path', () => {
+    expect(header('diff --git a/src/app.ts b/src/app.ts')).toBe('src/app.ts');
+  });
+
+  // Git does not quote spaces in this header. Splitting on the last space produced `file.ts`, a path
+  // not in the PR, so GitHub rejected the whole review with a 422 and every inline comment was lost.
+  it('reads a path containing spaces', () => {
+    expect(header('diff --git a/src/my file.ts b/src/my file.ts')).toBe('src/my file.ts');
+    expect(header('diff --git a/docs/release notes.md b/docs/release notes.md')).toBe('docs/release notes.md');
+  });
+
+  // Two such files sharing a last token collapsed to one path, desynchronising the file count from
+  // the review count and wedging the job in a review -> finalize loop.
+  it('keeps two space-named files distinct', () => {
+    expect(header('diff --git a/docs/release notes.md b/docs/release notes.md'))
+      .not.toBe(header('diff --git a/spec/api notes.md b/spec/api notes.md'));
+  });
+
+  it('takes the b-side on a rename', () => {
+    expect(header('diff --git a/old name.ts b/new name.ts')).toBe('new name.ts');
+  });
+
+  // The symmetric split resolves even a filename that itself contains " b/".
+  it('reads a path containing a literal b/ segment', () => {
+    expect(header('diff --git a/a b/b b/a b/b')).toBe('a b/b');
+  });
+
+  it('parses a full diff with a spaced path end to end', () => {
+    const [file] = parseUnifiedDiff([
+      'diff --git a/src/my file.ts b/src/my file.ts',
+      '--- a/src/my file.ts',
+      '+++ b/src/my file.ts',
+      '@@ -0,0 +1 @@',
+      '+console.log(1);',
+    ].join('\n'));
+    expect(file.path).toBe('src/my file.ts');
+    expect(file.hunks[0].lines[0].content).toBe('console.log(1);');
   });
 });

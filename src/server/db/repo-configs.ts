@@ -77,7 +77,7 @@ export async function upsertRepoConfig(
   );
 }
 
-// Used during sync — only creates the record if it doesn't exist.
+// Used during sync - only creates the record if it doesn't exist.
 // Preserves all existing model overrides if the repo is already configured.
 export async function syncRepoConfig(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
@@ -161,11 +161,9 @@ export async function updateRepoConfigEnabled(
   );
 }
 
-/**
- * Repo config joined to its most recent job. Shared by the list and single-record queries, which
- * differ only in their WHERE/ORDER BY -- the LATERAL join and the eleven-column projection were
- * duplicated verbatim.
- */
+// Repo config joined to its most recent job. Shared by the list and single-record queries, which
+// differ only in their WHERE/ORDER BY -- the LATERAL join and the eleven-column projection were
+// duplicated verbatim.
 const REPO_CONFIG_SELECT = `
       SELECT
         r.installation_id,

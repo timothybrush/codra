@@ -70,11 +70,9 @@ function mapModelConfig(row: ModelConfigRow): ModelConfig {
   });
 }
 
-/**
- * The llm_providers column list, in one place. It was inlined at six sites -- four SELECTs and two
- * RETURNINGs -- so adding a column meant finding all six, and `listLlmProviders` /
- * `listLlmProviderSecrets` were the identical query differing only in which mapper ran over it.
- */
+// The llm_providers column list, in one place. It was inlined at six sites -- four SELECTs and two
+// RETURNINGs -- so adding a column meant finding all six, and `listLlmProviders` /
+// `listLlmProviderSecrets` were the identical query differing only in which mapper ran over it.
 const PROVIDER_COLUMNS = 'id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at';
 
 const MODEL_SELECT = `

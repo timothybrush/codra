@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '@server/env';
 import { createOAuthState, consumeOAuthState, parseAllowedUsers } from '@server/core/oauth';
 import { createSession, destroySession } from '@server/core/sessions';
-import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@server/core/github-oauth';
+import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@server/core/github/oauth';
 import { upsertAccountSettings } from '@server/db/accounts';
 import { logger } from '@server/core/logger';
 

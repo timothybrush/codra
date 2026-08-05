@@ -18,7 +18,7 @@ interface BarSparklineProps {
  *  - more points      → summed down into `bars` buckets
  *  - fewer points     → nearest-neighbour stretched up to `bars`
  * The trend query omits inactive days, so a quiet range can yield far fewer
- * points than the selected day count — this keeps the bar count stable anyway.
+ * points than the selected day count - this keeps the bar count stable anyway.
  */
 function bucketize(data: number[], bars: number): number[] {
   const out = Array<number>(bars).fill(0);
@@ -41,7 +41,7 @@ function bucketize(data: number[], bars: number): number[] {
 
 /**
  * Compact bar-chart sparkline for the stat cards: a handful of chunky,
- * gradient bars — lightweight divs rather than a charting lib.
+ * gradient bars - lightweight divs rather than a charting lib.
  */
 // Every bar gets at least this share of the height, so even zero/quiet periods
 // render as a clearly visible small bar rather than an invisible nub. Real

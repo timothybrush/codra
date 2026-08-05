@@ -1,11 +1,7 @@
+import { randomHex } from '@shared/hex';
 import type { AppBindings } from '@server/env';
 
 const OAUTH_STATE_TTL_SECONDS = 60 * 10;
-
-function randomHex(size = 32) {
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 function oauthStateKey(state: string) {
   return `oauth-state:${state}`;

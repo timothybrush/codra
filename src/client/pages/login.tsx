@@ -98,7 +98,7 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Footer note — outside the card */}
+        {/* Footer note - outside the card */}
         <div className="mt-6 flex items-center gap-2.5 px-2 text-muted-foreground">
           <ShieldCheck size={16} className="shrink-0 text-success" />
           <p className="text-xs leading-snug">

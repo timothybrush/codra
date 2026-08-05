@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { FileText } from 'lucide-react';
 import type { JobDetail } from '@shared/schema';
-import { reviewSeverities } from '@shared/schema';
+import { reviewSeverities } from '@shared/review-limits';
 import { Tabs, TabsList, TabsTrigger } from '@client/components/motion/tabs';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';
@@ -37,7 +37,7 @@ function GroupHeader({
 export function JobFindingsList({ job }: JobFindingsListProps) {
   const [viewBy, setViewBy] = useState<'files' | 'severity'>('files');
 
-  // Only surface files that actually have something to report — findings or a
+  // Only surface files that actually have something to report - findings or a
   // failed review. Clean files are omitted.
   const filesWithIssues = job.files.filter(
     (f) => f.parsedComments.length > 0 || f.fileStatus === 'failed',
@@ -45,7 +45,7 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
 
   const failedFiles = job.files.filter((f) => f.fileStatus === 'failed');
 
-  // The badge counts FINDINGS, not files — it sat next to a "Findings" label while
+  // The badge counts FINDINGS, not files - it sat next to a "Findings" label while
   // showing `filesWithIssues.length`, so a job with 9 findings spread over 7 files
   // read "Findings 7" and disagreed with the priority triage totals right above it.
   const findingCount = job.files.reduce((total, file) => total + file.parsedComments.length, 0);

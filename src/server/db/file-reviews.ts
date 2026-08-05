@@ -7,84 +7,21 @@ import {
   reviewCommentInsertValues,
   reviewCommentsAggregate,
 } from './review-comment-sql';
+import {
+  type SuppressedFinding,
+  getSuppressedFindings,
+  getFindingLabelTarget,
+  markCommentsPosted,
+  markCommentDispositions,
+} from './file-reviews-findings';
 
-export async function insertFileReview(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  input: {
-    jobId: string;
-    filePath: string;
-    fileStatus: 'pending' | 'done' | 'skipped' | 'failed';
-    modelUsed: string;
-    modelProvider?: string | null;
-    diffLineCount: number;
-    diffInput: string | null;
-    rawAiOutput: string | null;
-    parsedComments: ParsedReviewComment[];
-    inputTokens: number | null;
-    outputTokens: number | null;
-    durationMs: number | null;
-    verdict: 'approve' | 'comment' | null;
-    fileSummary: string | null;
-    overallCorrectness?: string | null;
-    confidenceScore?: number | null;
-    errorMessage: string | null;
-  },
-) {
-  await queryTransaction(env, async (tx) => {
-    const [review] = await tx.query<{ id: string }>(
-      `
-        INSERT INTO file_reviews (
-          job_id,
-          file_path,
-          file_status,
-          model_used,
-          diff_line_count,
-          diff_input,
-          raw_ai_output,
-          input_tokens,
-          output_tokens,
-          duration_ms,
-          verdict,
-          file_summary,
-          overall_correctness,
-          confidence_score,
-          error_msg,
-          model_provider
-        )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-        RETURNING id
-      `,
-      [
-        input.jobId,
-        input.filePath,
-        input.fileStatus,
-        input.modelUsed,
-        input.diffLineCount,
-        input.diffInput,
-        input.rawAiOutput,
-        input.inputTokens,
-        input.outputTokens,
-        input.durationMs,
-        input.verdict,
-        input.fileSummary,
-        input.overallCorrectness ?? null,
-        input.confidenceScore ?? null,
-        input.errorMessage,
-        input.modelProvider ?? null,
-      ],
-    );
-
-    if (input.parsedComments.length > 0) {
-      await tx.query(
-        `
-          INSERT INTO review_comments (file_review_id, ${REVIEW_COMMENT_INSERT_COLUMNS.join(', ')})
-          SELECT $1::uuid, * FROM UNNEST(${REVIEW_COMMENT_INSERT_CASTS})
-        `,
-        [review.id, ...reviewCommentInsertValues(input.parsedComments)],
-      );
-    }
-  });
-}
+export {
+  type SuppressedFinding,
+  getSuppressedFindings,
+  getFindingLabelTarget,
+  markCommentsPosted,
+  markCommentDispositions,
+};
 
 export async function upsertFileReview(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
@@ -106,11 +43,8 @@ export async function upsertFileReview(
     overallCorrectness?: string | null;
     confidenceScore?: number | null;
     errorMessage: string | null;
-    /**
-     * Findings dropped in the PARSER, which therefore have no review_comments row to carry a
-     * disposition. Without this, a review where every finding was withheld is indistinguishable from
-     * a clean one, and both get approved.
-     */
+    // Findings dropped in the PARSER, which have no review_comments row to carry a disposition.
+    // Without this, "everything was withheld" is indistinguishable from clean, and both get approved.
     withheldCounts?: { evidence: number; claimDenied: number } | null;
     // Async batch bookkeeping: set when a review is submitted to the Workers AI queue (status
     // 'pending'), cleared (null) once the batch completes and a terminal review is persisted.
@@ -183,12 +117,10 @@ export async function upsertFileReview(
         input.modelProvider ?? null,
         input.asyncRequestId ?? null,
         input.asyncModel ?? null,
-        // JSON text into a `::text::jsonb` placeholder -- the one jsonb-writing idiom, documented at
-        // normalizeParam in db/client.ts. Binding the raw object also happens to work here, but only
-        // for objects, and having two idioms in the codebase is precisely how the string-scalar bug
-        // spread to five columns. This column is where it was caught: `withheld_counts->>'evidence'`
-        // returned NULL and the SQL aggregate read zero for a review that had withheld five findings,
-        // while the TypeScript path kept working because parseJsonColumn tolerates both shapes.
+        // JSON text into a `::text::jsonb` placeholder: the one jsonb-writing idiom, documented at
+        // normalizeParam in db/client.ts. Binding the raw object also works, but only for objects, and
+        // two idioms is how the string-scalar bug spread to five columns. Caught here, where
+        // `withheld_counts->>'evidence'` read NULL for a review that had withheld five findings.
         input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
       ],
     );
@@ -278,16 +210,10 @@ export async function recordRetryableFileReviewFailure(
   });
 }
 
-/**
- * Copy every still-needed, inheritable parent review (and its comments) into `jobId` in a single
- * cheap DB pass. A retry that can reuse the parent's completed reviews would otherwise re-persist
- * them one file at a time through the budget-limited review loop (~5 files/chunk, hibernating a
- * fresh invocation between chunks), turning a fully-inheritable retry into a many-minute crawl.
- * This collapses all of them into one transaction (a couple of subrequests total, regardless of
- * file count) so the review phase finishes in a single invocation. `filePaths` must already be
- * filtered to files that are inheritable under the current model strategy and have no row yet in
- * the target job. Returns the file paths that were actually inserted.
- */
+// Copies every still-needed inheritable parent review and its comments into `jobId` in one DB pass.
+// One transaction regardless of file count, so a fully-inheritable retry finishes the review phase
+// in a single invocation instead of crawling one file per budget slot across hibernated chunks.
+// `filePaths` must already be filtered to inheritable files with no row yet in the target job.
 export async function bulkInheritFileReviews(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: { jobId: string; parentJobId: string; filePaths: string[] },
@@ -300,11 +226,15 @@ export async function bulkInheritFileReviews(
         INSERT INTO file_reviews (
           job_id, file_path, file_status, model_used, diff_line_count, diff_input,
           raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
-          file_summary, overall_correctness, confidence_score, error_msg, model_provider
+          file_summary, overall_correctness, confidence_score, error_msg, model_provider,
+          -- Carried, not defaulted. finalize sums this to tell "the model found nothing" apart from
+          -- "everything it found was withheld"; an inheriting job reading 0 approves the PR silently.
+          withheld_counts
         )
         SELECT $1::uuid, file_path, file_status, model_used, diff_line_count, diff_input,
           raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
-          file_summary, overall_correctness, confidence_score, error_msg, model_provider
+          file_summary, overall_correctness, confidence_score, error_msg, model_provider,
+          withheld_counts
         FROM file_reviews
         WHERE job_id = $2::uuid AND file_status = 'done' AND file_path = ANY($3::text[])
         ON CONFLICT (job_id, file_path) DO NOTHING
@@ -341,14 +271,10 @@ export async function bulkInheritFileReviews(
   });
 }
 
-/**
- * Mark many files 'failed' in a single INSERT. Finalize backfills reviews for files that never got
- * one (e.g. files that appeared mid-review, or unrecoverable ones); doing that one-by-one through
- * upsertFileReview runs a transaction per file (several Hyperdrive round-trips each), which for a
- * large/growing PR can blow the per-invocation subrequest budget right before the review is posted.
- * This collapses the whole backfill into one statement (one subrequest). Skips files that already
- * have a row (ON CONFLICT DO NOTHING) so it never clobbers a real review.
- */
+// Marks many files 'failed' in one INSERT. Finalize backfills reviews for files that never got one,
+// and doing that through upsertFileReview is a transaction per file, which on a large PR can blow
+// the subrequest budget right before the review is posted. `ON CONFLICT DO NOTHING`, so it never
+// clobbers a real review.
 export async function bulkMarkFilesFailed(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -439,174 +365,3 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
   }));
 }
 
-export type SuppressedFinding = {
-  fingerprint: string | null;
-  /** Null for repo-wide rejections, which suppress regardless of what the code now says. */
-  anchor_hash: string | null;
-  /** Title-independent identity; already includes the anchor, so it needs no separate anchor check. */
-  fingerprint_v2: string | null;
-  /** True when this came from an earlier posted comment rather than from human rejection. */
-  anchored: boolean;
-};
-
-/**
- * Findings that must not be posted again for this job's pull request.
- *
- * Two sources, one round trip:
- *   - already posted on an EARLIER COMMIT of this PR, and the anchored line is unchanged. Without
- *     this every push re-posts the same unfixed comment.
- *   - rejected by a human anywhere in this repository (they deleted the comment).
- *
- * `j.commit_sha <> me.commit_sha` is load-bearing: the retry API and mention-triggered re-reviews
- * both reuse the SAME head commit, so without it a manual re-review would match every fingerprint
- * the previous run posted and produce an empty, summary-only review.
- *
- * The join is driven from `jobs`, so jobs_repo_idx -> file_reviews_job_idx ->
- * review_comments_file_idx already cover it.
- */
-export async function getSuppressedFindings(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-): Promise<SuppressedFinding[]> {
-  return queryRows<SuppressedFinding>(
-    env,
-    `
-      WITH me AS (
-        SELECT repository_id, pr_number, commit_sha FROM jobs WHERE id = $1::uuid
-      ),
-      already_posted AS (
-        SELECT DISTINCT rc.fingerprint, rc.anchor_hash, rc.fingerprint_v2
-        FROM me
-        JOIN jobs            j  ON j.repository_id = me.repository_id AND j.pr_number = me.pr_number
-        JOIN file_reviews    fr ON fr.job_id = j.id
-        JOIN review_comments rc ON rc.file_review_id = fr.id
-        WHERE j.id <> $1::uuid
-          AND j.commit_sha <> me.commit_sha
-          AND rc.posted
-          -- Either identity is enough. v1 alone missed reworded repeats: on PR #55 six of ten findings
-          -- were re-reports and only one shared a v1 fingerprint.
-          AND (rc.fingerprint IS NOT NULL OR rc.fingerprint_v2 IS NOT NULL)
-      ),
-      rejected AS (
-        -- Only the NEGATIVE outcomes. 'resolved' and 'marked_right' are stored but never read here:
-        -- suppressing on them would silence the findings that turned out to be correct. And note
-        -- there is no branch for "no row" -- an unlabelled finding is not a negative signal.
-        SELECT DISTINCT cf.fingerprint, NULL::text AS anchor_hash, cf.fingerprint_v2
-        FROM me
-        JOIN comment_feedback cf ON cf.repository_id = me.repository_id
-        WHERE cf.outcome IN ('deleted', 'marked_wrong')
-          AND (cf.fingerprint IS NOT NULL OR cf.fingerprint_v2 IS NOT NULL)
-      )
-      SELECT fingerprint, anchor_hash, fingerprint_v2, TRUE  AS anchored FROM already_posted
-      UNION ALL
-      SELECT fingerprint, anchor_hash, fingerprint_v2, FALSE AS anchored FROM rejected
-    `,
-    [jobId],
-  );
-}
-
-/**
- * Resolves a finding fingerprint WITHIN a specific job, for the dashboard labelling route.
- *
- * This lookup is the authorization boundary, not a convenience. A dashboard label writes a
- * REPOSITORY-WIDE suppression, so without scoping it to a job the caller owns, anyone could silence
- * an arbitrary finding by guessing eight hex characters. Returns null when the fingerprint is not
- * part of this job, which the route turns into a 404.
- */
-export async function getFindingLabelTarget(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-  fingerprint: string,
-): Promise<{ repository_id: number; pr_number: number | null; anchor_hash: string | null; fingerprint_v2: string | null } | null> {
-  const rows = await queryRows<{ repository_id: number; pr_number: number | null; anchor_hash: string | null; fingerprint_v2: string | null }>(
-    env,
-    `
-      SELECT j.repository_id, j.pr_number, rc.anchor_hash, rc.fingerprint_v2
-      FROM jobs j
-      JOIN file_reviews    fr ON fr.job_id = j.id
-      JOIN review_comments rc ON rc.file_review_id = fr.id
-      WHERE j.id = $1::uuid AND rc.fingerprint = $2::text
-      LIMIT 1
-    `,
-    [jobId, fingerprint],
-  );
-  return rows[0] ?? null;
-}
-
-/**
- * Record which findings actually reached GitHub, so later commits on the same PR can suppress them.
- *
- * Only the fingerprints GitHub genuinely accepted may be passed here. Marking a finding posted when
- * it was silently dropped (the 422 fallback re-posts a review with zero inline comments, and
- * comments with no usable line anchor are filtered client-side) would hide it forever.
- */
-export async function markCommentsPosted(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-  fingerprints: string[],
-): Promise<void> {
-  if (fingerprints.length === 0) return;
-  await queryRows(
-    env,
-    `
-      UPDATE review_comments rc
-      SET posted = TRUE, disposition = 'posted'
-      FROM file_reviews fr
-      WHERE fr.id = rc.file_review_id
-        AND fr.job_id = $1::uuid
-        AND rc.fingerprint = ANY($2::text[])
-    `,
-    [jobId, fingerprints],
-  );
-}
-
-/**
- * Record WHY each finding did not reach the pull request.
- *
- * `posted = false` on its own conflates six different outcomes -- the severity gate, the confidence
- * gate, cross-run suppression, dedupe, the verifier, and the max_comments cap. That ambiguity is
- * what made the corpus unusable for evaluation: "P3 has never been posted" turned out to be mostly
- * an artifact of P3 sorting last and the cap slicing from the end, not evidence that P3 findings are
- * wrong. Attribution has to be recorded at the moment the decision is made.
- *
- * One statement regardless of how many stages fired, so finalize's subrequest cost is unchanged.
- */
-export async function markCommentDispositions(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-  byFingerprint: Map<string, { disposition: string | null; reason: string | null }>,
-): Promise<void> {
-  if (byFingerprint.size === 0) return;
-  const fingerprints = [...byFingerprint.keys()];
-  const dispositions = fingerprints.map((fp) => byFingerprint.get(fp)!.disposition);
-  const reasons = fingerprints.map((fp) => byFingerprint.get(fp)!.reason);
-
-  // A posted finding's disposition is never rewritten.
-  //
-  // Two reasons, and the second was observed corrupting production data. First, a KEPT finding is
-  // entered here with a null disposition purely to carry its verifier reason, so an unconditional
-  // assignment would null out `posted`. Second -- and this is the subtle one -- the disposition map is
-  // keyed on FINGERPRINT, and fingerprints are `hash(path + normalized title)`, so two findings on the
-  // same file with the same title share one. When one of them is suppressed and the other is posted,
-  // this UPDATE matches BOTH rows and wrote 'suppression' over 'posted'. Observed on two P0s that were
-  // genuinely posted to GitHub yet recorded as suppressed, which corrupts the disposition data this
-  // exists to produce.
-  //
-  // `posted` is the fact GitHub gave us; a disposition is our inference about why something did not
-  // post. The fact wins.
-  await queryRows(
-    env,
-    `
-      UPDATE review_comments rc
-      SET disposition   = CASE WHEN rc.posted THEN rc.disposition
-                               ELSE COALESCE(d.disposition, rc.disposition) END,
-          verify_reason = COALESCE(d.reason, rc.verify_reason)
-      FROM file_reviews fr,
-           UNNEST($2::text[], $3::text[], $4::text[]) AS d(fingerprint, disposition, reason)
-      WHERE fr.id = rc.file_review_id
-        AND fr.job_id = $1::uuid
-        AND rc.fingerprint = d.fingerprint
-    `,
-    [jobId, fingerprints, dispositions, reasons],
-  );
-}

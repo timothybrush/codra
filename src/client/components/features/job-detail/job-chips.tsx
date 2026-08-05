@@ -1,9 +1,7 @@
 /**
- * The row vocabulary shared by the job detail page, mirroring the deployment-style
- * jobs table (`@client/components/shared/jobs-table`): status is a coloured dot +
- * word + duration, verdicts are restrained bordered pills, and every other piece
- * of metadata is a compact muted icon chip. Keeping these in one place is what
- * makes the detail page and the list read as one product.
+ * The row vocabulary shared by the job detail page, mirroring the jobs table: a coloured status dot
+ * plus word and duration, restrained bordered verdict pills, and compact muted icon chips for
+ * everything else. One place, so the detail page and the list read as one product.
  */
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
@@ -19,7 +17,7 @@ import type { JobDetail, JobSummary } from '@shared/schema';
 
 /**
  * Full stamp for `title` tooltips, so the terse relative text stays precise.
- * Rendered in the account's display time zone (falls back to the browser's).
+ * Rendered in the account's display time zone (falls back to UTC, not the browser's).
  */
 export function formatAbsoluteDate(value: string | Date | null | undefined) {
   if (!value) return undefined;
@@ -55,7 +53,7 @@ export function StatusDot({ status, className }: { status: string; className?: s
 }
 
 /**
- * Coloured dot + status word + run duration (e.g. "● Done  1m 36s") — the
+ * Coloured dot + status word + run duration (e.g. "● Done  1m 36s") - the
  * detail page's counterpart to the table's status cell.
  */
 export function StatusLine({
@@ -80,7 +78,7 @@ export function StatusLine({
   );
 }
 
-/** Status line for a whole job — derives its own wall-clock duration. */
+/** Status line for a whole job - derives its own wall-clock duration. */
 export function JobStatusLine({ job, className }: { job: JobDetail; className?: string }) {
   return <StatusLine status={job.status} duration={jobDuration(job)} className={className} />;
 }
@@ -123,7 +121,7 @@ export function OutlinePill({
   );
 }
 
-/** Icon-prefixed metadata text — the table's `MetaCell`, usable inline or in a row. */
+/** Icon-prefixed metadata text - the table's `MetaCell`, usable inline or in a row. */
 export function MetaChip({
   icon: Icon,
   children,
@@ -155,7 +153,7 @@ export function MetaChip({
 /**
  * Author avatar. Hits avatars.githubusercontent.com directly (github.com/<login>.png
  * only 302-redirects, and that hop can fail) and falls back to an initial, so the
- * header never shows a broken-image glyph. No `loading="lazy"` — intersection
+ * header never shows a broken-image glyph. No `loading="lazy"` - intersection
  * detection is unreliable inside the app's scroll containers.
  */
 export function AuthorAvatar({ login, size = 20 }: { login: string | null; size?: number }) {
@@ -209,12 +207,12 @@ export function AuthorChip({ login }: { login: string | null }) {
 export const DETAIL_ROW =
   'flex h-11 items-center justify-between gap-4 border-t border-ui-line first:border-transparent';
 
-/** Muted row label — quiet, sentence case, never competing with its value. */
+/** Muted row label - quiet, sentence case, never competing with its value. */
 export const DETAIL_LABEL = 'shrink-0 text-xs leading-none text-ui-default dark:text-ui-subtle';
 
-/** The em-dash placeholder used wherever a nullable field is absent. */
+/** The dash placeholder used wherever a nullable field is absent. */
 export function EmptyValue() {
-  return <span className="text-xs leading-none text-ui-subtle">—</span>;
+  return <span className="text-xs leading-none text-ui-subtle">-</span>;
 }
 
 /**

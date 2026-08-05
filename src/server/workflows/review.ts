@@ -37,7 +37,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
         await runBestEffortJobMaintenance(env);
       });
     } catch (e) {
-      // Ignore maintenance errors
+    // Ignore maintenance errors
     }
 
     let phase = params.phase ?? 'prepare';
@@ -133,7 +133,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
         await runBestEffortJobMaintenance(env);
       });
     } catch (e) {
-      // Ignore maintenance errors
+    // Ignore maintenance errors
     }
   }
 }

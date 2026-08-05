@@ -87,7 +87,7 @@ export function SteppedSlider({
   const [active, setActive] = useState(false);
   // Live position while dragging, decoupled from the committed value so that
   // onValueChange fires exactly once per gesture (on release) instead of on
-  // every pointer-move tick — callers may react to a commit by opening a
+  // every pointer-move tick - callers may react to a commit by opening a
   // confirmation dialog, which must not re-fire while the pointer is still down.
   const [dragValue, setDragValue] = useState<number | null>(null);
   const controlled = value !== undefined;
@@ -193,7 +193,7 @@ export function SteppedSlider({
 
   return (
     <div className={cn('w-full', className)}>
-      {/* live value readout — sits in normal flow above the track, always visible */}
+      {/* live value readout - sits in normal flow above the track, always visible */}
       <div className="mb-1.5 flex justify-end">
         <span className="text-xs font-medium text-foreground tabular-nums">{valueLabel}</span>
       </div>
@@ -209,9 +209,9 @@ export function SteppedSlider({
           disabled ? 'pointer-events-none opacity-50' : 'cursor-grab active:cursor-grabbing',
         )}
       >
-        {/* fill — runs from the left edge to the thumb; static teal gradient with a dot texture
+        {/* fill - runs from the left edge to the thumb; static teal gradient with a dot texture
             steadily drifting left-to-right at the top step. Every dot has the same fixed
-            brightness — only position moves — so it reads as one smooth, consistent motion
+            brightness - only position moves - so it reads as one smooth, consistent motion
             instead of some dots being brighter than others. The pattern repeats every 10px and
             shifts by exactly one period, so the loop point is never visible. */}
         <motion.div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: left }}>
@@ -235,7 +235,7 @@ export function SteppedSlider({
           )}
         </motion.div>
 
-        {/* ticks — slight inset so the end dots don't clip; sized/ringed up at the top step so they
+        {/* ticks - slight inset so the end dots don't clip; sized/ringed up at the top step so they
             read as distinct markers instead of blending into the dot texture behind them */}
         <div className="pointer-events-none absolute inset-x-2 inset-y-0">
           {steps.map((tick) => {
@@ -253,7 +253,7 @@ export function SteppedSlider({
           })}
         </div>
 
-        {/* pulsing glow halo behind the thumb at the top step — kept as its own layer so only
+        {/* pulsing glow halo behind the thumb at the top step - kept as its own layer so only
             opacity (a plain number) is animated, since Motion's box-shadow interpolator can't
             parse CSS custom properties inside the color stops */}
         {isMaxed && !reduce && (
@@ -266,7 +266,7 @@ export function SteppedSlider({
           />
         )}
 
-        {/* vertical bar thumb — contained at both ends via thumbX */}
+        {/* vertical bar thumb - contained at both ends via thumbX */}
         <motion.div
           id={id}
           role="slider"

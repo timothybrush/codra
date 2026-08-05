@@ -61,7 +61,8 @@ export async function reviewWithOpenAI(
           { role: 'system', content: prompts.system },
           { role: 'user', content: prompts.user },
         ],
-        temperature: 0,
+        // 0.9 of a 0-2 scale.
+        temperature: 0.9,
         max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
         response_format: { type: 'json_object' },
       }),

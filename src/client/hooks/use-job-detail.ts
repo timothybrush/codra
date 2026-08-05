@@ -24,7 +24,7 @@ function writeJobCache(id: string, job: JobDetail) {
   try {
     sessionStorage.setItem(jobCacheKey(id), JSON.stringify(job));
   } catch {
-    /* quota exceeded / unavailable — skip */
+    /* quota exceeded / unavailable - skip */
   }
 }
 

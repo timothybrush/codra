@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildUnifiedDiffFromFiles, parseUnifiedDiff } from '@server/core/diff';
 
-/**
- * GitHub's unified-diff media type answers 406 `too_large` above 20,000 lines, so a large PR has to
- * be rebuilt from `GET /pulls/{n}/files`. What matters is that the rebuilt text is indistinguishable
- * to `parseUnifiedDiff` from what git would have produced -- these assert the round trip rather than
- * the intermediate string, because the string is only a means of reaching the parser.
- */
+// GitHub's unified-diff media type answers 406 `too_large` above 20,000 lines, so a large PR has to
+// be rebuilt from `GET /pulls/{n}/files`. What matters is that the rebuilt text is indistinguishable
+// to `parseUnifiedDiff` from what git would have produced -- these assert the round trip rather than
+// the intermediate string, because the string is only a means of reaching the parser.
 describe('rebuilding a diff from GitHub per-file JSON', () => {
   it('round-trips a modified file with correct line numbers and positions', () => {
     const raw = buildUnifiedDiffFromFiles([{

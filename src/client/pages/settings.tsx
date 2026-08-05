@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import pkg from '../../../package.json';
 import { toast } from 'sonner';
 import { api, type ProviderPayload } from '@client/lib/api';
 import { PageHeader } from '@client/components/layout/page-header';
@@ -9,31 +8,8 @@ import { Skeleton } from '@client/components/shared/skeleton';
 import { LoadError } from '@client/components/shared/load-error';
 import { Input } from '@client/components/ui/input';
 import { Select } from '@client/components/ui/select';
-import { Switch } from '@client/components/ui/switch';
-import { SteppedSlider } from '@client/components/motion/stepped-slider';
-import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
-import {
-  Save,
-  RefreshCw,
-  Plus,
-  Trash2,
-  ChevronRight,
-  X,
-  ExternalLink,
-} from 'lucide-react';
-import { LayerCard } from '@client/components/ui/layer-card';
-import { Text } from '@client/components/ui/text';
-import { Badge } from '@client/components/ui/badge';
-import {
-  REVIEW_CONCURRENCY_LIMITS,
-  reviewMaxCommentsOptions,
-  reviewMaxFilesRange,
-  type LlmApiFormat,
-  type LlmProvider,
-  type ModelConfig,
-  type ReviewConcurrencyLevel,
-  type ReviewSettings,
-} from '@shared/schema';
+import { RefreshCw, Plus, X } from 'lucide-react';
+import type { LlmProvider, ModelConfig } from '@shared/schema';
 import type { ModelConfigsResponse } from '@shared/api';
 import {
   ModelRouteEditor,
@@ -44,145 +20,29 @@ import {
   type ProviderOption,
 } from '@client/components/features/models/model-chain';
 import { cn } from '@client/lib/utils';
-
-const API_FORMAT_OPTIONS: Array<{ value: LlmApiFormat; label: string }> = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'gemini', label: 'Google' },
-  { value: 'vertex', label: 'Google Vertex AI' },
-  { value: 'cloudflare-workers-ai', label: 'Cloudflare' },
-];
-
-const PROVIDER_PRESETS = [
-  { value: 'custom-openai', label: 'Custom OpenAI-style API', apiFormat: 'openai' as const, baseUrl: '', name: 'Custom OpenAI', exampleUrl: 'https://api.example.com/v1' },
-  { value: 'custom-anthropic', label: 'Custom Anthropic-style API', apiFormat: 'anthropic' as const, baseUrl: '', name: 'Custom Anthropic', exampleUrl: 'https://api.example.com/v1' },
-  { value: 'custom-google', label: 'Custom Google-style API', apiFormat: 'gemini' as const, baseUrl: '', name: 'Custom Google', exampleUrl: 'https://generativelanguage.googleapis.com/v1beta' },
-  { value: 'custom-vertex', label: 'Google Vertex AI', apiFormat: 'vertex' as const, baseUrl: '', name: 'Vertex AI', exampleUrl: 'https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1' },
-];
-
-const FIXED_PROVIDER_NAMES = new Set(['OpenAI', 'OpenRouter', 'Anthropic', 'Google', 'Cloudflare', 'xAI']);
-
-function providerKeyPlaceholder(providerName: string, apiFormat: LlmApiFormat) {
-  if (apiFormat === 'vertex') return '{ "type": "service_account", … }';
-  if (providerName === 'xAI') return 'xai-…';
-  return 'sk-…';
-}
-
-function apiKeyFieldLabel(apiFormat: LlmApiFormat) {
-  return apiFormat === 'vertex' ? 'Service account JSON key' : 'API key';
-}
-
-const CONCURRENCY_LEVEL_ORDER: ReviewConcurrencyLevel[] = ['low', 'medium', 'high', 'max'];
-const CONCURRENCY_LEVEL_LABEL: Record<ReviewConcurrencyLevel, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  max: 'Max',
-};
-const CONCURRENCY_STEPS = CONCURRENCY_LEVEL_ORDER.map(level => ({
-  value: REVIEW_CONCURRENCY_LIMITS[level],
-  label: CONCURRENCY_LEVEL_LABEL[level],
-}));
-const CONCURRENCY_VALUE_TO_LEVEL: Record<number, ReviewConcurrencyLevel> = Object.fromEntries(
-  CONCURRENCY_LEVEL_ORDER.map(level => [REVIEW_CONCURRENCY_LIMITS[level], level]),
-) as Record<number, ReviewConcurrencyLevel>;
-const CONCURRENCY_MAX_VALUE = REVIEW_CONCURRENCY_LIMITS.max;
-const MAX_COMMENTS_STEPS = reviewMaxCommentsOptions.map(n => ({ value: n, label: String(n) }));
-const MAX_COMMENTS_CEILING = reviewMaxCommentsOptions[reviewMaxCommentsOptions.length - 1];
-
-type ProviderDraft = LlmProvider & { apiKey: string };
-type NewProviderDraft = {
-  preset: string;
-  name: string;
-  apiFormat: LlmApiFormat;
-  baseUrl: string;
-  apiKey: string;
-  enabled: boolean;
-};
-type SyncError = { providerId: string; providerName: string; error: string };
+import {
+  FieldLabel,
+  PROVIDER_PRESETS,
+  apiKeyFieldLabel,
+  providerDraftDirty,
+  providerHasCredential,
+  providerIsReady,
+  providerKeyPlaceholder,
+  providerToDraft,
+  type NewProviderDraft,
+  type ProviderDraft,
+  type SyncError,
+} from '@client/components/features/settings/settings-support';
+import { AboutSection } from '@client/components/features/settings/about-section';
+import { ProviderRow } from '@client/components/features/settings/provider-row';
+import { ReviewSection } from '@client/components/features/settings/review-section';
+import { useReviewSettings } from '@client/hooks/use-review-settings';
 
 /**
  * Kept as a named export from this module because `test/settings.spec.ts` imports it from here.
  * The implementation lives with the ModelRouteConfig type it operates on.
  */
 export const normalizeGlobalConfig = normalizeModelRoute;
-
-function providerToDraft(provider: LlmProvider): ProviderDraft {
-  return { ...provider, apiKey: '' };
-}
-
-
-function domId(prefix: string, value: string) {
-  return `${prefix}-${value.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
-}
-
-function isCustomProvider(provider: Pick<LlmProvider, 'name' | 'apiFormat'>) {
-  return provider.apiFormat !== 'cloudflare-workers-ai' && !FIXED_PROVIDER_NAMES.has(provider.name);
-}
-
-function providerIsReady(provider: Pick<LlmProvider, 'enabled' | 'hasApiKey' | 'apiFormat'>) {
-  return provider.enabled && (provider.hasApiKey || provider.apiFormat === 'cloudflare-workers-ai');
-}
-
-function providerHasCredential(provider: Pick<ProviderDraft, 'hasApiKey' | 'apiFormat' | 'apiKey'>) {
-  return provider.apiFormat === 'cloudflare-workers-ai' || provider.hasApiKey || provider.apiKey.trim().length > 0;
-}
-
-function providerStatusLabel(provider: Pick<LlmProvider, 'enabled' | 'hasApiKey' | 'apiFormat'>) {
-  if (!provider.enabled) return 'Off';
-  return providerIsReady(provider) ? 'Ready' : 'Needs key';
-}
-
-function providerDraftDirty(provider: ProviderDraft, saved?: LlmProvider) {
-  if (!saved) return true;
-  return (
-    provider.name !== saved.name ||
-    provider.apiFormat !== saved.apiFormat ||
-    (provider.baseUrl ?? '') !== (saved.baseUrl ?? '') ||
-    provider.enabled !== saved.enabled ||
-    provider.apiKey.trim().length > 0
-  );
-}
-
-/* ─── Section wrapper ─────────────────────────────────────────────────────── */
-function SectionCard({
-  icon,
-  title,
-  description,
-  action,
-  children,
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="ui-panel min-w-0 overflow-hidden">
-      <div className="flex items-center justify-between gap-4 border-b border-ui-line px-5 py-4">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {icon && <span className="shrink-0 text-ui-subtle">{icon}</span>}
-          <div className="min-w-0">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">{title}</h2>
-            <p className="mt-0.5 truncate text-xs text-ui-subtle">{description}</p>
-          </div>
-        </div>
-        {action && <div className="shrink-0">{action}</div>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/* ─── Field label ─────────────────────────────────────────────────────────── */
-function FieldLabel({ htmlFor, id, children }: { htmlFor: string; id?: string; children: React.ReactNode }) {
-  return (
-    <label htmlFor={htmlFor} id={id} className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
-      {children}
-    </label>
-  );
-}
 
 
 export function SettingsPage() {
@@ -191,12 +51,7 @@ export function SettingsPage() {
   const [configs, setConfigs] = useState<ModelConfig[]>([]);
   const [globalConfig, setGlobalConfig] = useState<ModelRouteConfig | null>(null);
   const [savedGlobalConfig, setSavedGlobalConfig] = useState<ModelRouteConfig | null>(null);
-  const [reviewSettings, setReviewSettings] = useState<ReviewSettings | null>(null);
-  const [savedReviewSettings, setSavedReviewSettings] = useState<ReviewSettings | null>(null);
-  const [pendingConfirm, setPendingConfirm] = useState<{ field: 'concurrency' | 'comments'; value: number } | null>(null);
-  // Held as a string so the field can be mid-edit (empty, "2" on the way to "200") without the
-  // saved value flickering underneath the cursor.
-  const [maxFilesDraft, setMaxFilesDraft] = useState('');
+
   const [newProvider, setNewProvider] = useState<NewProviderDraft>({
     preset: 'custom-openai',
     name: 'Custom OpenAI',
@@ -208,6 +63,20 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Review-settings half of the page. Hydrated below from the same combined load as the providers.
+  const {
+    reviewSettings,
+    maxFilesDraft,
+    setMaxFilesDraft,
+    pendingConfirm,
+    setPendingConfirm,
+    hydrate: hydrateReviewSettings,
+    handleConcurrencyChange,
+    handleCommentsChange,
+    commitMaxFiles,
+    applyPendingConfirm,
+  } = useReviewSettings({ setSaving, setError });
   const [syncErrors, setSyncErrors] = useState<SyncError[]>([]);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [catalogRefreshedOnce, setCatalogRefreshedOnce] = useState(false);
@@ -250,7 +119,20 @@ export function SettingsPage() {
   );
 
   const applyModelConfigResponse = (modelsRes: ModelConfigsResponse) => {
-    setProviders(modelsRes.providers.map(providerToDraft));
+    // A save on one provider triggers a background catalog refresh (see saveProvider below), which
+    // lands here mid-edit on OTHER provider rows. Overwriting every row from the server wholesale
+    // silently discarded any unsaved draft (a flipped-but-not-yet-saved toggle, a typed-but-unsaved
+    // API key) the moment ANY provider was saved -- surfacing as "the toggle won't stay on". Keep a
+    // row's local draft if it still has unsaved edits relative to what we last knew the server had;
+    // only rows with no pending edits get replaced with the fresh server copy.
+    setProviders(current => modelsRes.providers.map(fresh => {
+      const draft = current.find(item => item.id === fresh.id);
+      const lastKnownSaved = savedProviders.find(item => item.id === fresh.id);
+      if (draft && providerDraftDirty(draft, lastKnownSaved)) {
+        return draft;
+      }
+      return providerToDraft(fresh);
+    }));
     setSavedProviders(modelsRes.providers);
     setConfigs(modelsRes.configs);
     setSyncErrors(modelsRes.syncErrors ?? []);
@@ -313,9 +195,7 @@ export function SettingsPage() {
       applyModelConfigResponse(modelsRes);
       setGlobalConfig(nextGlobalConfig);
       setSavedGlobalConfig(nextGlobalConfig);
-      setReviewSettings(reviewSettingsRes.settings);
-      setSavedReviewSettings(reviewSettingsRes.settings);
-      setMaxFilesDraft(String(reviewSettingsRes.settings.maxFiles));
+      hydrateReviewSettings(reviewSettingsRes.settings);
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to load settings';
@@ -364,80 +244,6 @@ export function SettingsPage() {
     return () => clearTimeout(handle);
   }, [globalConfig, globalDirty]);
 
-  const persistReviewSettings = async (next: ReviewSettings, summary: string) => {
-    setReviewSettings(next);
-    setSaving('review-settings');
-    setError(null);
-    const tid = toast.loading('Saving…');
-    try {
-      await api.updateReviewSettings(next);
-      setSavedReviewSettings(next);
-      toast.success(summary, { id: tid });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Update failed';
-      setReviewSettings(savedReviewSettings);
-      setError(msg);
-      toast.error('Could not save settings', { id: tid, description: msg });
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleConcurrencyChange = (value: number) => {
-    if (!reviewSettings) return;
-    if (value === CONCURRENCY_MAX_VALUE && reviewSettings.concurrencyLevel !== 'max') {
-      setPendingConfirm({ field: 'concurrency', value });
-      return;
-    }
-    const level = CONCURRENCY_VALUE_TO_LEVEL[value];
-    void persistReviewSettings(
-      { ...reviewSettings, concurrencyLevel: level },
-      `Concurrency set to ${CONCURRENCY_LEVEL_LABEL[level]}`,
-    );
-  };
-
-  const commitMaxFiles = () => {
-    if (!reviewSettings) return;
-    const parsed = Number.parseInt(maxFilesDraft, 10);
-
-    // Snap junk or out-of-range input back to something valid rather than rejecting it, so the
-    // field can never be left showing a number that isn't what the server will use.
-    const next = Number.isFinite(parsed)
-      ? Math.min(reviewMaxFilesRange.max, Math.max(reviewMaxFilesRange.min, parsed))
-      : reviewSettings.maxFiles;
-
-    setMaxFilesDraft(String(next));
-    if (next === reviewSettings.maxFiles) return;
-    void persistReviewSettings({ ...reviewSettings, maxFiles: next }, `File limit set to ${next}`);
-  };
-
-  const handleCommentsChange = (value: number) => {
-    if (!reviewSettings) return;
-    if (value === MAX_COMMENTS_CEILING && reviewSettings.maxComments !== MAX_COMMENTS_CEILING) {
-      setPendingConfirm({ field: 'comments', value });
-      return;
-    }
-    void persistReviewSettings(
-      { ...reviewSettings, maxComments: value as ReviewSettings['maxComments'] },
-      `Comment limit set to ${value}`,
-    );
-  };
-
-  const applyPendingConfirm = () => {
-    if (!pendingConfirm || !reviewSettings) return;
-    if (pendingConfirm.field === 'concurrency') {
-      const level = CONCURRENCY_VALUE_TO_LEVEL[pendingConfirm.value];
-      void persistReviewSettings(
-        { ...reviewSettings, concurrencyLevel: level },
-        `Concurrency set to ${CONCURRENCY_LEVEL_LABEL[level]}`,
-      );
-    } else {
-      void persistReviewSettings(
-        { ...reviewSettings, maxComments: pendingConfirm.value as ReviewSettings['maxComments'] },
-        `Comment limit set to ${pendingConfirm.value}`,
-      );
-    }
-  };
 
   const updateProviderDraft = (id: string, updates: Partial<ProviderDraft>) => {
     setProviders(current => current.map(provider => provider.id === id ? { ...provider, ...updates } : provider));
@@ -493,7 +299,7 @@ export function SettingsPage() {
   };
 
   const clearProviderKey = async (provider: ProviderDraft) => {
-    // Build the payload from the last SAVED state, not the draft — "remove key"
+    // Build the payload from the last SAVED state, not the draft - "remove key"
     // must not silently persist unrelated unsaved edits (name/URL/protocol).
     // A provider can't stay enabled without a key, so drop it to disabled while
     // clearing (the server rejects an enabled provider with no credential).
@@ -594,98 +400,19 @@ export function SettingsPage() {
       )}
 
       {/* ── Review performance ──────────────────────────────────────────────── */}
-      <SectionCard
-        title="Review performance"
-        description="Concurrency, comment and file limits for automated reviews, changes save automatically"
-      >
-        <div className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-2">
-          {!loading && reviewSettings ? (
-            <>
-              <div>
-                <FieldLabel htmlFor="concurrency-slider" id="concurrency-slider-label">Concurrent jobs & files</FieldLabel>
-                <SteppedSlider
-                  id="concurrency-slider"
-                  value={REVIEW_CONCURRENCY_LIMITS[reviewSettings.concurrencyLevel]}
-                  onValueChange={handleConcurrencyChange}
-                  min={1}
-                  max={CONCURRENCY_MAX_VALUE}
-                  step={1}
-                  steps={CONCURRENCY_STEPS}
-                  aria-labelledby="concurrency-slider-label"
-                  formatValue={(v) => `${CONCURRENCY_LEVEL_LABEL[CONCURRENCY_VALUE_TO_LEVEL[v]]} · ${v} job${v === 1 ? '' : 's'} · ${v} file${v === 1 ? '' : 's'} at a time`}
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  How many pull requests are reviewed at once, and how many files within each PR are reviewed at once.
-                </p>
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="max-comments-slider" id="max-comments-slider-label">Comments per review</FieldLabel>
-                <SteppedSlider
-                  id="max-comments-slider"
-                  value={reviewSettings.maxComments}
-                  onValueChange={handleCommentsChange}
-                  min={5}
-                  max={MAX_COMMENTS_CEILING}
-                  step={5}
-                  steps={MAX_COMMENTS_STEPS}
-                  aria-labelledby="max-comments-slider-label"
-                  formatValue={(v) => `${v} comments`}
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  A hard ceiling on the number of comments posted per review, applied on top of any repo-specific limit.
-                </p>
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="max-files-input">Files per review</FieldLabel>
-                <Input
-                  id="max-files-input"
-                  type="number"
-                  inputMode="numeric"
-                  min={reviewMaxFilesRange.min}
-                  max={reviewMaxFilesRange.max}
-                  step={1}
-                  value={maxFilesDraft}
-                  onChange={(event) => setMaxFilesDraft(event.target.value)}
-                  // Committed on blur/Enter rather than on every keystroke: this is a free text
-                  // field, and saving mid-typing would persist "2" on the way to "200".
-                  onBlur={commitMaxFiles}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                    if (event.key === 'Escape') setMaxFilesDraft(String(reviewSettings.maxFiles));
-                  }}
-                  aria-describedby="max-files-help"
-                />
-                <p id="max-files-help" className="mt-2 text-xs text-muted-foreground">
-                  How many changed files a single review covers, {reviewMaxFilesRange.min}–{reviewMaxFilesRange.max}.
-                  Anything beyond this is left unreviewed and called out in the review summary.
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <Skeleton height={44} />
-              <Skeleton height={44} />
-              <Skeleton height={44} />
-            </>
-          )}
-        </div>
-      </SectionCard>
-
-      <ConfirmDialog
-        open={pendingConfirm !== null}
-        onOpenChange={(open) => { if (!open) setPendingConfirm(null); }}
-        title="This could exceed your rate limit"
-        description={
-          pendingConfirm?.field === 'concurrency'
-            ? 'Running the maximum number of concurrent jobs and files can exceed your model provider\'s rate limits. Continue anyway?'
-            : 'Posting the maximum number of comments per review can increase the chance of hitting your model provider\'s rate limits. Continue anyway?'
-        }
-        confirmLabel="Continue"
-        cancelLabel="Cancel"
-        onConfirm={applyPendingConfirm}
+      <ReviewSection
+        loading={loading}
+        reviewSettings={reviewSettings}
+        maxFilesDraft={maxFilesDraft}
+        setMaxFilesDraft={setMaxFilesDraft}
+        pendingConfirm={pendingConfirm}
+        setPendingConfirm={setPendingConfirm}
+        handleConcurrencyChange={handleConcurrencyChange}
+        handleCommentsChange={handleCommentsChange}
+        commitMaxFiles={commitMaxFiles}
+        applyPendingConfirm={applyPendingConfirm}
       />
+
 
       {/* ── LLM Providers ──────────────────────────────────────────────────── */}
       <section className="ui-panel min-w-0 overflow-hidden">
@@ -721,7 +448,7 @@ export function SettingsPage() {
         </div>
 
         {/* Add provider form */}
-        {addingProvider && (
+      {addingProvider && (
           <div className="animate-slide-down border-b border-ui-line bg-ui-fill/20 px-4 py-5 sm:px-5 sm:py-6">
             <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
               New provider
@@ -821,200 +548,26 @@ export function SettingsPage() {
           </div>
         ) : (
           <div className="divide-y divide-ui-line/60">
-            {providers.map(provider => {
-              const nativeCloudflare = provider.apiFormat === 'cloudflare-workers-ai';
-              const customProvider = isCustomProvider(provider);
-              const savedProvider = savedProviders.find(saved => saved.id === provider.id);
-              const dirty = providerDraftDirty(provider, savedProvider);
-              const modelCount = providerModelCounts.get(provider.id) ?? 0;
-              const configOpen = expandedProviderId === provider.id;
-              const canEnableProvider = providerHasCredential(provider);
-              const providerNameId = domId('provider-name', provider.id);
-              const providerBaseUrlId = domId('provider-base-url', provider.id);
-              const providerApiKeyId = domId('provider-api-key', provider.id);
-
-              return (
-                <article
-                  key={provider.id}
-                  className={cn(
-                    'group min-w-0 transition-colors duration-150',
-                    dirty && 'bg-primary/[0.018]',
-                  )}
-                >
-                  {/* Row — the whole left side toggles the config panel */}
-                  <div className="flex min-w-0 items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedProviderId(configOpen ? null : provider.id)}
-                      aria-expanded={configOpen}
-                      aria-label={`${configOpen ? 'Collapse' : 'Configure'} ${provider.name}`}
-                      className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-ui-fill/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ui-brand/40"
-                    >
-                      <ChevronRight
-                        size={14}
-                        className={cn(
-                          'shrink-0 text-ui-subtle transition-transform duration-200',
-                          configOpen && 'rotate-90 text-ui-default',
-                        )}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-ui-default">{provider.name}</span>
-                          <Badge
-                            variant={!provider.enabled ? 'neutral' : providerIsReady(provider) ? 'success' : 'warning'}
-                            className="shrink-0"
-                          >
-                            {providerStatusLabel(provider)}
-                          </Badge>
-                        </span>
-                        <span className="mt-0.5 block text-xs text-ui-subtle">
-                          <span className="font-mono">{provider.apiFormat}</span>
-                          {modelCount > 0 && (
-                            <span className="ml-2 opacity-70">· {modelCount} model{modelCount !== 1 ? 's' : ''}</span>
-                          )}
-                          {nativeCloudflare && <span className="ml-2 opacity-70">· Worker binding</span>}
-                        </span>
-                      </span>
-                    </button>
-
-                    {/* Controls */}
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {/* Save — only visible when dirty */}
-                      {dirty && (
-                        <Button
-                          variant="primary"
-                          size="xs"
-                          onClick={() => saveProvider(provider)}
-                          disabled={saving !== null}
-                          loading={saving === `provider:${provider.id}`}
-                          icon={<Save size={11} />}
-                          className="animate-fade-in h-7 px-2.5"
-                        >
-                          Save
-                        </Button>
-                      )}
-
-                      <Switch
-                        checked={provider.enabled && canEnableProvider}
-                        aria-label={`${provider.enabled && canEnableProvider ? 'Disable' : 'Enable'} ${provider.name}`}
-                        onCheckedChange={enabled => {
-                          if (enabled && !canEnableProvider) {
-                            setExpandedProviderId(provider.id);
-                            toast.error('Add an API key before enabling this provider.');
-                            return;
-                          }
-                          updateProviderDraft(provider.id, { enabled });
-                        }}
-                      />
-
-                      {customProvider && (
-                        <button
-                          type="button"
-                          aria-label="Delete provider"
-                          onClick={() => removeProvider(provider.id)}
-                          disabled={saving !== null}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ui-subtle/50 transition-colors hover:text-danger disabled:pointer-events-none group-hover:text-ui-subtle"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Expanded edit panel */}
-                  {configOpen && (
-                    <div className="animate-slide-down border-t border-ui-line/60 bg-ui-fill/20 px-4 py-5 sm:px-5">
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {customProvider && (
-                          <>
-                            <div>
-                              <FieldLabel htmlFor={providerNameId}>Display name</FieldLabel>
-                              <Input
-                                id={providerNameId}
-                                value={provider.name}
-                                onChange={e => updateProviderDraft(provider.id, { name: e.target.value })}
-                              />
-                            </div>
-                            <Select
-                              label="Protocol"
-                              value={provider.apiFormat}
-                              onValueChange={value => updateProviderDraft(provider.id, { apiFormat: value as LlmApiFormat })}
-                              options={API_FORMAT_OPTIONS.filter(option => option.value !== 'cloudflare-workers-ai')}
-                            />
-                            <div>
-                              <FieldLabel htmlFor={providerBaseUrlId}>Base URL</FieldLabel>
-                              <Input
-                                id={providerBaseUrlId}
-                                placeholder={provider.apiFormat === 'vertex' ? 'https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1' : 'https://llm.example.com/v1'}
-                                value={provider.baseUrl ?? ''}
-                                onChange={e => updateProviderDraft(provider.id, { baseUrl: e.target.value || null })}
-                              />
-                              {provider.apiFormat === 'vertex' && (
-                                <p className="mt-1.5 text-xs text-ui-subtle">Must include your GCP project ID and region.</p>
-                              )}
-                            </div>
-                          </>
-                        )}
-                        {nativeCloudflare ? (
-                          <p className="col-span-full text-xs text-ui-subtle">
-                            Uses the Worker AI binding defined in your Wrangler configuration.
-                          </p>
-                        ) : (
-                          <div className="col-span-full">
-                            <FieldLabel htmlFor={providerApiKeyId}>{apiKeyFieldLabel(provider.apiFormat)}</FieldLabel>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Input
-                                id={providerApiKeyId}
-                                type="password"
-                                autoComplete="new-password"
-                                spellCheck={false}
-                                placeholder={provider.hasApiKey ? 'Enter a new key to replace the saved one' : providerKeyPlaceholder(provider.name, provider.apiFormat)}
-                                value={provider.apiKey}
-                                onChange={e => {
-                                  const apiKey = e.target.value;
-                                  // Losing the only credential must also drop `enabled`,
-                                  // otherwise the switch (which renders enabled && has
-                                  // credential) desyncs from the draft and Save would be
-                                  // rejected by the server.
-                                  const losesCredential = !apiKey.trim() && !provider.hasApiKey;
-                                  updateProviderDraft(provider.id, {
-                                    apiKey,
-                                    ...(losesCredential ? { enabled: false } : {}),
-                                  });
-                                }}
-                                className="min-w-0 max-w-sm flex-1 basis-64"
-                              />
-                              {provider.hasApiKey && (
-                                <Button
-                                  variant="destructive-outline"
-                                  size="xs"
-                                  onClick={() => void clearProviderKey(provider)}
-                                  disabled={saving !== null}
-                                  loading={saving === `provider:${provider.id}`}
-                                  icon={<Trash2 size={12} />}
-                                  className="h-8 px-2.5"
-                                >
-                                  Remove key
-                                </Button>
-                              )}
-                            </div>
-                            {provider.hasApiKey && (
-                              <p className="mt-1.5 text-xs text-ui-subtle">
-                                Removing the saved key also turns the provider off.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+            {providers.map(provider => (
+              <ProviderRow
+                key={provider.id}
+                provider={provider}
+                savedProviders={savedProviders}
+                providerModelCounts={providerModelCounts}
+                expandedProviderId={expandedProviderId}
+                setExpandedProviderId={setExpandedProviderId}
+                updateProviderDraft={updateProviderDraft}
+                saveProvider={saveProvider}
+                removeProvider={removeProvider}
+                clearProviderKey={clearProviderKey}
+                saving={saving}
+                toast={toast}
+              />
+            ))}
           </div>
-        )}
+      )}
 
-        {/* Global model strategy */}
+      {/* Global model strategy */}
         <div className="border-t border-ui-line">
           <div className="px-4 py-4 sm:px-5">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">Default models</h3>
@@ -1053,59 +606,7 @@ export function SettingsPage() {
       </section>
 
       {/* ── About ──────────────────────────────────────────────────────────── */}
-      <SectionCard
-        title="About"
-        description="Version, license, and links for this Codra instance"
-      >
-        {/* LayerCards: Version/License in one, the links grid in its own. */}
-        <div className="space-y-3 p-5">
-
-          {/* Version + License */}
-          <LayerCard className="divide-y divide-ui-line rounded-lg">
-            <div className="flex items-center justify-between gap-4 px-4 py-3.5">
-              <Text variant="body" size="sm" bold as="span">Version</Text>
-              <Badge
-                variant="outline"
-                className="border-ui-brand/30 bg-ui-brand/10 font-mono text-ui-brand"
-              >
-                v{pkg.version}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between gap-4 px-4 py-3.5">
-              <Text variant="body" size="sm" bold as="span">License</Text>
-              <Badge variant="outline">{pkg.license}</Badge>
-            </div>
-          </LayerCard>
-
-          {/* Links — original 3-column grid, in its own card */}
-          <LayerCard className="rounded-lg">
-            <div className="grid grid-cols-1 divide-y divide-ui-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              {[
-                { href: `${pkg.repository.url.replace(/\.git$/, '')}/releases/`, label: 'Releases', sub: 'Version history & notes' },
-                { href: pkg.homepage, label: 'Homepage', sub: 'codra.run' },
-                { href: pkg.bugs.url, label: 'Report an issue', sub: 'GitHub issue tracker' },
-              ].map(({ href, label, sub }) => (
-                <a
-                  key={label}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex flex-col gap-2.5 px-4 py-4 transition-colors hover:bg-ui-fill/40"
-                >
-                  <span>
-                    <span className="flex items-center gap-1.5 text-sm font-semibold text-ui-default group-hover:text-ui-brand">
-                      {label}
-                      <ExternalLink size={11} className="text-ui-subtle opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-ui-brand" />
-                    </span>
-                    <span className="mt-0.5 block text-xs text-ui-subtle">{sub}</span>
-                  </span>
-                </a>
-              ))}
-            </div>
-          </LayerCard>
-
-        </div>
-      </SectionCard>
+      <AboutSection />
     </section>
   );
 }

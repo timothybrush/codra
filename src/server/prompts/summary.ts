@@ -7,7 +7,7 @@ Constraints:
 3. DO NOT include any verdict headers like "✅ Approved" or "💬 Comments posted".
 4. Format: [File name]: [Concise overview of issues] (lines X-Y).
 5. DO NOT include any priority tags like "P0", "P1", etc., in the summary text. Mention the impact instead.
-6. If failures occurred, mention: "⚠️ **[filename]** — automated review could not complete (parse error)."
+6. If failures occurred, mention: "⚠️ **[filename]** - automated review could not complete (parse error)."
 7. Tone: Technical, impact-focused, brief.
 8. Max 200 words. JSON only.`;
 

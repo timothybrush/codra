@@ -12,7 +12,7 @@ const FEATURES = [
   },
   {
     title: 'Flags real issues',
-    desc: 'Security vulnerabilities, logic errors, and pattern violations — surfaced before merge.',
+    desc: 'Security vulnerabilities, logic errors, and pattern violations - surfaced before merge.',
   },
   {
     title: 'Configurable per repo',
@@ -20,7 +20,7 @@ const FEATURES = [
   },
 ];
 
-/** Faint dotted-grid texture, faded out toward the bottom — the "control panel" backdrop. */
+/** Faint dotted-grid texture, faded out toward the bottom - the "control panel" backdrop. */
 const dotGrid = {
   backgroundImage:
     'radial-gradient(circle, color-mix(in oklch, var(--ui-line) 75%, transparent) 1px, transparent 1px)',
@@ -82,7 +82,7 @@ export function LandingPage() {
       {/* ── Body ── */}
       <main className="grid flex-1 grid-cols-1 lg:grid-cols-[1fr_440px]">
 
-        {/* Left — Hero */}
+        {/* Left - Hero */}
         <div className="relative flex flex-col justify-between overflow-hidden border-b border-ui-line bg-ui-base px-8 py-14 sm:px-14 sm:py-20 lg:border-b-0 lg:border-r">
           <DotGrid />
 
@@ -143,7 +143,7 @@ export function LandingPage() {
           </div>
         </div>
 
-        {/* Right — Features */}
+        {/* Right - Features */}
         <div className="relative flex flex-col justify-center gap-5 overflow-hidden border-t border-ui-line bg-ui-canvas px-8 py-14 sm:px-12 sm:py-20 lg:border-t-0">
           <DotGrid />
 

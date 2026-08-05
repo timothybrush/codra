@@ -1,23 +1,19 @@
 import type { ParsedReviewComment } from '@shared/schema';
 
-/**
- * Matches the identity marker appended to every inline comment. Kept next to the writer so the two
- * can never drift.
- */
+// Matches the identity marker appended to every inline comment. Kept next to the writer so the two
+// can never drift.
 // The third field is OPTIONAL so every comment already on GitHub still parses. Requiring it would
 // silently stop recording deletions of every historical comment -- and the failure would be invisible,
 // because parseFindingMarker simply returns null and the webhook records zero feedback.
-export const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)(?::([0-9a-f]*))?\s*-->/;
+const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)(?::([0-9a-f]*))?\s*-->/;
 
-/**
- * An HTML comment carrying the finding's identity. Invisible in rendered markdown, echoed back
- * verbatim by GitHub in review-comment and review-thread webhooks.
- *
- * This is how human feedback is matched back to a finding. The obvious alternative -- matching on
- * (path, line) -- fails precisely where it matters most: GitHub nulls `line` when a comment goes
- * outdated, i.e. when the developer edited the flagged code, which is the strongest signal in the
- * dataset. The marker also survives file renames and force-pushes.
- */
+// An HTML comment carrying the finding's identity. Invisible in rendered markdown, echoed back
+// verbatim by GitHub in review-comment and review-thread webhooks.
+//
+// This is how human feedback is matched back to a finding. The obvious alternative -- matching on
+// (path, line) -- fails precisely where it matters most: GitHub nulls `line` when a comment goes
+// outdated, i.e. when the developer edited the flagged code, which is the strongest signal in the
+// dataset. The marker also survives file renames and force-pushes.
 export function formatFindingMarker(
   comment: Pick<ParsedReviewComment, 'fingerprint' | 'anchorHash' | 'fingerprintV2'>,
 ) {
@@ -53,7 +49,7 @@ export class FormatterService {
     }
   }
 
-  /** Strip leading emoji / legacy tag prefixes from a string (same logic as model-output cleanText). */
+  // Strip leading emoji / legacy tag prefixes from a string (same logic as model-output cleanText).
   stripLeadingTags(text: string): string {
     let current = text.trim();
     let prev = '';

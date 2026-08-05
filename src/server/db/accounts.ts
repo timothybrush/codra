@@ -1,15 +1,15 @@
 import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
 
-/** Durable account record (see db/migrations/004_account_settings.sql). */
+// Durable account record (see db/migrations/004_account_settings.sql).
 export type AccountSettingsRecord = {
-  /** Stable, unique account id (uuid) — not the GitHub user id. */
+  // Stable, unique account id (uuid) - not the GitHub user id.
   id: string;
   githubUserId: number;
   githubUsername: string;
   accountName: string | null;
   accountEmail: string | null;
-  /** IANA zone for rendering timestamps; null = follow the viewer's browser. */
+  // IANA zone for rendering timestamps; null = follow the viewer's browser.
   timezone: string | null;
 };
 
@@ -44,7 +44,7 @@ function mapRow(row: Row): AccountSettingsRecord {
   };
 }
 
-/** Insert or refresh the account record for a GitHub user, returning the row. */
+// Insert or refresh the account record for a GitHub user, returning the row.
 export async function upsertAccountSettings(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: AccountSettingsInput,
@@ -79,12 +79,10 @@ export async function getAccountSettings(
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-/**
- * Update the user-editable fields. Only keys present in `patch` are written, so a
- * name change can't clobber the timezone and vice versa. `timezone: null` is a
- * meaningful value ("follow the browser"), hence the `!== undefined` checks.
- * Returns null if no row exists for this user.
- */
+// Update the user-editable fields. Only keys present in `patch` are written, so a
+// name change can't clobber the timezone and vice versa. `timezone: null` is a
+// meaningful value ("follow the browser"), hence the `!== undefined` checks.
+// Returns null if no row exists for this user.
 export async function updateAccountSettings(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   githubUserId: number,

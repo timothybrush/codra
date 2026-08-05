@@ -87,7 +87,7 @@ export function JobsPage() {
           available height so the table body scrolls internally and the page /
           content card never needs a scrollbar. ─── */}
       <div className="ui-panel flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* Filter bar — one row of compact 36px bordered controls (search field
+        {/* Filter bar - one row of compact 36px bordered controls (search field
             plus two searchable-looking selects), wrapping only when there is
             genuinely no room. */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ui-line px-4 py-2.5">
@@ -168,7 +168,7 @@ export function JobsPage() {
             <p className="text-xs text-ui-default dark:text-ui-subtle">
               Showing{' '}
               <span className="tabular-nums text-ui-strong">
-                {rangeStart}–{rangeEnd}
+                {rangeStart}-{rangeEnd}
               </span>{' '}
               of <span className="tabular-nums text-ui-strong">{total.toLocaleString()}</span> jobs
             </p>

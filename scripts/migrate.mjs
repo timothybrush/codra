@@ -2,52 +2,14 @@ import postgres from 'postgres';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readDatabaseUrlFromEnvFiles } from './migrate-env.mjs';
+import { splitSqlStatements } from './migrate-sql-split.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const migrationsDir = path.join(rootDir, 'db', 'migrations');
 const migrationLockId = 93741624;
 const kimiK25Model = '@cf/moonshotai/kimi-k2.5';
 const kimiK26Model = '@cf/moonshotai/kimi-k2.6';
-
-function parseEnvValue(value) {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-
-  return trimmed;
-}
-
-async function readDatabaseUrlFromEnvFiles() {
-  const envFiles = ['.dev.vars', '.env.local', '.env'];
-
-  for (const file of envFiles) {
-    try {
-      const content = await readFile(path.join(rootDir, file), 'utf8');
-      for (const line of content.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-
-        const separatorIndex = trimmed.indexOf('=');
-        if (separatorIndex === -1) continue;
-
-        const key = trimmed.slice(0, separatorIndex).trim();
-        if (key === 'DATABASE_URL') {
-          return parseEnvValue(trimmed.slice(separatorIndex + 1));
-        }
-      }
-    } catch (error) {
-      if (error?.code !== 'ENOENT') {
-        throw error;
-      }
-    }
-  }
-
-  return null;
-}
 
 const databaseUrl = process.env.DATABASE_URL ?? await readDatabaseUrlFromEnvFiles();
 
@@ -79,124 +41,6 @@ async function tableExists(tableName) {
 async function appliedMigrations() {
   const rows = await query('SELECT name FROM schema_migrations ORDER BY name ASC');
   return new Set(rows.map((row) => row.name));
-}
-
-function readDollarQuoteTag(sqlText, index) {
-  if (sqlText[index] !== '$') return null;
-
-  let cursor = index + 1;
-  while (cursor < sqlText.length && /[A-Za-z0-9_]/.test(sqlText[cursor])) {
-    cursor += 1;
-  }
-
-  if (sqlText[cursor] !== '$') return null;
-  return sqlText.slice(index, cursor + 1);
-}
-
-function splitSqlStatements(sqlText) {
-  const statements = [];
-  let start = 0;
-  let index = 0;
-  let singleQuoted = false;
-  let doubleQuoted = false;
-  let lineComment = false;
-  let blockComment = false;
-  let dollarQuoteTag = null;
-
-  while (index < sqlText.length) {
-    const char = sqlText[index];
-    const next = sqlText[index + 1];
-
-    if (lineComment) {
-      if (char === '\n') lineComment = false;
-      index += 1;
-      continue;
-    }
-
-    if (blockComment) {
-      if (char === '*' && next === '/') {
-        blockComment = false;
-        index += 2;
-        continue;
-      }
-      index += 1;
-      continue;
-    }
-
-    if (dollarQuoteTag) {
-      if (sqlText.startsWith(dollarQuoteTag, index)) {
-        index += dollarQuoteTag.length;
-        dollarQuoteTag = null;
-        continue;
-      }
-      index += 1;
-      continue;
-    }
-
-    if (singleQuoted) {
-      if (char === "'" && next === "'") {
-        index += 2;
-        continue;
-      }
-      if (char === "'") singleQuoted = false;
-      index += 1;
-      continue;
-    }
-
-    if (doubleQuoted) {
-      if (char === '"' && next === '"') {
-        index += 2;
-        continue;
-      }
-      if (char === '"') doubleQuoted = false;
-      index += 1;
-      continue;
-    }
-
-    if (char === '-' && next === '-') {
-      lineComment = true;
-      index += 2;
-      continue;
-    }
-
-    if (char === '/' && next === '*') {
-      blockComment = true;
-      index += 2;
-      continue;
-    }
-
-    const tag = readDollarQuoteTag(sqlText, index);
-    if (tag) {
-      dollarQuoteTag = tag;
-      index += tag.length;
-      continue;
-    }
-
-    if (char === "'") {
-      singleQuoted = true;
-      index += 1;
-      continue;
-    }
-
-    if (char === '"') {
-      doubleQuoted = true;
-      index += 1;
-      continue;
-    }
-
-    if (char === ';') {
-      const statement = sqlText.slice(start, index).trim();
-      if (statement) statements.push(statement);
-      start = index + 1;
-    }
-
-    index += 1;
-  }
-
-  const finalStatement = sqlText.slice(start).trim();
-  if (finalStatement) statements.push(finalStatement);
-
-  return statements;
 }
 
 async function ensureMigrationTable() {
@@ -233,7 +77,7 @@ async function ensureModelCatalog() {
     CREATE TABLE IF NOT EXISTS llm_providers (
       id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
       name              TEXT        NOT NULL UNIQUE,
-      api_format        TEXT        NOT NULL CHECK (api_format IN ('openai', 'anthropic', 'gemini', 'cloudflare-workers-ai')),
+      api_format        TEXT        NOT NULL CHECK (api_format IN ('openai', 'anthropic', 'gemini', 'cloudflare-workers-ai', 'vertex')),
       base_url          TEXT,
       encrypted_api_key TEXT,
       enabled           BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -262,10 +106,14 @@ async function ensureModelCatalog() {
       ('OpenAI', 'openai', 'https://api.openai.com/v1', FALSE),
       ('Anthropic', 'anthropic', 'https://api.anthropic.com/v1', FALSE),
       ('OpenRouter', 'openai', 'https://openrouter.ai/api/v1', FALSE),
-      ('xAI', 'openai', 'https://api.x.ai/v1', FALSE)
+      ('xAI', 'openai', 'https://api.x.ai/v1', FALSE),
+      ('Vertex AI', 'vertex', NULL, FALSE)
     ON CONFLICT (name) DO UPDATE SET
       api_format = EXCLUDED.api_format,
-      base_url = EXCLUDED.base_url,
+      -- COALESCE, not EXCLUDED: this seed re-runs on every deploy, and Vertex ships with a NULL
+      -- base_url because the endpoint is project- and region-specific. A bare assignment would
+      -- wipe the URL the operator configured in Settings every time they deployed.
+      base_url = COALESCE(EXCLUDED.base_url, llm_providers.base_url),
       updated_at = now()
   `);
 
@@ -428,23 +276,11 @@ async function main() {
     console.log('Starting database migrations...');
     await query('BEGIN');
     try {
-      // Transaction-scoped, and deliberately so.
-      //
-      // This used to be a session-scoped `pg_advisory_lock` taken outside the transaction, with the
-      // matching `pg_advisory_unlock` in a `finally`. If the process died before reaching that
-      // unlock -- Ctrl+C, a dropped network, a crash -- the lock was never released, because a
-      // session-scoped advisory lock can only be released by the session that took it. Worse, the
-      // connection then went back into the pooler still holding it, so a recycled backend served
-      // ordinary app traffic while sitting on the migration lock, and every later `npm run migrate`
-      // blocked forever on a lock no client could clear. Recovering it required
-      // pg_terminate_backend on the pooled connection. (Observed in production.)
-      //
-      // `pg_advisory_xact_lock` is released by Postgres itself on COMMIT, ROLLBACK, or disconnect,
-      // so there is no code path -- and no crash -- that can leak it.
-      //
-      // `SET LOCAL` (not SET) for the same reason: session state leaks across pooled connections.
-      // A bounded wait means a genuinely concurrent migration fails with a clear error instead of
-      // hanging a deploy indefinitely.
+      // Transaction-scoped deliberately. A session-scoped `pg_advisory_lock` leaked in production: the
+      // process died before its `finally` unlock, the connection returned to the pooler still holding the
+      // lock, and every later migrate blocked forever until pg_terminate_backend. `pg_advisory_xact_lock`
+      // is released by Postgres on COMMIT/ROLLBACK/disconnect, and `SET LOCAL` avoids the same pooled
+      // session-state leak.
       console.log('Acquiring advisory lock...');
       await query("SET LOCAL lock_timeout = '30s'");
       await query('SELECT pg_advisory_xact_lock($1)', [migrationLockId]);

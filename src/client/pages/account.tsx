@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
-import { cn } from '@client/lib/utils';
 import { PageHeader } from '@client/components/layout/page-header';
 import { Button, LinkButton } from '@client/components/ui/button';
 import { Input } from '@client/components/ui/input';
 import { Badge } from '@client/components/ui/badge';
-import { LayerCard } from '@client/components/ui/layer-card';
 import { Text } from '@client/components/ui/text';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { LoadError } from '@client/components/shared/load-error';
+import { SectionCard } from '@client/components/shared/section-card';
 import { Select } from '@client/components/ui/select';
 import { ExternalLink, Mail, Pencil, Check, X } from 'lucide-react';
 import { GithubMark } from '@client/components/shared/github-mark';
@@ -25,8 +24,9 @@ import {
 } from '@client/lib/timezone';
 import type { AccountSettings, AuthSessionUser } from '@shared/api';
 
+import { DetailGroup, RevealOnClick, DetailRow } from '@client/components/features/account/detail-rows';
 /**
- * Explicit zone list — no "Automatic". Timestamps default to UTC until a zone is
+ * Explicit zone list - no "Automatic". Timestamps default to UTC until a zone is
  * chosen here, so they read identically for everyone out of the box. The viewer's
  * own browser zone is folded in so it's always selectable.
  */
@@ -39,116 +39,6 @@ function zoneOptions() {
   });
 }
 
-/* ── Section wrapper (matches the settings page chrome) ───────────────────── */
-function SectionCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="ui-panel min-w-0 overflow-hidden">
-      <div className="border-b border-ui-line px-5 py-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">{title}</h2>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/* ── A captioned group of key/value rows ──────────────────────────────────── */
-function DetailGroup({ caption, children }: { caption: string; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
-        {caption}
-      </p>
-      <LayerCard className="divide-y divide-ui-line rounded-lg">{children}</LayerCard>
-    </div>
-  );
-}
-
-/* ── A value that stays blurred until clicked, with a hover tooltip ───────── */
-function RevealOnClick({ label, children }: { label: string; children: React.ReactNode }) {
-  const [revealed, setRevealed] = useState(false);
-  const hint = revealed ? 'Click to hide' : 'Click to reveal';
-
-  return (
-    // `group` drives the tooltip; `inline-flex` keeps the row's right alignment.
-    <span className="group relative inline-flex max-w-full justify-end">
-      <button
-        type="button"
-        onClick={() => setRevealed((v) => !v)}
-        aria-pressed={revealed}
-        aria-label={`${hint} ${label}`}
-        className={cn(
-          'max-w-full cursor-pointer truncate rounded-[4px] align-middle outline-none',
-          // `filter` is the animated property, so the blur eases in/out on toggle.
-          'transition-[filter,opacity] duration-300 ease-[var(--ease-out-quart)]',
-          'focus-visible:ring-2 focus-visible:ring-ring',
-          // `select-none` while hidden so the value can't be copied out of a blur.
-          !revealed && 'select-none blur-[5px] hover:opacity-70',
-        )}
-      >
-        {children}
-      </button>
-
-      {/* Tooltip — shown on hover/focus of the group. `pointer-events-none` so it
-          can never sit between the cursor and the button underneath it. */}
-      <span
-        role="tooltip"
-        className={cn(
-          'pointer-events-none absolute bottom-[calc(100%+0.4rem)] right-0 z-20 w-max',
-          'rounded-md border border-ui-line bg-ui-base px-2 py-1',
-          'text-[11px] font-medium text-ui-default shadow-sm',
-          'opacity-0 translate-y-0.5 transition-[opacity,transform] duration-150 ease-[var(--ease-out-quart)]',
-          'group-hover:opacity-100 group-hover:translate-y-0',
-          'group-focus-within:opacity-100 group-focus-within:translate-y-0',
-        )}
-      >
-        {hint}
-      </span>
-    </span>
-  );
-}
-
-/* ── One key/value detail row ─────────────────────────────────────────────── */
-function DetailRow({
-  label,
-  mono,
-  loading,
-  skeletonWidth = 130,
-  children,
-}: {
-  label: string;
-  /** Render the value as an identifier (Geist Mono + tabular figures). */
-  mono?: boolean;
-  loading?: boolean;
-  skeletonWidth?: number;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
-      {/* Label is secondary: near-black in light, recessed in dark. */}
-      <Text variant="body" size="sm" bold as="span" className="shrink-0 text-[13px] dark:text-ui-subtle">
-        {label}
-      </Text>
-      {loading ? (
-        <Skeleton height={11} width={skeletonWidth} borderRadius={4} className="max-w-[45%]" />
-      ) : (
-        <span
-          className={cn(
-            'min-w-0 truncate text-right text-[13px] font-medium text-ui-strong',
-            mono && 'ui-font-mono text-xs tabular-nums',
-          )}
-        >
-          {children}
-        </span>
-      )}
-    </div>
-  );
-}
 
 function formatDate(value: string) {
   return formatDateTime(value, {
@@ -171,7 +61,7 @@ export function AccountPage() {
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [savingZone, setSavingZone] = useState(false);
-  // The picker is driven by state, not by reading localStorage during render —
+  // The picker is driven by state, not by reading localStorage during render -
   // a render-time read isn't reactive, so the control never reflected a save.
   const [zonePref, setZonePref] = useState<string | null>(() => getStoredTimeZone());
 
@@ -186,7 +76,7 @@ export function AccountPage() {
       setAccount(accountRes?.account ?? null);
       // Mirror the server's choice locally so every other page formats in the
       // same zone without waiting on this request. Only when the account actually
-      // loaded — a failed fetch must not silently reset the local preference.
+      // loaded - a failed fetch must not silently reset the local preference.
       if (accountRes?.account) {
         setStoredTimeZone(accountRes.account.timezone ?? null);
         setZonePref(accountRes.account.timezone ?? null);
@@ -266,7 +156,7 @@ export function AccountPage() {
     }
   };
 
-  // Skeletons stand in for content only — card chrome, section titles and row
+  // Skeletons stand in for content only - card chrome, section titles and row
   // labels stay rendered so the page doesn't reflow when data lands.
   const pending = loading || !user;
 
@@ -349,7 +239,7 @@ export function AccountPage() {
                       </div>
                     </div>
                     <p className="mt-2 text-[11px] text-ui-subtle">
-                      Enter to save · Esc to cancel — this name is used across Codra.
+                      Enter to save · Esc to cancel - this name is used across Codra.
                     </p>
                   </div>
                 ) : (

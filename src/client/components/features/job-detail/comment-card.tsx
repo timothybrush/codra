@@ -1,8 +1,6 @@
 import { useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 import { FileText, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import { api } from '@client/lib/api';
@@ -11,8 +9,7 @@ import { preventToggleOnTextSelection } from '@client/lib/selection';
 import type { ParsedReviewComment } from '@shared/schema';
 import { severityConfig } from './constants';
 
-const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
-
+import { safeRehypePlugins } from '@client/lib/markdown-plugins';
 /** Plain-English reason a finding never reached the pull request. */
 const DISPOSITION_LABEL: Record<string, string> = {
   severity: 'Below the severity threshold for this repository',
@@ -22,7 +19,7 @@ const DISPOSITION_LABEL: Record<string, string> = {
   verify: 'The verification pass could not confirm it against the diff',
   verify_unanswered: 'The verification pass returned no verdict for this finding',
   cap: 'Over the max-comments limit for a single review',
-  unverifiable_passthrough: 'Could not be verified — no diff context was available',
+  unverifiable_passthrough: 'Could not be verified - no diff context was available',
 };
 
 interface CommentCardProps {
@@ -127,7 +124,7 @@ export function CommentCard({ comment, filePath, jobId }: CommentCardProps) {
               onClick={() => apply('marked_right')}
               disabled={saving}
               aria-pressed={label === 'marked_right'}
-              title="Mark this finding as correct. Recorded for accuracy measurement only — it does not change future reviews."
+              title="Mark this finding as correct. Recorded for accuracy measurement only - it does not change future reviews."
               className={cn(
                 'flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] transition-colors disabled:opacity-50',
                 label === 'marked_right'

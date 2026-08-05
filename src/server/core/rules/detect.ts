@@ -5,29 +5,27 @@ import { buildAnchorHash, buildFindingFingerprint, buildFindingFingerprintV2, no
 import { CLAIM_TYPE_CATEGORY } from '@shared/schema';
 import { RULES, type Rule } from './table';
 
-/**
- * Hard cap on added lines scanned per file. A 10ms CPU budget is the binding constraint, not memory,
- * and a 4,000-line file is exactly where a regex sweep would blow it. Reported as `truncated` rather
- * than silently applied.
- */
+// Hard cap on added lines scanned per file. A 10ms CPU budget is the binding constraint, not memory,
+// and a 4,000-line file is exactly where a regex sweep would blow it. Reported as `truncated` rather
+// than silently applied.
 const MAX_RULE_SCAN_ADDED_LINES = 600;
 
 export type RuleHit = {
   rule: Rule;
   line: DiffLine;
-  /** Set when the rule is in shadow mode: counted and logged, never turned into a comment. */
+  // Set when the rule is in shadow mode: counted and logged, never turned into a comment.
   shadow: boolean;
 };
 
 export type RuleScanStats = {
   addedLinesScanned: number;
-  /** Lines that passed the cheap substring sieve and were actually stripped + regex-tested. */
+  // Lines that passed the cheap substring sieve and were actually stripped + regex-tested.
   sievePassed: number;
   hits: number;
   shadowHits: number;
-  /** Hits discarded because the identical line already existed as a `del` — the PR only moved it. */
+  // Hits discarded because the identical line already existed as a `del` - the PR only moved it.
   suppressedAsMoved: number;
-  /** Lines the stripper refused to scan (unterminated quote / unclosed block comment). */
+  // Lines the stripper refused to scan (unterminated quote / unclosed block comment).
   unstrippable: number;
   truncated: boolean;
   byRule: Record<string, number>;
@@ -49,12 +47,10 @@ function ruleApplies(rule: Rule, ext: string) {
   return !rule.extensions || rule.extensions.includes(ext);
 }
 
-/**
- * Scans a file's added lines for deterministic rule hits.
- *
- * Costs zero subrequests and no model call, which is the point: this channel still produces findings
- * when the LLM returns nothing, and when the file's review fails outright.
- */
+// Scans a file's added lines for deterministic rule hits.
+//
+// Costs zero subrequests and no model call, which is the point: this channel still produces findings
+// when the LLM returns nothing, and when the file's review fails outright.
 export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {}): RuleScanResult {
   const stats: RuleScanStats = {
     addedLinesScanned: 0,
@@ -138,16 +134,14 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
   return { hits, stats };
 }
 
-/**
- * Turns rule hits into the same `ParsedReviewComment` shape the LLM channel produces, so everything
- * downstream — suppression, verification, the cap, the dashboard — treats them uniformly.
- *
- * The fingerprint deliberately includes the anchor hash. `buildFindingFingerprint(path, title)` is
- * f(path, title) and a rule's title is a CONSTANT, so two hits of one rule in one file would collide
- * on a single identity: one row's disposition would be written for both, and suppression would retire
- * both when one posted. Mixing the anchor in keeps them distinct — and this changes no existing hash,
- * because no LLM finding takes this path.
- */
+// Turns rule hits into the same `ParsedReviewComment` shape the LLM channel produces, so everything
+// downstream - suppression, verification, the cap, the dashboard - treats them uniformly.
+//
+// The fingerprint deliberately includes the anchor hash. `buildFindingFingerprint(path, title)` is
+// f(path, title) and a rule's title is a CONSTANT, so two hits of one rule in one file would collide
+// on a single identity: one row's disposition would be written for both, and suppression would retire
+// both when one posted. Mixing the anchor in keeps them distinct - and this changes no existing hash,
+// because no LLM finding takes this path.
 export function ruleHitsToComments(file: FileDiff, result: RuleScanResult): ParsedReviewComment[] {
   return result.hits
     .filter((hit) => !hit.shadow)

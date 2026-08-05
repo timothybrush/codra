@@ -1,17 +1,12 @@
+import { isSupportedTimeZone } from '@shared/timezone';
+
 /**
- * Display timezone for dashboard timestamps.
+ * Display timezone for dashboard timestamps. Storage is always absolute (TIMESTAMPTZ, emitted as
+ * UTC ISO), so this is purely presentation.
  *
- * Every timestamp in Codra is STORED absolute — Postgres `TIMESTAMPTZ`, and the
- * server always emits `toISOString()` (UTC, `Z`) — so this module is purely about
- * presentation: which zone we render those instants in.
- *
- * The preference lives on the account record (`account_settings.timezone`) so it
- * follows the user across devices, and is mirrored into localStorage so the very
- * first paint doesn't have to wait on a fetch.
- *
- * When nothing is set the display zone is UTC — deliberately NOT the browser's
- * zone, so a timestamp reads the same for everyone until someone chooses
- * otherwise in account settings.
+ * The preference lives on `account_settings.timezone` so it follows the user across devices, and is
+ * mirrored into localStorage so the first paint need not wait on a fetch. The default is UTC, and
+ * deliberately NOT the browser zone, so a timestamp reads the same for everyone until chosen.
  */
 
 const STORAGE_KEY = 'codra-timezone';
@@ -21,7 +16,7 @@ export const DEFAULT_TIME_ZONE = 'UTC';
 
 let cached: string | null | undefined;
 
-/** The zone the user explicitly chose, or null when following the browser. */
+/** The zone the user explicitly chose, or null when falling back to the UTC default. */
 export function getStoredTimeZone(): string | null {
   if (cached !== undefined) return cached;
   try {
@@ -39,20 +34,11 @@ export function setStoredTimeZone(zone: string | null) {
     if (cached) localStorage.setItem(STORAGE_KEY, cached);
     else localStorage.removeItem(STORAGE_KEY);
   } catch {
-    // Non-fatal: we still hold the value in memory for this session.
+  // Non-fatal: we still hold the value in memory for this session.
   }
 }
 
-export function isSupportedTimeZone(zone: string) {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** The zone used for formatting — the stored choice, else UTC. */
+/** The zone used for formatting - the stored choice, else UTC. */
 export function resolvedTimeZone(): string {
   return getStoredTimeZone() ?? DEFAULT_TIME_ZONE;
 }
@@ -65,7 +51,7 @@ export function browserTimeZone(): string {
   }
 }
 
-/** Short GMT offset label for a zone, e.g. "GMT+5:30" — used in the picker. */
+/** Short GMT offset label for a zone, e.g. "GMT+5:30" - used in the picker. */
 export function timeZoneOffsetLabel(zone: string): string {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -105,7 +91,7 @@ export function formatDateTime(
 /**
  * Format a date-ONLY value (`YYYY-MM-DD`, e.g. a stats day bucket that the server
  * already resolved into the display zone). Parsed and rendered as UTC so the label
- * is the literal day given — formatting it in another zone would shift it by one.
+ * is the literal day given - formatting it in another zone would shift it by one.
  */
 export function formatDayLabel(
   day: string,

@@ -7,24 +7,15 @@ import { syncRepoConfig, upsertRepoConfig } from '@server/db/repo-configs';
 import { recordWebhookDelivery } from '@server/db/webhook-deliveries';
 import { createTestEnv } from './helpers';
 
-/**
- * The guard that did not exist.
- *
- * `JSON.stringify(x)` bound to a `$n::jsonb` placeholder makes postgres.js store a jsonb STRING
- * SCALAR rather than an object, so every SQL JSON operator (`->`, `->>`, `@>`, `jsonb_typeof`)
- * silently reads nothing. The TypeScript path keeps working because `parseJsonColumn` tolerates both
- * shapes — which is exactly why the bug reached five columns and 1,215 production rows before a SQL
- * aggregate returned zero for a review that had withheld five findings.
- *
- * Nothing could catch it. Three tests already touch `repo_configs` and all of them assert through
- * `parseJsonColumn`; the one that asserts on `fallbackModels` asserts it is `null`, the single branch
- * that skips the stringify. So these tests deliberately assert on the STORED SHAPE, in SQL, which is
- * the only place the difference is observable.
- *
- * The fix idiom is `$n::text::jsonb` (see the note at `normalizeParam` in db/client.ts). Do not
- * "simplify" it to `$n::jsonb` by binding the raw value: that works for objects and silently breaks
- * arrays, because normalizeParam turns a JS array into a Postgres array literal.
- */
+// The guard that did not exist.
+//
+// `JSON.stringify(x)` bound to `$n::jsonb` stores a jsonb STRING SCALAR, so every SQL JSON operator
+// silently reads nothing, while the TypeScript path keeps working because `parseJsonColumn` tolerates
+// both shapes. That is how the bug reached five columns and 1,215 production rows.
+//
+// So these tests assert on the STORED SHAPE, in SQL, which is the only place the difference shows.
+// The fix idiom is `$n::text::jsonb`. Do not "simplify" it by binding the raw value: that works for
+// objects and silently breaks arrays, which normalizeParam turns into a Postgres array literal.
 describe('jsonb columns are stored as jsonb, not as string scalars', () => {
   const env = createTestEnv();
   const unique = () => `jsonb-enc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -170,7 +161,7 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
   });
 
   // The sweep. Catches a NEW write site added with the wrong cast, which the per-helper tests above
-  // cannot — they only cover the helpers that exist today.
+  // cannot - they only cover the helpers that exist today.
   it('leaves no string-encoded row in any jsonb column', async () => {
     const columns: Array<[string, string]> = [
       ['repo_configs', 'parsed_json'],

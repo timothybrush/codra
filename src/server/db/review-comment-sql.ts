@@ -1,25 +1,26 @@
 import type { ParsedReviewComment } from '@shared/schema';
 
-/**
- * One definition of the `review_comments` field list, shared by every site that reads or writes it.
- *
- * There were seven hand-maintained copies — three INSERT column lists and two JSON projections — and
- * they drifted exactly as you would expect: `fingerprint_v2` was written on every insert and absent
- * from the dashboard's projection, so `parsedComments[].fingerprintV2` was permanently `undefined`
- * in the UI even though suppression depends on it. Adding a column here now reaches all of them.
- */
+// One definition of the `review_comments` field list, shared by every site that reads or writes it.
+//
+// There were five hand-maintained copies, three INSERT column lists and two JSON projections, and
+// they drifted exactly as you would expect: `fingerprint_v2` was written on every insert and absent
+// from the dashboard's projection, so `parsedComments[].fingerprintV2` was permanently `undefined`
+// in the UI even though suppression depends on it.
+//
+// ONE EXCEPTION remains: `bulkInheritFileReviews` in file-reviews.ts hand-writes its own INSERT and
+// SELECT, because it copies rows column-to-column with two values overridden (`posted` -> FALSE,
+// `disposition` -> NULL). A column added here must be added there too, or retried jobs silently
+// inherit it as NULL.
 
-/** Column order for INSERT INTO review_comments (...). Must match INSERT_VALUE_CASTS. */
+// Column order for INSERT INTO review_comments (...). Must match REVIEW_COMMENT_INSERT_CASTS.
 export const REVIEW_COMMENT_INSERT_COLUMNS = [
   'path', 'line', 'position', 'severity', 'category', 'title', 'body', 'code_suggestion',
   'confidence_score', 'evidence', 'fingerprint', 'anchor_hash', 'claim_type', 'context_snippet',
   'disposition', 'fingerprint_v2', 'source', 'rule_id',
 ] as const;
 
-/**
- * The UNNEST casts, offset so $1 stays free for the file_review_id every caller passes first.
- * Generated rather than written out so the count can never fall out of step with the column list.
- */
+// The UNNEST casts, offset so $1 stays free for the file_review_id every caller passes first.
+// Generated rather than written out so the count can never fall out of step with the column list.
 export const REVIEW_COMMENT_INSERT_CASTS = REVIEW_COMMENT_INSERT_COLUMNS
   .map((column, index) => {
     const placeholder = `$${index + 2}`;
@@ -29,7 +30,7 @@ export const REVIEW_COMMENT_INSERT_CASTS = REVIEW_COMMENT_INSERT_COLUMNS
   })
   .join(', ');
 
-/** The bind values for those casts, in column order. Pass after the file_review_id. */
+// The bind values for those casts, in column order. Pass after the file_review_id.
 export function reviewCommentInsertValues(comments: ParsedReviewComment[]) {
   return [
     comments.map((c) => c.path),
@@ -53,12 +54,10 @@ export function reviewCommentInsertValues(comments: ParsedReviewComment[]) {
   ];
 }
 
-/**
- * The JSON_BUILD_OBJECT body used to project comments back out, keyed to the `rc` alias.
- *
- * `extraFields` is appended verbatim for projections that need more — the job-detail query adds a
- * correlated `humanLabel` lookup, which the file-review query has no use for.
- */
+// The JSON_BUILD_OBJECT body used to project comments back out, keyed to the `rc` alias.
+//
+// `extraFields` is appended verbatim for projections that need more - the job-detail query adds a
+// correlated `humanLabel` lookup, which the file-review query has no use for.
 export function reviewCommentJsonObject(extraFields = '') {
   const fields = [
     `'path', rc.path`,
@@ -86,7 +85,7 @@ export function reviewCommentJsonObject(extraFields = '') {
   return `JSON_BUILD_OBJECT(\n        ${fields}${extraFields ? `,\n        ${extraFields}` : ''}\n      )`;
 }
 
-/** The full aggregate, including the empty-array fallback both call sites need. */
+// The full aggregate, including the empty-array fallback both call sites need.
 export function reviewCommentsAggregate(extraFields = '') {
   return `COALESCE(
         (

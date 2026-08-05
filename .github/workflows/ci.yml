@@ -63,5 +63,17 @@ jobs:
       - name: Static Analysis (Typecheck)
         run: npm run typecheck
 
+      # Lint is not cosmetic here: eslint.config.js carries the barrel guards that stop a module from
+      # importing a mocked barrel's sibling (which would silently void a vi.mock), plus max-lines and
+      # import-x/no-cycle. Without this step those guards only ever ran on a developer's machine.
+      - name: Static Analysis (Lint)
+        run: npm run lint
+
       - name: Automated Tests
         run: npm test
+
+      # Catches bundler-level breakage typecheck cannot see -- notably a client file pulling zod into
+      # the browser bundle through @shared/schema. `vite build` rather than `npm run build` so CI does
+      # not depend on the `wrangler types` step, which only regenerates a local .d.ts.
+      - name: Build (client bundle)
+        run: npx vite build

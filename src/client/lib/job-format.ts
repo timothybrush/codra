@@ -3,8 +3,8 @@ import type { JobSummary } from '@shared/schema';
 /**
  * Shared job status and duration formatting.
  *
- * These lived twice — exported from `job-chips.tsx` and privately re-implemented in
- * `jobs-table.tsx` — and the copies had already diverged: the table's `statusLabel` dropped the
+ * These lived twice - exported from `job-chips.tsx` and privately re-implemented in
+ * `jobs-table.tsx` - and the copies had already diverged: the table's `statusLabel` dropped the
  * underscore replacement and its dot map omitted the file/step statuses. Neither divergence was
  * reachable today, which is exactly why it went unnoticed for so long.
  */
@@ -33,7 +33,7 @@ export function statusLabel(status: string) {
 /**
  * Whole seconds/minutes/hours, no decimals, so a status chip or table cell stays narrow.
  * `formatPreciseDuration` in lib/utils.ts is the deliberately different variant that shows one
- * decimal below a minute — use that where sub-second precision matters.
+ * decimal below a minute - use that where sub-second precision matters.
  */
 export function formatRunDuration(ms: number) {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -58,9 +58,9 @@ export function jobDuration(job: Pick<JobSummary, 'startedAt' | 'finishedAt'>) {
  * "16 minutes ago" so a table column stays narrow and the row reads like a deployment list.
  */
 export function formatRelativeDate(value: string | Date | null | undefined) {
-  if (!value) return '—';
+  if (!value) return '-';
   const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return '—';
+  if (!Number.isFinite(time)) return '-';
   const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);

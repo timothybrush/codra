@@ -7,12 +7,10 @@ import {
   setStoredTimeZone,
 } from '@client/lib/timezone';
 
-/**
- * These guard a class of bug TypeScript cannot: `Intl.DateTimeFormatOptions` allows
- * `dateStyle`/`timeStyle` alongside component options like `timeZoneName`, but
- * ECMA-402 throws `TypeError: Invalid option : option` at runtime when they're
- * combined. That crashed the job detail page once already.
- */
+// These guard a class of bug TypeScript cannot: `Intl.DateTimeFormatOptions` allows
+// `dateStyle`/`timeStyle` alongside component options like `timeZoneName`, but
+// ECMA-402 throws `TypeError: Invalid option : option` at runtime when they're
+// combined. That crashed the job detail page once already.
 describe('timezone formatting', () => {
   beforeEach(() => {
     setStoredTimeZone(null);
@@ -21,14 +19,14 @@ describe('timezone formatting', () => {
   const INSTANT = '2026-07-31T21:00:00.000Z';
   const DAY_OPTS: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
 
-  /** Reference rendering in an explicit zone — avoids asserting a locale's field order. */
+  // Reference rendering in an explicit zone - avoids asserting a locale's field order.
   const renderedIn = (zone: string, opts: Intl.DateTimeFormatOptions = DAY_OPTS) =>
     new Date(INSTANT).toLocaleString(undefined, { ...opts, timeZone: zone });
 
   it('defaults to UTC rather than the host time zone', () => {
     expect(resolvedTimeZone()).toBe(DEFAULT_TIME_ZONE);
     expect(formatDateTime(INSTANT, DAY_OPTS)).toBe(renderedIn('UTC'));
-    // 21:00Z is 02:30 the NEXT day in IST, so these must differ — proving the
+    // 21:00Z is 02:30 the NEXT day in IST, so these must differ - proving the
     // output isn't just silently following whatever zone the host is in.
     expect(renderedIn('UTC')).not.toBe(renderedIn('Asia/Kolkata'));
   });
@@ -68,7 +66,7 @@ describe('timezone formatting', () => {
     const stamp = formatAbsoluteDate(INSTANT);
 
     expect(stamp).toBeTruthy();
-    // Asserting the zone name is present — not merely that it didn't throw. The
+    // Asserting the zone name is present - not merely that it didn't throw. The
     // safety net inside formatDateTime swallows an illegal option combination and
     // silently re-formats WITHOUT the requested fields, so a "doesn't throw"
     // assertion would happily pass on the very bug this guards.

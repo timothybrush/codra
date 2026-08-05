@@ -42,7 +42,7 @@ function redact(obj: any): any {
   return redacted;
 }
 
-export class Logger {
+class Logger {
   constructor(private context: Record<string, any> = {}) {}
 
   withContext(newContext: Record<string, any>) {

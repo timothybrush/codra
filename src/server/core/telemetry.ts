@@ -4,17 +4,15 @@ import { logger } from './logger';
 const TELEMETRY_SECRET = 'codra-telemetry-v1-secret-8f9a2b5c';
 const INSTANCE_ID_KEY = 'codra:instance_id';
 
-/**
- * Returns a stable, anonymous instance ID.
- * Generates and stores one in KV if it doesn't exist yet.
- */
+// Returns a stable, anonymous instance ID.
+// Generates and stores one in KV if it doesn't exist yet.
 import { queryRows } from '@server/db/client';
-// Static import: version string is inlined at build time by Vite — no runtime cost.
+// Static import: version string is inlined at build time by Vite - no runtime cost.
 import pkg from '../../../package.json';
 
 const CODRA_VERSION: string = pkg.version;
 
-export async function getInstanceId(env: AppBindings): Promise<string> {
+async function getInstanceId(env: AppBindings): Promise<string> {
   try {
     const rows = await queryRows<{ value: string }>(env, 'SELECT value FROM global_settings WHERE key = $1', [INSTANCE_ID_KEY]);
     let instanceId = rows[0]?.value;
@@ -41,10 +39,8 @@ export async function getInstanceId(env: AppBindings): Promise<string> {
   }
 }
 
-/**
- * Sends an anonymous telemetry event to Codra Core backend.
- * Swallows all errors so the caller is never interrupted.
- */
+// Sends an anonymous telemetry event to Codra Core backend.
+// Swallows all errors so the caller is never interrupted.
 export async function sendTelemetryEvent(
   env: AppBindings,
   data: { 

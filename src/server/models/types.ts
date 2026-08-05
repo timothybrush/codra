@@ -6,21 +6,17 @@ export type ModelResponse = {
   provider: string;
 };
 
-/**
- * A JSON Schema the provider should constrain decoding to. Only providers with real grammar
- * support honor this (today: Workers AI via `response_format: json_schema`); the others ignore it
- * and rely on the prompt alone.
- */
+// A JSON Schema the provider should constrain decoding to. Only providers with real grammar
+// support honor this (today: Workers AI via `response_format: json_schema`); the others ignore it
+// and rely on the prompt alone.
 export type ModelResponseSchema = {
   name: string;
   schema: Record<string, unknown>;
 };
 
-/**
- * One inference request. `responseSchema` is per-call on purpose: the file review, the
- * verification pass and the summary each need a DIFFERENT output shape, and hardcoding one of
- * them at the provider layer silently forces the others to emit the wrong object.
- */
+// One inference request. `responseSchema` is per-call on purpose: the file review, the
+// verification pass and the summary each need a DIFFERENT output shape, and hardcoding one of
+// them at the provider layer silently forces the others to emit the wrong object.
 export type ModelInput = {
   systemPrompt: string;
   userPrompt: string;
@@ -38,13 +34,11 @@ export class ProviderRequestError extends Error {
   }
 }
 
-/**
- * Thrown when a model responds but produces no reviewable output -- reasoning/thinking only, a
- * response truncated at the token limit, or an empty body. The file was NOT actually reviewed, so
- * rather than synthesizing a fake "inconclusive" pass we throw: the fallback chain tries the next
- * model, and if none succeed the file is honestly marked `failed`. Treated as a PERMANENT failure
- * (not transient) because the outcome is deterministic -- retrying the same model just burns quota.
- */
+// Thrown when a model responds but produces no reviewable output -- reasoning/thinking only, a
+// response truncated at the token limit, or an empty body. The file was NOT actually reviewed, so
+// rather than synthesizing a fake "inconclusive" pass we throw: the fallback chain tries the next
+// model, and if none succeed the file is honestly marked `failed`. Treated as a PERMANENT failure
+// (not transient) because the outcome is deterministic -- retrying the same model just burns quota.
 export class UnparseableModelResponseError extends Error {
   constructor(public readonly model: string, public readonly reason: string) {
     super(`Model ${model} produced no reviewable output (${reason}); the file review failed.`);
@@ -70,20 +64,18 @@ export function providerErrorMessage(errorText: string) {
       }
     }
   } catch {
-    // Fall back to the provider body below.
+  // Fall back to the provider body below.
   }
 
   return errorText.trim() || 'The provider returned an error.';
 }
 
-/**
- * The JSON-only framing every adapter appends to the prompts before sending them.
- *
- * Shared because copy-pasting it has already failed twice: the Google adapter spent a period sending
- * both prompts unmodified, which mattered most there because gemma is the one model in the chain
- * that gets no `responseMimeType` -- the prompt is the only thing keeping its output parseable.
- * A new adapter now gets this by construction rather than by remembering.
- */
+// SAMPLING. Temperature is deliberately not zero: measured here, a little randomness reviews better
+// than greedy decoding, which locks the model into one phrasing of one hypothesis. Each adapter sits
+// at the same relative point on its own scale (Google/Vertex/OpenAI 0-2 at 0.9; Anthropic 0-1 and
+// Cloudflare 0-5 at 0.6). One value per adapter covers generation, verification and summary; a
+// near-greedy gate was rejected because judging prose is not a lookup. Watch `droppedByVerdict` if
+// these move. The JSON-only framing is shared because copy-pasting it failed twice.
 export function jsonOnlyPrompts(input: ModelInput) {
   return {
     system: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.`,

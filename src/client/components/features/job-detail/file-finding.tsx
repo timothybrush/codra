@@ -1,15 +1,12 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 import { ChevronRight } from 'lucide-react';
 import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
 import { CommentCard } from './comment-card';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
 import { MonoPath, StatusDot, VerdictPill, statusLabel } from './job-chips';
 
-const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
-
+import { safeRehypePlugins } from '@client/lib/markdown-plugins';
 interface FileFindingProps {
   file: FileReviewRecord;
 }

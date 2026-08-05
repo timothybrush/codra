@@ -1,14 +1,12 @@
-/**
- * SSRF guard for operator-supplied provider base URLs.
- *
- * A provider's `baseUrl` is set from the dashboard and then fetched server-side, so an operator (or
- * anyone who reaches that form) could otherwise point an adapter at the Worker's own network or a
- * cloud metadata endpoint and have the response relayed back.
- *
- * This lives in one module because the copy-paste version had already failed: the guard existed in
- * the Google and OpenAI adapters and was simply absent from Anthropic, which fetched `config.baseUrl`
- * unchecked. Every adapter that accepts a base URL must call `assertPublicBaseUrl`.
- */
+// SSRF guard for operator-supplied provider base URLs.
+//
+// A provider's `baseUrl` is set from the dashboard and then fetched server-side, so an operator (or
+// anyone who reaches that form) could otherwise point an adapter at the Worker's own network or a
+// cloud metadata endpoint and have the response relayed back.
+//
+// This lives in one module because the copy-paste version had already failed: the guard existed in
+// the Google and OpenAI adapters and was simply absent from Anthropic, which fetched `config.baseUrl`
+// unchecked. Every adapter that accepts a base URL must call `assertPublicBaseUrl`.
 import { ProviderRequestError } from './types';
 
 const PRIVATE_HOST_PATTERNS = [
@@ -27,7 +25,7 @@ const PRIVATE_HOST_PATTERNS = [
   /^::ffff:/i,                 // IPv4-mapped, e.g. ::ffff:127.0.0.1
 ];
 
-/** Cloud instance-metadata endpoints, which are public-looking but reachable only from inside. */
+// Cloud instance-metadata endpoints, which are public-looking but reachable only from inside.
 const METADATA_HOSTS = new Set(['metadata.google.internal', '100.100.100.200']);
 
 export function isPrivateHost(hostname: string) {
@@ -46,7 +44,7 @@ export function isValidPublicUrl(urlString: string) {
   }
 }
 
-/** Throws the provider-shaped 400 every adapter already raises, so call sites stay one line. */
+// Throws the provider-shaped 400 every adapter already raises, so call sites stay one line.
 export function assertPublicBaseUrl(baseUrl: string | null | undefined, providerName: string) {
   if (baseUrl && !isValidPublicUrl(baseUrl)) {
     throw new ProviderRequestError(providerName, 400, 'Invalid provider base URL.');

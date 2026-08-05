@@ -44,7 +44,7 @@ export function buildTree(files: FileReviewRecord[]): TreeNode[] {
     });
   }
 
-  // Folders before files, each alphabetical — matches GitHub's ordering.
+  // Folders before files, each alphabetical - matches GitHub's ordering.
   function sortNodes(nodes: TreeNode[]): TreeNode[] {
     const sorted = [...nodes].sort((a, b) => {
       if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;

@@ -1,13 +1,7 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  CheckCircle2,
-  FolderGit2,
-  GitCommitHorizontal,
-  GitPullRequest,
-  MessageSquare,
-} from 'lucide-react';
+import { FolderGit2, GitCommitHorizontal, GitPullRequest } from 'lucide-react';
 import { Skeleton } from '@client/components/shared/skeleton';
+import { VerdictPill, MetaChip, AuthorAvatar } from '@client/components/features/job-detail/job-chips';
 import { cn } from '@client/lib/utils';
 import { formatDateTime } from '@client/lib/timezone';
 import { STATUS_DOT, formatRelativeDate, jobDuration, statusLabel } from '@client/lib/job-format';
@@ -104,82 +98,6 @@ function StatusCell({ job }: { job: JobSummary }) {
   );
 }
 
-/** Bordered verdict pill with a tinted icon (the "environment" slot). */
-function VerdictPill({ verdict }: { verdict: NonNullable<JobSummary['verdict']> }) {
-  const approved = verdict === 'approve';
-  const Icon = approved ? CheckCircle2 : MessageSquare;
-
-  return (
-    <span className="inline-flex h-[22px] max-w-full items-center gap-1.5 rounded-full border border-ui-line px-2 text-[11px] font-medium leading-none text-ui-default">
-      <Icon
-        size={11}
-        strokeWidth={2.25}
-        className={cn('shrink-0', approved ? 'text-success' : 'text-warning')}
-      />
-      <span className="truncate capitalize">{verdict}</span>
-    </span>
-  );
-}
-
-/** Icon-prefixed metadata text (repository, commit, PR). */
-function MetaCell({
-  icon: Icon,
-  children,
-  mono = false,
-  title,
-}: {
-  icon: typeof FolderGit2;
-  children: React.ReactNode;
-  mono?: boolean;
-  title?: string;
-}) {
-  return (
-    <span className="flex min-w-0 items-center gap-1.5" title={title}>
-      <Icon size={13} strokeWidth={2} className="shrink-0 text-ui-subtle" />
-      <span
-        className={cn(
-          'truncate leading-none text-ui-default dark:text-ui-subtle',
-          mono ? 'ui-font-mono text-[11px] tabular-nums' : 'text-xs',
-        )}
-      >
-        {children}
-      </span>
-    </span>
-  );
-}
-
-function AuthorAvatar({ login }: { login: string | null }) {
-  // `github.com/<login>.png` only 302-redirects to the real avatar host, and that
-  // hop can fail (blockers, offline). Hit avatars.githubusercontent.com directly —
-  // it serves the image with a 200 — and fall back to an initial if it still fails,
-  // so a row never shows a broken-image glyph.
-  const [failed, setFailed] = useState(false);
-
-  if (!login || failed) {
-    return (
-      <span
-        className="flex h-5 w-5 items-center justify-center rounded-full bg-ui-fill text-[9px] font-semibold uppercase text-ui-default ring-1 ring-ui-line"
-        title={login ? `@${login}` : undefined}
-      >
-        {login?.charAt(0) ?? ''}
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={`https://avatars.githubusercontent.com/${login}?size=40`}
-      alt=""
-      /* No `loading="lazy"`: these are 20px images and intersection detection is
-         unreliable inside the table's own scroll container, which left avatars
-         blank. Eager loading is cheaper than the bug. */
-      title={`@${login}`}
-      onError={() => setFailed(true)}
-      className="h-5 w-5 rounded-full bg-ui-fill object-cover ring-1 ring-ui-line"
-    />
-  );
-}
-
 /* ── Mobile card ──────────────────────────────────────────────────────────── */
 
 function JobMobileCard({ job }: { job: JobSummary }) {
@@ -203,10 +121,10 @@ function JobMobileCard({ job }: { job: JobSummary }) {
       </div>
 
       <div className="mt-2.5 flex items-center gap-4">
-        <MetaCell icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
+        <MetaChip icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
           {job.owner}/{job.repo}
-        </MetaCell>
-        <MetaCell icon={GitPullRequest}>#{job.prNumber}</MetaCell>
+        </MetaChip>
+        <MetaChip icon={GitPullRequest}>#{job.prNumber}</MetaChip>
       </div>
     </Link>
   );
@@ -215,13 +133,13 @@ function JobMobileCard({ job }: { job: JobSummary }) {
 /* ── Table ────────────────────────────────────────────────────────────────── */
 
 /* Fixed cell height (not vertical padding) keeps every row exactly 48px tall,
-   whether or not it carries a verdict pill — padding-based rows grew ~6px on
+   whether or not it carries a verdict pill - padding-based rows grew ~6px on
    pill rows and broke the vertical rhythm. */
 const CELL = 'h-12 border-t border-ui-line px-2.5 align-middle';
 
 /* Row dividers sit between rows only: the first row's top border goes
    transparent (rather than 0-width) so it can't double up with the border of
-   whatever sits above the table — the filter toolbar or the card header —
+   whatever sits above the table - the filter toolbar or the card header -
    without changing the row's height. */
 const ROW_DIVIDERS = 'first:[&>td]:border-transparent';
 
@@ -353,29 +271,29 @@ export function JobsTable({ jobs, loading, columns, fill = false }: JobsTablePro
 
                     {show('repo') && (
                       <td className={cn(CELL, COLUMN_CLASSES.repo)}>
-                        <MetaCell icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
+                        <MetaChip icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
                           {job.owner}/{job.repo}
-                        </MetaCell>
+                        </MetaChip>
                       </td>
                     )}
 
                     {show('commit') && (
                       <td className={cn(CELL, COLUMN_CLASSES.commit)}>
                         {job.commitSha ? (
-                          <MetaCell icon={GitCommitHorizontal} mono title={job.commitSha}>
+                          <MetaChip icon={GitCommitHorizontal} mono title={job.commitSha}>
                             {job.commitSha.slice(0, 7)}
-                          </MetaCell>
+                          </MetaChip>
                         ) : (
-                          <span className="text-xs text-ui-subtle">—</span>
+                          <span className="text-xs text-ui-subtle">-</span>
                         )}
                       </td>
                     )}
 
                     {show('pr') && (
                       <td className={cn(CELL, COLUMN_CLASSES.pr)}>
-                        <MetaCell icon={GitPullRequest} mono>
+                        <MetaChip icon={GitPullRequest} mono>
                           #{job.prNumber}
-                        </MetaCell>
+                        </MetaChip>
                       </td>
                     )}
 

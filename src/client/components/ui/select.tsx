@@ -19,8 +19,8 @@ import { EASE_OUT } from '@client/lib/ease';
 const CHEVRON_TRANSITION: Transition = { type: 'spring', duration: 0.4, bounce: 0.3 };
 
 // The stagger compounds per option, so it dominates on long lists (the LLM model
-// selects run to dozens of entries). 0.02 sits between the original 0.035 — which
-// left the last item appearing ~0.9s after opening — and a near-instant cascade.
+// selects run to dozens of entries). 0.02 sits between the original 0.035 - which
+// left the last item appearing ~0.9s after opening - and a near-instant cascade.
 const LIST_VARIANTS: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.02, delayChildren: 0.03 } },
@@ -48,9 +48,9 @@ interface SelectProps {
   triggerStyle?: CSSProperties;
   leadingIcon?: ReactNode;
   /**
-   * 'page'  — trigger sits on the gray page background (e.g. "Last 30 days").
+   * 'page'  - trigger sits on the gray page background (e.g. "Last 30 days").
    *            Dropdown gets card bg so it lifts off the page.
-   * 'card'  — trigger sits inside a card.
+   * 'card'  - trigger sits inside a card.
    *            Dropdown gets muted bg so it's distinguishable from the card.
    * Defaults to 'page'.
    */
@@ -82,7 +82,7 @@ export function Select({
   const [rect, setRect] = useState<{ left: number; width: number; top: number; bottom: number } | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  /** What last moved the highlight — only keyboard moves should auto-scroll. */
+  /** What last moved the highlight - only keyboard moves should auto-scroll. */
   const highlightSource = useRef<'keyboard' | 'pointer'>('keyboard');
 
   const selectedOption = options.find((opt) => opt.value === value);
@@ -220,7 +220,7 @@ export function Select({
   const isTop = placement === 'top';
 
   // Gooey: the edge facing the panel snaps flat (panel attached) then rounds
-  // back once the panel pulls away — the two pinch apart.
+  // back once the panel pulls away - the two pinch apart.
   const kf = open ? [0, 0, 7] : [7, 0, 7];
   const kfT: Transition = reduce
     ? { duration: 0 }
@@ -298,7 +298,7 @@ export function Select({
       </div>
 
       {/* Portaled to <body> so the panel always renders above cards, tables, and
-          other stacking contexts — it can't be clipped/hidden by an ancestor. */}
+          other stacking contexts - it can't be clipped/hidden by an ancestor. */}
       {createPortal(
         <motion.div
           ref={panelRef}
@@ -384,8 +384,8 @@ export function Select({
                     }}
                     className={cn(
                       // `whitespace-nowrap`: a narrow trigger (e.g. the 72px "rows per
-                      // page" select) used to break mid-word — "10" rendered as "1"/"0"
-                      // stacked — because the check icon ate the remaining width.
+                      // page" select) used to break mid-word - "10" rendered as "1"/"0"
+                      // stacked - because the check icon ate the remaining width.
                       'flex w-full items-center justify-between gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
                       selected
                         ? 'bg-ui-brand/10 font-medium text-ui-brand'

@@ -3,19 +3,14 @@
  *
  *   npx vite-node scripts/outdated-rate.ts -- --repo devarshishimpi/codra
  *
- * Why this metric and not precision: it needs ZERO human annotation and is measured against what
- * happened rather than what someone said. BitsAI-CR runs at roughly 65% precision / 25% Outdated
- * Rate, and uses it as the retirement signal — a rule with high precision and a low Outdated Rate is
- * technically right and practically ignored, which is a rule worth deleting.
+ * Chosen over precision because it needs ZERO human annotation. It is also the retirement signal: a
+ * rule that is right but never acted on is a rule worth deleting.
  *
- * The measurement, precisely: for a job A that posted findings, find the next job B on the same PR
- * at a DIFFERENT commit, diff A's head against B's head, and check whether any changed line hashes
- * to one of A's anchor hashes. A `-` line matching means the flagged line was rewritten, i.e. acted
- * upon.
+ * For a job A that posted findings, find the next job B on the same PR at a DIFFERENT commit, diff
+ * the two heads, and check whether a changed line hashes to one of A's anchor hashes.
  *
- * Deliberately NOT the pure-SQL alternative ("did job B re-derive the same fingerprint_v2?"). That
- * is a biased estimator: it cannot distinguish "the line was fixed" from "the model was flaky", and
- * flakiness is exactly what this system has too much of for that to be safe.
+ * Deliberately NOT the pure-SQL alternative ("did B re-derive the same fingerprint_v2?"): that
+ * cannot separate "the line was fixed" from "the model was flaky".
  */
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';

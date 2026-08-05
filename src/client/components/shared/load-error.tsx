@@ -16,7 +16,7 @@ interface LoadErrorProps {
 
 /**
  * Load-failure banner: friendly copy up front, the raw error as a small mono
- * detail chip, and a Retry action — instead of a bare toast/alert echoing
+ * detail chip, and a Retry action - instead of a bare toast/alert echoing
  * "Failed to fetch".
  */
 export function LoadError({

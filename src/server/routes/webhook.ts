@@ -18,16 +18,14 @@ import { findExistingJobForHead, insertJob, supersedeOlderJobs } from '@server/d
 import { clearResolvedFeedback, recordCommentFeedback, type CommentFeedbackInput, type CommentOutcome } from '@server/db/comment-feedback';
 import { recordWebhookDelivery } from '@server/db/webhook-deliveries';
 
-/**
- * Records what a human did with findings we posted.
- *
- * Matching is done through the invisible `codra-fp` marker embedded in each comment body, which
- * GitHub echoes back verbatim. Comments without a marker were not written by us (or predate the
- * marker) and are ignored.
- *
- * Best-effort throughout: feedback is an enhancement, and a failure here must never turn into a
- * webhook error that GitHub retries.
- */
+// Records what a human did with findings we posted.
+//
+// Matching is done through the invisible `codra-fp` marker embedded in each comment body, which
+// GitHub echoes back verbatim. Comments without a marker were not written by us (or predate the
+// marker) and are ignored.
+//
+// Best-effort throughout: feedback is an enhancement, and a failure here must never turn into a
+// webhook error that GitHub retries.
 async function handleFeedbackEvent(
   env: AppBindings,
   input: {

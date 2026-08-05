@@ -17,7 +17,7 @@ export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
     <section className="ui-font-sans flex flex-col gap-5">
       {error && <LoadError title="Something went wrong" detail={error} />}
 
-      {/* Header — the breadcrumb, panel chrome and static labels are real; only
+      {/* Header - the breadcrumb, panel chrome and static labels are real; only
           the job's own values are skeletons. */}
       <header className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="min-w-0 w-full">
@@ -58,7 +58,7 @@ export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
         </div>
       </header>
 
-      {/* Tab strip — static, so it doesn't appear from nowhere when data lands. */}
+      {/* Tab strip - static, so it doesn't appear from nowhere when data lands. */}
       <div className="flex items-center gap-1 border-b border-ui-line" aria-hidden>
         <span className="relative -mb-px flex items-center gap-2 px-3 py-2.5 text-[13px] font-medium text-ui-strong">
           <ClipboardList size={14} strokeWidth={2} />

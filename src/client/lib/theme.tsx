@@ -41,7 +41,7 @@ function pauseThemeTransitions(root: HTMLElement) {
   }, 180);
 }
 
-export function applyTheme(theme: Theme, options: { pauseTransitions?: boolean } = {}) {
+function applyTheme(theme: Theme, options: { pauseTransitions?: boolean } = {}) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   if (options.pauseTransitions) pauseThemeTransitions(root);
@@ -52,7 +52,7 @@ export function applyTheme(theme: Theme, options: { pauseTransitions?: boolean }
   try {
     localStorage.setItem('codra-theme', theme);
   } catch {
-    // ignore
+  // ignore
   }
 }
 

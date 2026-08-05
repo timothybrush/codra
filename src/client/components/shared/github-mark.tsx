@@ -1,4 +1,4 @@
-/** GitHub brand mark — lucide-react no longer ships brand icons. */
+/** GitHub brand mark - lucide-react no longer ships brand icons. */
 export function GithubMark({ size = 16, className }: { size?: number; className?: string }) {
   return (
     <svg

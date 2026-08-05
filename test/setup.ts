@@ -144,20 +144,3 @@ console.log = (...args: any[]) => {
   if (isJsonLog(args)) return;
   originalConsoleLog(...args);
 };
-// Global cleanup for database tables (Disabled temporarily to debug race conditions)
-/*
-beforeEach(async () => {
-    if (process.env.TEST_DATABASE_URL) {
-        const { getDb } = await import('@server/db/client');
-        const sql = getDb({ HYPERDRIVE: { connectionString: process.env.TEST_DATABASE_URL } });
-        try {
-            await sql.query('DELETE FROM webhook_deliveries');
-            await sql.query('DELETE FROM file_reviews');
-            await sql.query('DELETE FROM jobs');
-            await sql.query('DELETE FROM repo_configs');
-        } catch (e) {
-            console.warn('Database cleanup failed, tables might be empty or missing:', e);
-        }
-    }
-});
-*/

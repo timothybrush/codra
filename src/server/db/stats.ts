@@ -1,30 +1,20 @@
+import { isSupportedTimeZone } from '@shared/timezone';
 import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
 import { statsSchema, jobStatuses, reviewTriggers, reviewSeverities, reviewCategories } from '@shared/schema';
 import { getModelUsageStats } from './file-reviews';
 
-/** Guard the zone before it reaches SQL, so an unknown name can't error the query. */
-function isSupportedTimeZone(zone: string) {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
+// Guard the zone before it reaches SQL, so an unknown name can't error the query.
 const jobStatusSet = new Set<string>(jobStatuses);
 const reviewTriggerSet = new Set<string>(reviewTriggers);
 const reviewSeveritySet = new Set<string>(reviewSeverities);
 const reviewCategorySet = new Set<string>(reviewCategories);
 
-/**
- * Day buckets are grouped in `timeZone` so the trend lines up with the timestamps
- * shown elsewhere in the dashboard. `created_at` is `timestamptz` (absolute), and
- * `AT TIME ZONE <zone>` converts it to wall-clock time in that zone before
- * truncating, so a job at 03:00 IST lands on the IST day rather than the UTC one.
- * Defaults to UTC, matching the client's default display zone.
- */
+// Day buckets are grouped in `timeZone` so the trend lines up with the timestamps
+// shown elsewhere in the dashboard. `created_at` is `timestamptz` (absolute), and
+// `AT TIME ZONE <zone>` converts it to wall-clock time in that zone before
+// truncating, so a job at 03:00 IST lands on the IST day rather than the UTC one.
+// Defaults to UTC, matching the client's default display zone.
 export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30, timeZone = 'UTC') {
   const parsedDays = Number(days);
   const safeDays = Number.isFinite(parsedDays) ? Math.trunc(parsedDays) : 30;

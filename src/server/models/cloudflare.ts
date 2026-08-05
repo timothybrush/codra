@@ -3,14 +3,8 @@ import type { AppBindings } from '@server/env';
 import { TimeoutError } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, jsonOnlyPrompts, type ModelInput, type ModelResponse } from './types';
 
-/**
- * Default max wall-clock time allowed for a single Workers-AI call when the caller doesn't
- * supply a diff-size-aware budget. Kept well under the review workflow's 15-minute step
- * timeout: a model that hasn't answered a code-review prompt in this long (reasoning models
- * under strict-JSON decoding are the usual offenders -- they burn the whole token budget
- * "thinking" and never emit the JSON) is not going to, so we fail fast and let the file defer
- * to a fresh invocation instead of stalling the whole review.
- */
+// Fallback wall-clock cap, well under the 15-min step timeout. Reasoning models under strict-JSON
+// burn the token budget thinking and never emit, so fail fast and defer the file.
 const CLOUDFLARE_TIMEOUT_MS = 45_000;
 const CLOUDFLARE_MAX_OUTPUT_TOKENS = 8192;
 
@@ -65,11 +59,8 @@ function extractMessageContent(content: unknown): string | null {
   return null;
 }
 
-// A model's completion arrives in `response`, but the type varies by model: most return a
-// plain string, while models honoring `response_format`/structured output (e.g.
-// @cf/qwen/qwen2.5-coder-32b-instruct) return an already-parsed JSON object or array. Accept
-// both -- stringify structured values so the downstream repair/parse pipeline can consume them
-// instead of the extractor discarding a perfectly good review as an "empty response".
+// `response` is a string on most models, a parsed object/array on structured-output ones. Accept
+// both, or a good review is discarded as empty.
 function extractResponseField(container: unknown): string | null {
   if (!isRecord(container)) return null;
   const value = container.response;
@@ -120,16 +111,10 @@ function extractCloudflareUsage(result: unknown) {
   };
 }
 
-/**
- * The single-request inference payload sent to Workers AI. Shared by the synchronous path and
- * the asynchronous batch path so both send an identical prompt/schema/decoding configuration.
- *
- * The grammar comes from the CALLER. Hardcoding the file-review schema here used to apply it to
- * every Workers-AI call -- including the verification pass, whose prompt asks for `{"results":[...]}`
- * -- so strict decoding forced the verifier to emit a file-review object instead. `results` then
- * defaulted to `[]`, the parse "succeeded", nothing was ever dropped, and the log cheerfully
- * reported "dropped: 0". Verification was structurally dead.
- */
+// Inference payload, shared by the sync and async-batch paths so both send identical config.
+// Grammar comes from the CALLER: hardcoding the file-review schema here forced the verifier (which
+// asks for `{"results":[...]}`) to emit a file-review object, so `results` defaulted to `[]`, the
+// parse "succeeded", and the log reported "dropped: 0". Verification was structurally dead.
 function buildCloudflareInferenceRequest(input: ModelInput) {
   const prompts = jsonOnlyPrompts(input);
   return {
@@ -150,15 +135,14 @@ function buildCloudflareInferenceRequest(input: ModelInput) {
           },
         }
       : {}),
-    temperature: 0,
-    top_p: 0.1,
+    // 0.6 on Workers AI's 0-5 scale (its default). `top_p` moves with it: pinned at 0.1 it truncates to
+    // a few tokens and cancels the temperature raise.
+    temperature: 0.6,
+    top_p: 0.9,
   };
 }
 
-/**
- * Result of polling an async batch request. `pending` means the batch is still queued/running
- * on Workers AI (poll again later); `done` carries the extracted review.
- */
+// Async poll result: `pending` = still queued/running, `done` carries the review.
 export type CloudflareBatchPollResult =
   | { status: 'pending' }
   | { status: 'done'; response: ModelResponse };
@@ -169,12 +153,8 @@ function extractBatchStatus(result: unknown): string | null {
   return typeof status === 'string' ? status.toLowerCase() : null;
 }
 
-/**
- * Finds the single inference result inside a completed batch poll response. Workers AI has
- * returned a few shapes for this over time (a top-level `responses` array, a nested
- * `result.responses`, or a bare single result), so probe defensively and fall back to treating
- * the whole payload as one result.
- */
+// Workers AI has returned several shapes here (`responses`, `result.responses`, or a bare result),
+// so probe defensively and fall back to the whole payload.
 function extractBatchInnerResult(result: unknown): unknown {
   const containers = [result, isRecord(result) ? result.result : undefined];
   for (const container of containers) {
@@ -182,7 +162,7 @@ function extractBatchInnerResult(result: unknown): unknown {
     const responses = container.responses ?? container.results;
     if (Array.isArray(responses) && responses.length > 0) {
       const first = responses[0];
-      // Each entry may wrap the model output under `result`/`response`, or be it directly.
+      // Entries may wrap output under `result`/`response`, or be it directly.
       if (isRecord(first)) return first.result ?? first;
       return first;
     }
@@ -190,11 +170,8 @@ function extractBatchInnerResult(result: unknown): unknown {
   return result;
 }
 
-/**
- * Submit a single review as an asynchronous batch request. Returns the queue `request_id` to
- * poll later. Throws if the model/account does not support async queueing (the caller is
- * expected to fall back to the synchronous path on any failure).
- */
+// Submit as an async batch, returning the `request_id`. Throws if unsupported; the caller falls back
+// to the synchronous path.
 export async function submitCloudflareBatch(
   env: Pick<AppBindings, 'AI'>,
   model: string,
@@ -218,10 +195,7 @@ export async function submitCloudflareBatch(
   return requestId;
 }
 
-/**
- * Poll a previously submitted async batch request by its `request_id`. Returns `pending` while
- * the batch is still queued/running, or `done` with the extracted review once complete.
- */
+// Poll by `request_id`: `pending` while queued/running, `done` with the review.
 export async function pollCloudflareBatch(
   env: Pick<AppBindings, 'AI'>,
   model: string,
@@ -260,17 +234,13 @@ export async function reviewWithCloudflare(
   providerName = 'Cloudflare',
   options?: { timeoutMs?: number },
 ): Promise<ModelResponse> {
-  // Single attempt, deliberately: retrying here would spend another of the invocation's 50
-  // subrequests on a model that just failed, when ModelService's fallback chain is already about to
-  // try a different one. (This was a retry loop bounded by a constant of 0 -- the body ran exactly
-  // once and ~25 lines of backoff were unreachable.)
+  // Single attempt: a retry spends another of the 50 subrequests on a model that just failed, when the
+  // fallback chain is about to try another. (Was a retry loop bounded by 0, so ~25 lines were dead.)
   const timeoutMs = options?.timeoutMs ?? CLOUDFLARE_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  // Abort the underlying Workers-AI request when the timeout fires. Promise.race on its own
-  // only stops *us* awaiting -- the subrequest would keep running in the background, holding
-  // this invocation's wall-clock and pushing the workflow toward its 15-minute step cap long
-  // after we've given up. Aborting via the AI binding's signal actually cancels it.
+  // Abort on timeout. Promise.race only stops us awaiting; the subrequest keeps running, holding
+  // wall-clock against the 15-min step cap. The binding's signal actually cancels it.
   const controller = new AbortController();
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -285,8 +255,7 @@ export async function reviewWithCloudflare(
     logger.info(`Calling Cloudflare model: ${model}`);
     const startTime = Date.now();
     const runPromise = env.AI.run(model as any, buildCloudflareInferenceRequest(input), { signal: controller.signal });
-    // Once the timeout wins the race the aborted run still settles (as a rejection); attach a
-    // no-op handler so that late rejection can't surface as an unhandled promise rejection.
+    // The aborted run still settles as a rejection; a no-op handler stops it surfacing as unhandled.
     runPromise.catch(() => {});
     const result = await Promise.race([runPromise, timeoutPromise]);
     logger.info(`AI model ${model} responded in ${Date.now() - startTime}ms`);

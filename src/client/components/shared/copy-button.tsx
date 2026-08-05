@@ -33,8 +33,8 @@ export function CopyButton({
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Clipboard access can be refused (insecure origin, permissions policy). Selecting the text by
-      // hand still works, so failing quietly beats an error the user can do nothing about.
+    // Clipboard access can be refused (insecure origin, permissions policy). Selecting the text by
+    // hand still works, so failing quietly beats an error the user can do nothing about.
     }
   };
 

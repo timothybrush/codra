@@ -45,7 +45,8 @@ export async function reviewWithAnthropic(
           { role: 'assistant', content: '{' }
         ],
         max_tokens: ANTHROPIC_MAX_OUTPUT_TOKENS,
-        temperature: 0,
+        // 0.6 of a 0-1 scale.
+        temperature: 0.6,
       }),
     }),
   );

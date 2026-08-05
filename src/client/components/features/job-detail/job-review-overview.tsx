@@ -1,14 +1,11 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 import { CheckCircle2, ClipboardList, TriangleAlert } from 'lucide-react';
 import type { JobDetail } from '@shared/schema';
-import { reviewSeverities } from '@shared/schema';
+import { reviewSeverities } from '@shared/review-limits';
 import { OutlinePill } from './job-chips';
 
-const safeRehypePlugins = [rehypeRaw, rehypeSanitize];
-
+import { safeRehypePlugins } from '@client/lib/markdown-plugins';
 interface JobReviewOverviewProps {
   job: JobDetail;
 }
@@ -74,7 +71,7 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
         </div>
       </div>
 
-      {/* Summary — the markdown's own leading/trailing block margins are zeroed so
+      {/* Summary - the markdown's own leading/trailing block margins are zeroed so
           the card padding alone controls the gap (they used to stack on top of it). */}
       <div className="px-4 pb-4 pt-3 sm:px-5">
         <div className="prose max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">

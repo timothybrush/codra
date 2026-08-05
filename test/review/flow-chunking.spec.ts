@@ -1,0 +1,338 @@
+import { runReviewJob } from '@server/core/review';
+import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
+import { afterAll, vi } from 'vitest';
+import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
+import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
+import { defaultRepoConfig } from '@shared/schema';
+import { runWithDb } from '@server/db/client';
+import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
+
+const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
+  getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
+}));
+
+vi.mock('@server/db/jobs', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
+  return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
+});
+
+// `global_settings` is a singleton, so a suite that READS it races the suites that write it
+// (api-auth and review-max-files) once files run in parallel. Unique row names cannot isolate a
+// single-row key/value table. This suite only needs some fixed concurrency, not the stored one, so
+// pin it to the schema default. The two suites that genuinely test the table take an advisory lock.
+const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
+
+vi.mock('@server/db/app-settings', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
+  const { reviewSettingsSchema } = await import('@shared/schema');
+  getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
+  return { ...mod, getReviewSettings: getReviewSettingsMock };
+});
+
+vi.mock('@server/services/github', async () => {
+  const { makeGitHubServiceMock } = await import('../mocks/services');
+  return { GitHubService: makeGitHubServiceMock() };
+});
+
+vi.mock('@server/services/model', async () => {
+  const { makeModelServiceMock, isRetryableModelErrorMock } = await import('../mocks/services');
+  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock };
+});
+
+dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
+  // Tripwire: proves the mock above is actually reached by this suite's consumer.
+  // If a future refactor rewires runReviewJob to import getOtherRunningJobsCount from a
+  // sibling module instead of the @server/db/jobs barrel, this mock silently stops applying
+  // and every test here would still pass while asserting nothing about concurrency admission.
+  afterAll(() => {
+    expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
+    expect(getReviewSettingsMock).toHaveBeenCalled();
+  });
+
+  const env = createTestEnv();
+
+  it('reviews files in a chunk concurrently', async () => {
+    const { GitHubService } = await import('@server/services/github');
+    const { ModelService } = await import('@server/services/model');
+    const repo = uniqueRepo('concurrent');
+    const headSha = sha('8');
+    const baseSha = sha('9');
+    const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
+      generateMockDiff([
+        { path: 'src/one.ts', content: 'console.log(1);' },
+        { path: 'src/two.ts', content: 'console.log(2);' },
+      ]),
+    );
+    let active = 0;
+    let maxActive = 0;
+    const reviewSpy = vi.spyOn(ModelService.prototype as any, 'reviewFile').mockImplementation(async (params: any) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      active -= 1;
+      return {
+        parsed: {
+          comments: [],
+          verdict: 'approve',
+          fileSummary: `Reviewed ${params.file.path}`,
+          overallCorrectness: 'no issues',
+          confidenceScore: 0.9,
+        },
+        modelUsed: 'test-model',
+        provider: 'test-provider',
+        inputTokens: 10,
+        outputTokens: 5,
+        rawText: '{}',
+        userPrompt: '',
+      };
+    });
+
+    const job = await insertJob(env, {
+      installationId: '123',
+      owner: 'test-owner',
+      repo,
+      prNumber: 6,
+      prTitle: 'Concurrent Test',
+      prAuthor: 'author',
+      commitSha: headSha,
+      baseSha,
+      trigger: 'auto',
+      headRef: 'feature',
+      baseRef: 'main',
+      configSnapshot: defaultRepoConfig,
+    });
+    await updateJobFileCount(env, job.id, 2);
+    await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
+
+    await runWithDb(env, async () => {
+      (env.REVIEW_QUEUE as any).sent.length = 0;
+      const result = await runReviewJob(env, {
+        jobId: job.id,
+        deliveryId: 'delivery-concurrent',
+        phase: 'review',
+      });
+
+      // Finalize always yields long enough to hibernate into a fresh invocation (fresh subrequest
+      // budget), so the delay is the hibernation yield, not 0.
+      // Transitioning into finalize -> runs on a fresh instance for a clean subrequest budget.
+      expect(result).toEqual({ action: 'next_phase', phase: 'finalize', delaySeconds: expect.any(Number), jobId: expect.any(String), freshInstance: true });
+      expect(result.action === 'next_phase' && result.delaySeconds).toBeGreaterThan(0);
+      expect(maxActive).toBe(2);
+      expect((env.REVIEW_QUEUE as any).sent).toHaveLength(0);
+    });
+
+    const reviews = await getFileReviewsForJobs(env, [job.id]);
+    expect(reviews.filter((review) => review.file_status === 'done')).toHaveLength(2);
+
+    reviewSpy.mockRestore();
+    getDiffSpy.mockRestore();
+  }, REVIEW_FLOW_TIMEOUT_MS);
+
+  it('marks completed jobs with skipped files as partial reviews', async () => {
+    const { GitHubService } = await import('@server/services/github');
+    const { ModelService } = await import('@server/services/model');
+    const repo = uniqueRepo('partial');
+    const headSha = sha('e');
+    const baseSha = sha('f');
+    const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
+      generateMockDiff([
+        { path: 'src/app.ts', content: 'console.log(1);' },
+        { path: 'src/failed.ts', content: 'console.log(2);' },
+      ]),
+    );
+
+    const job = await insertJob(env, {
+      installationId: '123',
+      owner: 'test-owner',
+      repo,
+      prNumber: 7,
+      prTitle: 'Partial Test',
+      prAuthor: 'author',
+      commitSha: headSha,
+      baseSha,
+      trigger: 'auto',
+      headRef: 'feature',
+      baseRef: 'main',
+      configSnapshot: defaultRepoConfig,
+    });
+    const summarySpy = vi.spyOn(ModelService.prototype as any, 'generateSummary');
+    await updateJobFileCount(env, job.id, 2);
+    await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
+    await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+    await upsertFileReview(env, job.id, {
+      filePath: 'src/app.ts',
+      fileStatus: 'done',
+      modelUsed: 'test-model',
+      modelProvider: 'test-provider',
+      diffLineCount: 1,
+      diffInput: 'diff',
+      rawAiOutput: '{}',
+      parsedComments: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      durationMs: 1,
+      verdict: 'approve',
+      fileSummary: 'ok',
+      errorMessage: null,
+    });
+    await upsertFileReview(env, job.id, {
+      filePath: 'src/failed.ts',
+      fileStatus: 'failed',
+      modelUsed: 'gemini-3.1-pro-preview',
+      modelProvider: 'google',
+      diffLineCount: 1,
+      diffInput: '',
+      rawAiOutput: null,
+      parsedComments: [],
+      inputTokens: null,
+      outputTokens: null,
+      durationMs: 1,
+      verdict: null,
+      fileSummary: null,
+      errorMessage: 'Review skipped after 3 repeated model provider outages.',
+    });
+
+    await runWithDb(env, async () => {
+      (env.REVIEW_QUEUE as any).sent.length = 0;
+      const result = await runReviewJob(env, {
+        jobId: job.id,
+        deliveryId: 'delivery-partial',
+        phase: 'finalize',
+      });
+      expect(result).toEqual({ action: 'ack' });
+    });
+
+    const finalJob = await getJobForProcessing(env, job.id);
+    expect(finalJob?.status).toBe('done');
+    expect(finalJob?.error_msg).toContain('Partial review: 1 of 2 files');
+    const steps = typeof finalJob?.steps === 'string' ? JSON.parse(finalJob.steps) : finalJob?.steps;
+    expect(steps?.find((step: { name: string }) => step.name === 'Completing')?.status).toBe('done');
+    expect(finalJob?.summary_markdown).toMatch(/^### Codra Review/);
+    expect(finalJob?.summary_model).toBeNull();
+    expect(summarySpy).not.toHaveBeenCalled();
+    summarySpy.mockRestore();
+    getDiffSpy.mockRestore();
+  }, REVIEW_FLOW_TIMEOUT_MS);
+
+  it('reuses an already-posted review instead of double-posting when finalize re-runs past the posting stage', async () => {
+    const { GitHubService } = await import('@server/services/github');
+    const repo = uniqueRepo('doublepost');
+    const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
+      generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),
+    );
+    // A prior finalize attempt already posted this review (id 999) but died before recording it, so
+    // the GitHub lookup finds it. Finalize must reuse it, not post a second review.
+    const findSpy = vi.spyOn(GitHubService.prototype, 'findBotReviewForCommit').mockResolvedValue({ id: 999 });
+    const createSpy = vi.spyOn(GitHubService.prototype, 'createReview');
+
+    const job = await insertJob(env, {
+      installationId: '123',
+      owner: 'test-owner',
+      repo,
+      prNumber: 8,
+      prTitle: 'Double Post Test',
+      prAuthor: 'author',
+      commitSha: sha('a1'),
+      baseSha: sha('b1'),
+      trigger: 'auto',
+      headRef: 'feature',
+      baseRef: 'main',
+      configSnapshot: defaultRepoConfig,
+    });
+    await updateJobFileCount(env, job.id, 1);
+    await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
+    await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+    // A prior finalize attempt reached the posting stage -- this is the marker the guard keys on.
+    await updateJobStep(env, job.id, 'Completing', { status: 'running' });
+    await upsertFileReview(env, job.id, {
+      filePath: 'src/app.ts',
+      fileStatus: 'done',
+      modelUsed: 'test-model',
+      modelProvider: 'test-provider',
+      diffLineCount: 1,
+      diffInput: 'diff',
+      rawAiOutput: '{}',
+      parsedComments: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      durationMs: 1,
+      verdict: 'approve',
+      fileSummary: 'ok',
+      errorMessage: null,
+    });
+
+    await runWithDb(env, async () => {
+      const result = await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-doublepost', phase: 'finalize' });
+      expect(result).toEqual({ action: 'ack' });
+    });
+
+    expect(findSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy).not.toHaveBeenCalled();
+    const finalJob = await getJobForProcessing(env, job.id);
+    expect(finalJob?.status).toBe('done');
+    expect(Number(finalJob?.review_id)).toBe(999);
+
+    findSpy.mockRestore();
+    createSpy.mockRestore();
+    getDiffSpy.mockRestore();
+  }, REVIEW_FLOW_TIMEOUT_MS);
+
+  it('does not pay the existing-review lookup on a first-pass finalize', async () => {
+    const { GitHubService } = await import('@server/services/github');
+    const repo = uniqueRepo('firstpass');
+    const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
+      generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),
+    );
+    const findSpy = vi.spyOn(GitHubService.prototype, 'findBotReviewForCommit');
+    const createSpy = vi.spyOn(GitHubService.prototype, 'createReview');
+
+    const job = await insertJob(env, {
+      installationId: '123',
+      owner: 'test-owner',
+      repo,
+      prNumber: 9,
+      prTitle: 'First Pass Test',
+      prAuthor: 'author',
+      commitSha: sha('c1'),
+      baseSha: sha('d1'),
+      trigger: 'auto',
+      headRef: 'feature',
+      baseRef: 'main',
+      configSnapshot: defaultRepoConfig,
+    });
+    await updateJobFileCount(env, job.id, 1);
+    await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
+    await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+    // 'Completing' has never been started -> this is a first-pass finalize, no re-post risk.
+    await upsertFileReview(env, job.id, {
+      filePath: 'src/app.ts',
+      fileStatus: 'done',
+      modelUsed: 'test-model',
+      modelProvider: 'test-provider',
+      diffLineCount: 1,
+      diffInput: 'diff',
+      rawAiOutput: '{}',
+      parsedComments: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      durationMs: 1,
+      verdict: 'approve',
+      fileSummary: 'ok',
+      errorMessage: null,
+    });
+
+    await runWithDb(env, async () => {
+      const result = await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-firstpass', phase: 'finalize' });
+      expect(result).toEqual({ action: 'ack' });
+    });
+
+    expect(findSpy).not.toHaveBeenCalled();
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    const finalJob = await getJobForProcessing(env, job.id);
+    expect(finalJob?.status).toBe('done');
+
+    findSpy.mockRestore();
+    createSpy.mockRestore();
+    getDiffSpy.mockRestore();
+  }, REVIEW_FLOW_TIMEOUT_MS);
+});
