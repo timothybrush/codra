@@ -1,130 +1,46 @@
 import type { AppBindings } from '../env';
 import { reviewWithGoogle } from '../models/google';
-import { reviewWithCloudflare, submitCloudflareBatch, pollCloudflareBatch } from '../models/cloudflare';
+import { reviewWithVertex } from '../models/vertex';
+import { reviewWithCloudflare } from '../models/cloudflare';
 import { reviewWithOpenAI } from '../models/openai';
 import { reviewWithAnthropic } from '../models/anthropic';
-import { buildFileReviewPrompts } from '../prompts/file-review';
-import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '../prompts/summary';
-import { parseFileReviewResponse } from '../core/model-output';
-import { truncateFileDiff, chunkFileDiff } from '../core/diff';
+import type { VerifyCandidate } from '../prompts/verify';
 import type { RepoConfig } from '@shared/schema';
 import type { TokenTracker } from '../core/token-tracker';
-import { UnparseableModelResponseError, type ModelResponse } from '../models/types';
+import type { ModelInput, ModelResponse } from '../models/types';
 import { logger } from '../core/logger';
-import { normalizeModelId } from '@shared/schema';
-import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
 import { getResolvedModelConfig, type ResolvedModelConfig } from '@server/db/model-configs';
 import { decryptLlmApiKey } from '@server/core/llm-crypto';
-import { ModelCallGate, adaptiveModelTimeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
+import {
+  normalizeModel,
+  uniqueModels,
+} from './model-support';
+import { ModelRateLimitBook } from './model-rate-limits';
+import { type ModelChainContext, generateSummary, verifyFindings } from './model-chain-runner';
+import { type ModelReviewContext, reviewFile } from './model-review-file';
+import { pollReviewBatch, submitReviewBatch } from './model-review-batch';
+
+// Re-exported: core/review.ts and two specs import these from '@server/services/model'.
+export { RetryableModelError, isRetryableModelError } from './model-support';
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
-const COMPACT_REVIEW_PROMPT_LINE_CAP = 400;
-const MODEL_ALIASES: Record<string, string> = {
-  'gemma-4-31b': 'gemma-4-31b-it',
-  'gemma-4-26b': 'gemma-4-26b-a4b-it',
-};
-
-export class RetryableModelError extends Error {
-  readonly retryable = true;
-
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = 'RetryableModelError';
-    if (cause !== undefined) {
-      Object.defineProperty(this, 'cause', {
-        value: cause,
-        writable: true,
-        configurable: true,
-      });
-    }
-  }
-}
-
-export function isRetryableModelError(error: unknown) {
-  return Boolean(error && typeof error === 'object' && 'retryable' in error && error.retryable === true);
-}
-
-function normalizeModel(model: string) {
-  return normalizeModelId(MODEL_ALIASES[model] ?? model);
-}
-
-function uniqueModels(models: string[]) {
-  return Array.from(new Set(models.map(normalizeModel)));
-}
-
-function isCloudflareAllocationError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('4006') || message.toLowerCase().includes('daily free allocation');
-}
-
-function isGoogleRateLimitError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  const lower = message.toLowerCase();
-  
-  if (lower.includes('timed out') || lower.includes('timeout')) {
-    return false;
-  }
-  
-  return lower.includes('429') || lower.includes('resource_exhausted') || lower.includes('quota exceeded');
-}
-
-function isTransientModelFailure(error: unknown) {
-  if (isRetryableModelError(error)) return true;
-  // No reviewable output (reasoning-only / truncated / empty) is deterministic -- never retry it.
-  if (error instanceof UnparseableModelResponseError) return false;
-  if (isCloudflareAllocationError(error)) return false;
-  const message = error instanceof Error ? error.message : String(error);
-  const lower = message.toLowerCase();
-
-  // Explicitly fail fast for timeouts so they don't loop endlessly
-  if (isTimeoutMessage(lower)) {
-    return false;
-  }
-
-  return (
-    isGoogleRateLimitError(error) ||
-    matchesAnyTransientSubstring(lower) ||
-    lower.includes('fetch failed') ||
-    lower.includes('network') ||
-    lower.includes('temporar') ||
-    // Upstream 5xx (e.g. Gemini's frequent "request failed with 500: Internal error encountered")
-    // is a transient server-side outage, not a deterministic client error. Without this a sustained
-    // 5xx run makes every model in the chain throw a non-transient error, so the file is marked
-    // permanently failed instead of being deferred and retried once the provider recovers.
-    /\b50[0-9]\b/.test(lower) ||
-    lower.includes('internal error')
-  );
-}
-
 export class ModelService {
-  // Model configs don't change during a single review invocation, but resolveModel() is called
-  // once per file *and* once per fallback model. Left uncached that's a Hyperdrive round-trip
-  // (a counted subrequest) for every one of those, which both burns the per-invocation
-  // subrequest budget (shrinking how many files a chunk can review in parallel) and floods the
-  // connection pool. Memoize per ModelService instance (one instance == one invocation/chunk)
-  // so each distinct model is resolved from the DB at most once. Cache the in-flight promise
-  // (not just the settled value) so concurrent resolveModel() calls for the same model made
-  // before the first DB round-trip completes all await the same request instead of each firing
-  // their own.
+  // resolveModel() runs once per file AND per fallback model; uncached, that is a counted
+  // subrequest each time. Memoized per instance. Caches the in-flight PROMISE, so concurrent
+  // calls for the same model await one request instead of each firing their own.
   private readonly resolvedModelCache = new Map<string, Promise<ResolvedModelConfig | null>>();
 
-  // The Workers runtime allows only 6 simultaneous connections per invocation; anything beyond
-  // that is queued without starting. When several files review in parallel, un-gated model
-  // calls queue behind each other and burn their entire client timeout before the request is
-  // even dispatched (observed as a provider "timing out" at exactly the configured timeout on
-  // every attempt). Gate all outbound model calls for this invocation so a call's timeout only
-  // starts once it actually has a connection slot.
-  private readonly callGate = new ModelCallGate();
+  // Rate-limit learning plus the connection/token gates. See model-rate-limits.ts -- keyed by
+  // MODEL, not provider.
+  private readonly rateLimits = new ModelRateLimitBook();
 
-  // Provider-unavailable markers live in KV and every read is a counted subrequest. The marker
-  // can't flip from set back to unset within one invocation, so cache lookups per instance
-  // (one instance == one invocation) instead of re-reading KV for every file in the chunk.
+  // Provider-unavailable markers live in KV and every read is a counted subrequest. They can't
+  // flip set-to-unset within one invocation, so cache per instance instead of re-reading KV.
   private readonly providerUnavailableCache = new Map<string, Promise<boolean>>();
 
-  // Models proven (this invocation) not to support the async batch queue. try-async-then-fallback
-  // means the first file probes async; if that fails, every later file in the same chunk skips the
-  // probe and goes straight to the synchronous path, so a non-async model isn't charged an extra
-  // (potentially full-inference) submit attempt per file.
+  // Models proven this invocation not to support async batching. The first file probes; if it
+  // fails, every later file in the chunk skips straight to the synchronous path instead of
+  // paying for another failed submit attempt.
   private readonly asyncUnsupportedModels = new Set<string>();
 
   constructor(
@@ -247,22 +163,35 @@ export class ModelService {
 
   private async callResolvedModel(
     config: ResolvedModelConfig,
-    input: { systemPrompt: string; userPrompt: string },
+    input: ModelInput,
     timeoutMs?: number,
+    // Reports queue time so a caller budgeting wall clock can exclude it.
+    onGateWait?: (waitedMs: number) => void,
   ): Promise<ModelResponse> {
-    // Resolve credentials *before* taking a gate slot so slow KV/crypto work never occupies a
-    // model-call slot, then run the actual provider request under the gate. The provider's
-    // timeout only starts inside the gated call, so time spent waiting for a slot is free.
+    // Resolve credentials BEFORE taking a gate slot, so slow KV/crypto work never occupies one;
+    // the provider's timeout starts only inside the gated call.
     if (config.apiFormat === 'cloudflare-workers-ai') {
-      return this.callGate.run(() =>
+      return this.rateLimits.runGated(config, onGateWait, () =>
         reviewWithCloudflare(this.env, config.modelName, input, this.tracker, config.providerName, { timeoutMs }),
       );
     }
 
     if (config.apiFormat === 'gemini') {
       const apiKey = await this.decryptApiKey(config);
-      return this.callGate.run(() =>
+      return this.rateLimits.runGated(config, onGateWait, () =>
         reviewWithGoogle(
+          { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
+          config.modelName,
+          input,
+          this.tracker,
+        ),
+      );
+    }
+
+    if (config.apiFormat === 'vertex') {
+      const apiKey = await this.decryptApiKey(config);
+      return this.rateLimits.runGated(config, onGateWait, () =>
+        reviewWithVertex(
           { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
           config.modelName,
           input,
@@ -273,7 +202,7 @@ export class ModelService {
 
     if (config.apiFormat === 'openai') {
       const apiKey = await this.decryptApiKey(config);
-      return this.callGate.run(() =>
+      return this.rateLimits.runGated(config, onGateWait, () =>
         reviewWithOpenAI(
           {
             apiKey,
@@ -289,7 +218,7 @@ export class ModelService {
     }
 
     const apiKey = await this.decryptApiKey(config);
-    return this.callGate.run(() =>
+    return this.rateLimits.runGated(config, onGateWait, () =>
       reviewWithAnthropic(
         { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
         config.modelName,
@@ -299,304 +228,45 @@ export class ModelService {
     );
   }
 
-  private async callModel(model: string, input: { systemPrompt: string; userPrompt: string }, timeoutMs?: number): Promise<ModelResponse> {
+  private async callModel(model: string, input: ModelInput, timeoutMs?: number): Promise<ModelResponse> {
     return this.callResolvedModel(await this.resolveModel(model), input, timeoutMs);
   }
 
-  async reviewFile(params: {
-    file: any;
-    prTitle: string | null;
-    prDescription: string | null;
-    config: RepoConfig;
-    totalLineCount: number;
-    compactPrompt?: boolean;
-  }) {
-    const configuredLineCap = params.config.review.max_diff_lines_per_file;
-    const modelLineCap = params.compactPrompt
-      ? Math.min(configuredLineCap, COMPACT_REVIEW_PROMPT_LINE_CAP)
-      : configuredLineCap;
-
-    let chunks = chunkFileDiff(params.file, modelLineCap);
-    // Remember the pre-cap chunk count so wasPromptTruncated doesn't have to re-run chunkFileDiff.
-    const totalChunkCount = chunks.length;
-
-    // Cap chunks to prevent single files from burning all subrequests and getting stuck.
-    const MAX_CHUNKS = 4;
-    if (chunks.length > MAX_CHUNKS) {
-      chunks = chunks.slice(0, MAX_CHUNKS);
-    }
-
-    if (chunks.length === 1) {
-      return this.reviewFileChunk({ ...params, file: chunks[0] });
-    }
-
-    const results: Array<ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>, reviewedLineCount: number, wasPromptTruncated: boolean, userPrompt: string }> = [];
-    
-    for (const chunk of chunks) {
-      // Don't start a new chunk if we are dangerously close to the 50 subrequest limit.
-      if (results.length > 0 && this.tracker?.isNearLimit()) {
-        logger.warn(`Stopping chunk processing for ${params.file.path} early due to subrequest budget limits.`);
-        break;
-      }
-      
-      try {
-        const res = await this.reviewFileChunk({ ...params, file: chunk });
-        results.push(res as any);
-      } catch (error) {
-        if (results.length === 0) {
-          throw error; // First chunk failed, let it defer/fail properly
-        }
-        logger.warn(`Chunk review failed for ${params.file.path}, returning partial results to avoid stalling the job.`, { error: error instanceof Error ? error.message : String(error) });
-        break;
-      }
-    }
-
-    const combinedFindings = results.flatMap(r => r.parsed.comments);
-    // Report the file with the most serious chunk's verdict/summary/correctness, not just the last
-    // chunk's: taking `results[results.length - 1]` would let a clean final chunk mask real findings
-    // from an earlier chunk of the same file (reporting verdict 'approve' while carrying its comments).
-    const primaryResult = results.find(r => r.parsed.verdict === 'comment') ?? results[results.length - 1];
-
+  // Extends chainCtx() with the review flow's extra per-invocation state. See model-review-file.ts.
+  private reviewCtx(): ModelReviewContext {
     return {
-      ...primaryResult,
-      inputTokens: results.reduce((sum, r) => sum + r.inputTokens, 0),
-      outputTokens: results.reduce((sum, r) => sum + r.outputTokens, 0),
-      parsed: {
-        ...primaryResult.parsed,
-        comments: combinedFindings,
-      },
-      reviewedLineCount: results.reduce((sum, r) => sum + r.reviewedLineCount, 0),
-      wasPromptTruncated: chunks.length < totalChunkCount || results.length < chunks.length,
+      ...this.chainCtx(),
+      env: this.env,
+      rateLimits: this.rateLimits,
+      asyncUnsupportedModels: this.asyncUnsupportedModels,
     };
   }
 
-  /**
-   * Try to submit a file's review to the Workers AI asynchronous batch queue. Returns the queue
-   * request_id and the model it was submitted to, or null when async batching isn't usable for
-   * the primary model (non-Cloudflare provider, or the model/account doesn't support queueing) --
-   * in which case the caller falls back to the synchronous reviewFile path. This decouples slow
-   * (e.g. reasoning) model inference from the per-invocation timeout and subrequest cap.
-   */
-  async submitReviewBatch(params: {
-    file: any;
-    prTitle: string | null;
-    prDescription: string | null;
-    config: RepoConfig;
-    totalLineCount: number;
-    compactPrompt?: boolean;
-  }): Promise<{ requestId: string; model: string } | null> {
-    const { primary } = this.selectModel({ totalLineCount: params.totalLineCount, config: params.config });
-
-    let resolved: ResolvedModelConfig;
-    try {
-      resolved = await this.resolveModel(primary);
-    } catch {
-      return null;
-    }
-    // Only Cloudflare Workers AI exposes the async batch queue; other providers use the sync path.
-    if (resolved.apiFormat !== 'cloudflare-workers-ai') return null;
-    // Skip the probe for a model already shown not to support async queueing this invocation.
-    if (this.asyncUnsupportedModels.has(resolved.modelName)) return null;
-
-    const configuredLineCap = params.config.review.max_diff_lines_per_file;
-    const modelLineCap = params.compactPrompt
-      ? Math.min(configuredLineCap, COMPACT_REVIEW_PROMPT_LINE_CAP)
-      : configuredLineCap;
-    const file = truncateFileDiff(params.file, modelLineCap);
-    const { systemPrompt, userPrompt } = buildFileReviewPrompts({
-      ...params,
-      file,
-      config: params.config.review,
-    });
-
-    try {
-      const requestId = await this.callGate.run(() =>
-        submitCloudflareBatch(this.env, resolved.modelName, { systemPrompt, userPrompt }, this.tracker),
-      );
-      return { requestId, model: resolved.modelName };
-    } catch (error) {
-      // Any failure here (async unsupported, transient submit error) is non-fatal: the caller
-      // reviews the file synchronously instead. Remember the model so sibling files this
-      // invocation don't each pay the failed probe.
-      this.asyncUnsupportedModels.add(resolved.modelName);
-      logger.warn(`Async batch submit unavailable for ${resolved.modelName}; using synchronous review`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+  async reviewFile(params: Parameters<typeof reviewFile>[1]) {
+    return reviewFile(this.reviewCtx(), params);
   }
 
-  /**
-   * Poll a previously submitted async batch review. Returns 'pending' while still queued/running,
-   * 'done' with the parsed review once complete, or 'failed' if the poll or parse errored.
-   */
-  async pollReviewBatch(params: { model: string; requestId: string; file: any }): Promise<
-    | { status: 'pending' }
-    | { status: 'done'; response: ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>; reviewedLineCount: number; wasPromptTruncated: boolean; userPrompt: string } }
-    | { status: 'failed'; error: unknown }
-  > {
-    let resolved: ResolvedModelConfig;
-    try {
-      resolved = await this.resolveModel(params.model);
-    } catch (error) {
-      return { status: 'failed', error };
-    }
-
-    try {
-      const poll = await this.callGate.run(() =>
-        pollCloudflareBatch(this.env, resolved.modelName, params.requestId, this.tracker, resolved.providerName),
-      );
-      if (poll.status === 'pending') return { status: 'pending' };
-
-      const response = poll.response;
-      if (this.tracker) {
-        this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
-      }
-      const parsed = parseFileReviewResponse(response.rawText, params.file);
-      return {
-        status: 'done',
-        response: {
-          ...response,
-          parsed,
-          userPrompt: '',
-          reviewedLineCount: params.file.lineCount,
-          wasPromptTruncated: params.file.isTruncated === true,
-        },
-      };
-    } catch (error) {
-      return { status: 'failed', error };
-    }
+  async submitReviewBatch(params: Parameters<typeof submitReviewBatch>[1]) {
+    return submitReviewBatch(this.reviewCtx(), params);
   }
 
-  private async reviewFileChunk(params: {
-    file: any;
-    prTitle: string | null;
-    prDescription: string | null;
-    config: RepoConfig;
-    totalLineCount: number;
-    compactPrompt?: boolean;
-  }) {
-    const { systemPrompt, userPrompt } = buildFileReviewPrompts({
-      ...params,
-      file: params.file,
-      config: params.config.review,
-    });
+  async pollReviewBatch(params: Parameters<typeof pollReviewBatch>[1]) {
+    return pollReviewBatch(this.reviewCtx(), params);
+  }
 
-    const { primary, fallbacks } = this.selectModel({
-      totalLineCount: params.totalLineCount,
-      config: params.config,
-    });
-    const modelsToTry = [primary, ...fallbacks];
-
-    // Size the per-call timeout to the diff the model actually sees: small
-    // files fail over to the next model fast; large diffs get a proportionally longer budget.
-    const timeoutMs = adaptiveModelTimeoutMs(params.file.lineCount);
-
-    let lastError: unknown;
-    let lastTransientError: unknown;
-    let sawTransientFailure = false;
-    const chainStartedAt = Date.now();
-    for (const [modelIndex, currentModel] of modelsToTry.entries()) {
-      // Always allow the first (primary) model a shot even if the shared job budget is
-      // already tight, so a file isn't punished for other files' earlier failures. But once
-      // we're into the fallback chain, each additional attempt costs more subrequests
-      // (config lookup + provider call, sometimes a provider-availability check too) that
-      // could tip this whole invocation over Cloudflare's per-invocation subrequest cap
-      // (Workers Free plan: 50). Defer the file for a later retry instead of gambling the
-      // rest of the invocation's budget on a low-probability extra fallback.
-      if (modelIndex > 0 && this.tracker?.isNearLimit()) {
-        logger.warn(`Skipping remaining fallback models for ${params.file.path}; subrequest budget for this invocation is nearly exhausted`, {
-          skippedModels: modelsToTry.slice(modelIndex),
-        });
-
-        // If we haven't seen any transient failures (e.g. they were all permanent timeouts),
-        // don't force this to become a transient failure. Just break and let the last permanent error propagate.
-        if (sawTransientFailure) {
-          lastTransientError = lastTransientError ?? lastError ?? new Error('Subrequest budget for this invocation was nearly exhausted before trying all configured fallback models');
-        }
-        break;
-      }
-
-      // Stop walking the fallback chain once this file has consumed its wall-clock budget: a long
-      // chain of slow/timing-out models could otherwise run several calls back-to-back and push the
-      // whole workflow invocation past Cloudflare's ~120s limit (killing it as `exceededCpu` and
-      // losing all progress). Defer instead -- the file resumes from the fast primary model in a
-      // fresh invocation. Always let the primary (modelIndex 0) run first.
-      if (modelIndex > 0 && Date.now() - chainStartedAt > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
-        logger.warn(`Deferring ${params.file.path}: fallback chain exceeded its per-invocation time budget`, {
-          elapsedMs: Date.now() - chainStartedAt,
-          skippedModels: modelsToTry.slice(modelIndex),
-        });
-        // Treat as a transient/deferrable outcome so the file is retried on a fresh budget rather
-        // than marked permanently failed.
-        sawTransientFailure = true;
-        lastTransientError = lastTransientError ?? lastError ?? new Error(`Model fallback chain for ${params.file.path} exceeded its time budget; deferring for retry.`);
-        break;
-      }
-
-      let resolved: ResolvedModelConfig;
-      try {
-        resolved = await this.resolveModel(currentModel);
-      } catch (error) {
-        lastError = error;
-        logger.warn(`Model ${currentModel} could not be resolved`, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        continue;
-      }
-
-      if (resolved.apiFormat === 'cloudflare-workers-ai' && await this.isProviderUnavailable(resolved.providerId)) {
-        logger.warn(`Skipping ${resolved.providerName} model ${currentModel} because the provider is unavailable for job ${this.options.jobId ?? 'unknown'}`);
-        continue;
-      }
-
-      // One shot per model: a failed call is never retried against the same model (a retryable
-      // outage is handled by deferring the whole file to a fresh invocation), so on failure we just
-      // fall through to the next model in the fallback chain.
-      try {
-        const response = await this.callResolvedModel(resolved, { systemPrompt, userPrompt }, timeoutMs);
-
-        if (this.tracker) {
-          this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
-        }
-
-        const parsed = parseFileReviewResponse(response.rawText, params.file);
-        return {
-          ...response,
-          parsed,
-          userPrompt,
-          reviewedLineCount: params.file.lineCount,
-          wasPromptTruncated: params.file.isTruncated === true,
-        };
-      } catch (error) {
-        lastError = error;
-        if (isTransientModelFailure(error)) {
-          sawTransientFailure = true;
-          lastTransientError = error;
-        }
-        if (resolved.apiFormat === 'cloudflare-workers-ai' && isCloudflareAllocationError(error)) {
-          await this.markProviderUnavailable(resolved.providerId, error instanceof Error ? error.message : String(error));
-        }
-
-        logger.warn(`Model ${currentModel} failed for ${params.file.path}`, {
-          error: error instanceof Error ? error.message : String(error),
-          rateLimited: isGoogleRateLimitError(error),
-          willTryFallback: modelIndex < modelsToTry.length - 1,
-        });
-        // Fall through to the next model in the fallback chain.
-      }
-    }
-
-    if (sawTransientFailure) {
-      const retryCause = lastTransientError ?? lastError;
-      const lastMessage = retryCause instanceof Error ? retryCause.message : String(retryCause ?? 'Unknown model error');
-      throw new RetryableModelError(
-        `All configured review models failed for ${params.file.path}; retrying later. Last error: ${lastMessage}`,
-        retryCause,
-      );
-    }
-
-    throw lastError;
+  // Hands the extracted flows the private model-chain surface without making it public. Built per
+  // call; it holds no state of its own.
+  private chainCtx(): ModelChainContext {
+    return {
+      selectModel: (params) => this.selectModel(params),
+      resolveModel: (model) => this.resolveModel(model),
+      isProviderUnavailable: (providerId) => this.isProviderUnavailable(providerId),
+      markProviderUnavailable: (providerId, reason) => this.markProviderUnavailable(providerId, reason),
+      callResolvedModel: (resolved, input, timeoutMs, onGateWait) =>
+        this.callResolvedModel(resolved, input, timeoutMs, onGateWait),
+      tracker: this.tracker,
+      jobId: this.options.jobId,
+    };
   }
 
   async generateSummary(params: {
@@ -605,62 +275,10 @@ export class ModelService {
     fileSummaries: Array<{ path: string; summary: string; verdict: string }>;
     config: RepoConfig;
   }) {
-    const { primary, fallbacks } = this.selectModel({ totalLineCount: 0, config: params.config });
-    const modelsToTry = [primary, ...fallbacks];
+    return generateSummary(this.chainCtx(), params);
+  }
 
-    let lastError: unknown;
-    let lastTransientError: unknown;
-    let sawTransientFailure = false;
-    for (const currentModel of modelsToTry) {
-      let resolved: ResolvedModelConfig;
-      try {
-        resolved = await this.resolveModel(currentModel);
-      } catch (error) {
-        lastError = error;
-        logger.warn(`Summary model ${currentModel} could not be resolved`, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        continue;
-      }
-
-      if (resolved.apiFormat === 'cloudflare-workers-ai' && await this.isProviderUnavailable(resolved.providerId)) {
-        logger.warn(`Skipping ${resolved.providerName} summary model ${currentModel} because the provider is unavailable for job ${this.options.jobId ?? 'unknown'}`);
-        continue;
-      }
-
-      try {
-        const response = await this.callResolvedModel(resolved, {
-          systemPrompt: SUMMARY_SYSTEM_PROMPT,
-          userPrompt: buildSummaryPrompt(params),
-        }, adaptiveModelTimeoutMs(0));
-
-        if (this.tracker) {
-          this.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
-        }
-
-        return response;
-      } catch (error) {
-        lastError = error;
-        if (isTransientModelFailure(error)) {
-          sawTransientFailure = true;
-          lastTransientError = error;
-        }
-        if (resolved.apiFormat === 'cloudflare-workers-ai' && isCloudflareAllocationError(error)) {
-          await this.markProviderUnavailable(resolved.providerId, error instanceof Error ? error.message : String(error));
-        }
-        logger.warn(`Summary model ${currentModel} failed`, { error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-
-    if (sawTransientFailure) {
-      const retryCause = lastTransientError ?? lastError;
-      const lastMessage = retryCause instanceof Error ? retryCause.message : String(retryCause ?? 'Unknown model error');
-      throw new RetryableModelError(
-        `All configured summary models failed; retrying later. Last error: ${lastMessage}`,
-        retryCause,
-      );
-    }
-
-    throw lastError;
+  async verifyFindings(params: { candidates: VerifyCandidate[]; config: RepoConfig }): Promise<ModelResponse> {
+    return verifyFindings(this.chainCtx(), params);
   }
 }

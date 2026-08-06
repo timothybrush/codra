@@ -6,13 +6,12 @@ import {
   createContext,
   type ReactNode,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
 } from 'react';
 
-// Lenis' own expo-out curve — the canonical smooth-scroll easing. Kept as a
+// Lenis' own expo-out curve - the canonical smooth-scroll easing. Kept as a
 // named local fn (not a lib/ease token) because tokens are bezier control
 // points for the motion lib, while Lenis needs a (t) => number easing fn.
 const EASE_SCROLL = (t: number) => Math.min(1, 1.001 - 2 ** (-10 * t));
@@ -51,7 +50,7 @@ export interface SmoothScrollProps {
   orientation?: 'vertical' | 'horizontal';
   /** Wheel scroll speed multiplier. */
   wheelMultiplier?: number;
-  /** Smooth touch scrolling. Off by default — native momentum is good on mobile. */
+  /** Smooth touch scrolling. Off by default - native momentum is good on mobile. */
   touch?: boolean;
   className?: string;
 }
@@ -237,33 +236,4 @@ export function SmoothScroll({
       </ReactLenis>
     </SmoothScrollContext.Provider>
   );
-}
-
-/**
- * Read the page's smooth-scroll state. Inside <SmoothScroll> it returns the
- * shared motion values; outside it falls back to a native window scroll
- * listener so scroll-driven components still work without the provider.
- */
-export function useSmoothScroll(): SmoothScrollApi {
-  const ctx = useContext(SmoothScrollContext);
-  const scrollY = useMotionValue(0);
-  const progress = useMotionValue(0);
-  const velocity = useMotionValue(0);
-
-  const windowSource = useCallback((): ScrollSource => window, []);
-  useNativeScrollSync(ctx === null, windowSource, scrollY, progress, velocity);
-
-  const scrollTo = useCallback((target: ScrollTarget, options?: ScrollToOptions) => {
-    window.scrollTo({
-      top: resolveTop(target, window, options?.offset),
-      behavior: options?.immediate ? 'auto' : 'smooth',
-    });
-  }, []);
-
-  const fallback = useMemo<SmoothScrollApi>(
-    () => ({ lenis: null, scrollY, progress, velocity, scrollTo }),
-    [scrollY, progress, velocity, scrollTo],
-  );
-
-  return ctx ?? fallback;
 }

@@ -90,7 +90,7 @@ export function LoginPage() {
             <a
               href="/auth/github"
               id="login-submit"
-              className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-foreground text-[0.95rem] font-semibold text-background shadow-md transition-all hover:bg-foreground/90 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-md border border-[var(--btn-primary-border)] bg-[var(--btn-primary-surface)] text-[0.95rem] font-semibold text-[var(--btn-primary-fg)] transition-all hover:bg-[var(--btn-primary-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <GithubMark size={17} />
               Sign in with GitHub
@@ -98,7 +98,7 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Footer note — outside the card */}
+        {/* Footer note - outside the card */}
         <div className="mt-6 flex items-center gap-2.5 px-2 text-muted-foreground">
           <ShieldCheck size={16} className="shrink-0 text-success" />
           <p className="text-xs leading-snug">

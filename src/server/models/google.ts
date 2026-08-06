@@ -1,15 +1,16 @@
 import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, type ModelResponse } from './types';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
+import { assertPublicBaseUrl } from './url-guard';
 
 /** Default max wall-clock time for a single Google AI Studio call when the caller doesn't
  * supply a diff-size-aware budget. */
 const GEMINI_TIMEOUT_MS = 45_000;
 // Retry transient upstream failures (Gemini's frequent 5xx "Internal error encountered.") a
-// couple of times with backoff so a momentary blip doesn't fail an otherwise-fine gemma review.
+// couple of times with backoff so a momentary blip doesn't fail an otherwise-fine review.
 const GEMINI_MAX_RETRIES = 2;
-// Headroom so reasoning/"thinking" models (the gemma-4 family) can spend tokens thinking and
-// still emit the JSON answer instead of getting truncated at the limit with an empty body.
+// Headroom so reasoning models can spend tokens thinking and still emit the JSON answer instead of
+// getting truncated at the limit with an empty body.
 const GEMINI_MAX_OUTPUT_TOKENS = 8192;
 // Hard cap on any single in-call retry sleep. A 429 can carry a `retry-after` of 30-60s on the
 // Free tier; sleeping that long in-call would pin a model-call-gate slot and burn the chunk's
@@ -44,6 +45,16 @@ function retryAfterDelayMs(value: string | null) {
   return null;
 }
 
+// Google states the cool-off in the response body ("Please retry in 56.158360628s.") rather than
+// only in a `retry-after` header, so read it from there too -- otherwise a quota 429 looks
+// indefinitely retryable and we burn every attempt on it.
+function requestedRetryDelayFromBody(message: string): number | null {
+  const match = /retry in ([\d.]+)s/i.exec(message);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) ? seconds * 1000 : null;
+}
+
 function isRetryableTransportError(error: unknown) {
   if (!(error instanceof Error)) return false;
   // Deliberately do NOT retry timeouts: the caller already grants a diff-size-aware budget (up to
@@ -55,32 +66,6 @@ function isRetryableTransportError(error: unknown) {
   return error instanceof TypeError;
 }
 
-function isPrivateIP(hostname: string) {
-  const privateRanges = [
-    /^127\./,
-    /^10\./,
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-    /^192\.168\./,
-    /^169\.254\./,
-    /^localhost$/,
-    /^::1$/,
-  ];
-  return privateRanges.some((regex) => regex.test(hostname));
-}
-
-function isValidPublicUrl(urlString: string) {
-  try {
-    const url = new URL(urlString);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    const hostname = url.hostname;
-    if (hostname === 'metadata.google.internal' || hostname === '100.100.100.200') return false;
-    if (isPrivateIP(hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function reviewWithGoogle(
   config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
   model: string,
@@ -90,9 +75,8 @@ export async function reviewWithGoogle(
   const timeoutMs = config.timeoutMs ?? GEMINI_TIMEOUT_MS;
   logger.info(`Calling Google model: ${model}`);
   
-  if (config.baseUrl && !isValidPublicUrl(config.baseUrl)) {
-    throw new ProviderRequestError(config.providerName ?? 'Google', 400, 'Invalid provider base URL.');
-  }
+  assertPublicBaseUrl(config.baseUrl, config.providerName ?? 'Google');
+  const prompts = jsonOnlyPrompts(input);
 
   const startTime = Date.now();
   const baseUrl = (config.baseUrl || DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, '');
@@ -121,17 +105,16 @@ export async function reviewWithGoogle(
           body: JSON.stringify({
             systemInstruction: {
               role: 'system',
-              parts: [{ text: input.systemPrompt }],
+              parts: [{ text: prompts.system }],
             },
             contents: [
-              {
-                role: 'user',
-                parts: [{ text: input.userPrompt }],
-              },
+              { role: 'user', parts: [{ text: prompts.user }] },
             ],
             generationConfig: {
-              ...(model.toLowerCase().includes('gemma') ? {} : { responseMimeType: 'application/json' }),
+              responseMimeType: 'application/json',
               maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+              // See the note in models/types.ts on sampling. 0.9 on Gemini's 0-2 scale.
+              temperature: 0.9,
             },
           }),
         }),
@@ -148,18 +131,26 @@ export async function reviewWithGoogle(
     if (!response.ok) {
       const errorText = await response.text();
       const message = providerErrorMessage(errorText);
-      const isRetryable = isRetryableGeminiStatus(response.status);
+      const requestedDelayMs = response.status === 429
+        ? retryAfterDelayMs(response.headers.get('retry-after')) ?? requestedRetryDelayFromBody(message)
+        : null;
+      // A 429 whose cool-off is longer than we are willing to sleep cannot be retried usefully:
+      // we would wake up early and get the same 429, having spent another subrequest. On the Free
+      // tier Google routinely asks for 30-60s while our cap is 5s, so in-call retries were pure
+      // waste -- three attempts per model, every one of them guaranteed to fail. Give up
+      // immediately and let the caller defer the file to a fresh invocation instead.
+      const canHonorCoolOff = requestedDelayMs === null || requestedDelayMs <= GEMINI_MAX_RETRY_DELAY_MS;
+      const isRetryable = isRetryableGeminiStatus(response.status) && canHonorCoolOff;
       const retryDelayMs = Math.min(
         GEMINI_MAX_RETRY_DELAY_MS,
-        response.status === 429
-          ? retryAfterDelayMs(response.headers.get('retry-after')) ?? defaultRetryDelayMs(attempt)
-          : defaultRetryDelayMs(attempt),
+        requestedDelayMs ?? defaultRetryDelayMs(attempt),
       );
 
       const logData = {
         error: message,
         attempt,
         willRetry: isRetryable && attempt < maxRetries,
+        requestedDelayMs: requestedDelayMs ?? undefined,
         retryDelayMs: isRetryable && attempt < maxRetries ? retryDelayMs : undefined,
       };
       if (isRetryable && attempt < maxRetries) {

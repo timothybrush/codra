@@ -40,8 +40,8 @@ export default defineConfig(({ mode }) => ({
             if (id.includes('remark') || id.includes('rehype') || id.includes('micromark') || id.includes('markdown')) {
               return 'vendor-markdown';
             }
-            if (id.includes('@radix-ui')) {
-              return 'vendor-radix';
+            if (id.includes('@base-ui')) {
+              return 'vendor-base-ui';
             }
             if (id.includes('hono') || id.includes('zod') || id.includes('jsonrepair')) {
               return 'vendor-utils';

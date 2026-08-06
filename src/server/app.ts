@@ -46,6 +46,7 @@ export function createApp() {
   app.get('/stats', requireSession, serveIndex);
   app.get('/health', requireSession, serveIndex);
   app.get('/settings', requireSession, serveIndex);
+  app.get('/account', requireSession, serveIndex);
 
   return app;
 }

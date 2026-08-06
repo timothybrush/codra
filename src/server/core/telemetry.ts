@@ -4,13 +4,15 @@ import { logger } from './logger';
 const TELEMETRY_SECRET = 'codra-telemetry-v1-secret-8f9a2b5c';
 const INSTANCE_ID_KEY = 'codra:instance_id';
 
-/**
- * Returns a stable, anonymous instance ID.
- * Generates and stores one in KV if it doesn't exist yet.
- */
+// Returns a stable, anonymous instance ID.
+// Generates and stores one in KV if it doesn't exist yet.
 import { queryRows } from '@server/db/client';
+// Static import: version string is inlined at build time by Vite - no runtime cost.
+import pkg from '../../../package.json';
 
-export async function getInstanceId(env: AppBindings): Promise<string> {
+const CODRA_VERSION: string = pkg.version;
+
+async function getInstanceId(env: AppBindings): Promise<string> {
   try {
     const rows = await queryRows<{ value: string }>(env, 'SELECT value FROM global_settings WHERE key = $1', [INSTANCE_ID_KEY]);
     let instanceId = rows[0]?.value;
@@ -37,10 +39,8 @@ export async function getInstanceId(env: AppBindings): Promise<string> {
   }
 }
 
-/**
- * Sends an anonymous telemetry event to Codra Core backend.
- * Swallows all errors so the caller is never interrupted.
- */
+// Sends an anonymous telemetry event to Codra Core backend.
+// Swallows all errors so the caller is never interrupted.
 export async function sendTelemetryEvent(
   env: AppBindings,
   data: { 
@@ -55,12 +55,36 @@ export async function sendTelemetryEvent(
     filesReviewed: number;
     verdict?: string;
     severityDistribution: Record<string, number>;
+    concurrencyLevel: string;
+    prTotalLinesChanged: number;
+    retryCount: number;
   },
 ): Promise<void> {
   try {
     // Opt-out for self-hosters/forks: set TELEMETRY_DISABLED=true (or 1) to send nothing.
-    const disabled = String((env as any).TELEMETRY_DISABLED ?? '').toLowerCase();
+    const disabled = String((env as any).TELEMETRY_DISABLED ?? process.env.TELEMETRY_DISABLED ?? '').toLowerCase();
     if (disabled === 'true' || disabled === '1') {
+      return;
+    }
+
+    // Suppress telemetry from test environments (vitest/node test) or local runs.
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.VITEST) ||
+      ['test', 'local'].includes(String((env as any).ENVIRONMENT ?? '').toLowerCase());
+
+    if (isTestEnv) {
+      logger.debug('Skipping telemetry in test/local environment');
+      return;
+    }
+
+    // Filter out stub/test models (e.g. 'test-model') used in vitest mocks.
+    const cleanModelsUsed = data.modelsUsed
+      .map((m) => m.replace(/^(google|cloudflare|openai|anthropic):/i, '').trim())
+      .filter((m) => Boolean(m) && !m.toLowerCase().includes('test'));
+
+    if (data.modelsUsed.length > 0 && cleanModelsUsed.length === 0) {
+      logger.debug('Skipping telemetry: only test/stub models detected', { modelsUsed: data.modelsUsed });
       return;
     }
 
@@ -88,13 +112,17 @@ export async function sendTelemetryEvent(
         findingsReported: data.findingsReported,
         inputTokens: data.inputTokens,
         outputTokens: data.outputTokens,
-        modelsUsed: data.modelsUsed,
+        modelsUsed: cleanModelsUsed,
         fileExtensions: data.fileExtensions,
         triggerType: data.triggerType,
         reviewDurationMs: data.reviewDurationMs,
         filesReviewed: data.filesReviewed,
         verdict: data.verdict,
         severityDistribution: data.severityDistribution,
+        codraVersion: CODRA_VERSION,
+        concurrencyLevel: data.concurrencyLevel,
+        prTotalLinesChanged: data.prTotalLinesChanged,
+        retryCount: data.retryCount,
       }),
       signal: controller.signal,
     }).catch((error) => {

@@ -1,147 +1,15 @@
+import { hexToBytes } from '@shared/hex';
 import type { AppBindings } from '@server/env';
 import { parseJsonColumn, queryRows } from './client';
-import { defaultRepoConfig, jobDetailSchema, jobSummarySchema, repoConfigSchema, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@shared/schema';
 import { getOrCreateRepository } from './repositories';
-
-export type JobRow = {
-  id: string;
-  workflow_instance_id: string | null;
-  installation_id: string;
-  owner: string;
-  repo: string;
-  pr_number: number;
-  pr_title: string | null;
-  pr_author: string | null;
-  commit_sha: ByteaValue;
-  base_sha: ByteaValue;
-  trigger: 'auto' | 'mention' | 'retry';
-  status: 'queued' | 'running' | 'done' | 'failed' | 'superseded' | 'cancelled' | 'stopped';
-  config_snapshot: { review?: RepoConfig['review']; model?: RepoConfig['model'] } | string | null;
-  check_run_id: number | null;
-  check_run_completed_at: string | null;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  lease_owner: string | null;
-  lease_expires_at: string | null;
-  heartbeat_at: string | null;
-  recovery_count: number | null;
-  continuation_count: number | null;
-  last_queue_message_at: string | null;
-  total_input_tokens: number | null;
-  total_output_tokens: number | null;
-  verdict: 'approve' | 'comment' | null;
-  file_count: number | null;
-  comment_count: number | null;
-  error_msg: string | null;
-  head_ref: string | null;
-  base_ref: string | null;
-  summary_markdown: string | null;
-  review_id: number | null;
-  retry_of_job_id: string | null;
-  summary_model: string | null;
-  overall_confidence_score: number | null;
-  steps: JobStep[] | string | null;
-};
-
-type JobStep = {
-  name: string;
-  status: 'pending' | 'running' | 'done' | 'failed';
-  startedAt: string | null;
-  finishedAt: string | null;
-  error?: string | null;
-};
+import { reviewCommentJsonObject } from './review-comment-sql';
+import { type JobRow, bytesToHex, mapJob } from './jobs-mapping';
+import { markSystemActive } from './jobs-activity';
 
 type JobDetailRow = JobRow & {
   files_json: unknown[] | string | null;
 };
-
-type ByteaValue = ArrayBuffer | ArrayBufferView | string;
-
-export type JobLeaseClaim =
-  | { status: 'claimed'; row: JobRow }
-  | { status: 'busy'; row: JobRow; retryAfterSeconds: number }
-  | { status: 'terminal'; row: JobRow }
-  | { status: 'missing' };
-
-function hexToBytes(hex: string) {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-  }
-  return bytes;
-}
-
-export function bytesToHex(value: ByteaValue) {
-  if (typeof value === 'string') {
-    return value.startsWith('\\x') ? value.slice(2).toLowerCase() : value.toLowerCase();
-  }
-
-  const bytes = ArrayBuffer.isView(value)
-    ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-    : new Uint8Array(value);
-
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function latestTimestamp(...values: Array<string | null | undefined>) {
-  const now = Date.now();
-  return values.reduce<string | null>((latest, value) => {
-    if (!value) return latest;
-    if (new Date(value).getTime() > now) return latest;
-    if (!latest) return value;
-    return new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
-  }, null);
-}
-
-export function mapJob(row: JobRow) {
-  const lastQueueMessageAt = row.last_queue_message_at ? new Date(row.last_queue_message_at).getTime() : null;
-  const nextRetryAt =
-    row.status === 'running' &&
-    row.lease_owner === null &&
-    lastQueueMessageAt !== null &&
-    Number.isFinite(lastQueueMessageAt) &&
-    lastQueueMessageAt > Date.now()
-      ? row.last_queue_message_at
-      : null;
-  const updatedAt = latestTimestamp(
-    row.created_at,
-    row.started_at,
-    row.finished_at,
-    row.heartbeat_at,
-    row.last_queue_message_at,
-  ) ?? row.created_at;
-
-  return jobSummarySchema.parse({
-    id: row.id,
-    owner: row.owner,
-    repo: row.repo,
-    installationId: row.installation_id,
-    prNumber: row.pr_number,
-    prTitle: row.pr_title,
-    prAuthor: row.pr_author,
-    commitSha: bytesToHex(row.commit_sha),
-    trigger: row.trigger,
-    status: row.status,
-    verdict: row.verdict,
-    fileCount: row.file_count ?? 0,
-    commentCount: row.comment_count ?? 0,
-    totalInputTokens: row.total_input_tokens ?? 0,
-    totalOutputTokens: row.total_output_tokens ?? 0,
-    createdAt: row.created_at,
-    updatedAt,
-    nextRetryAt,
-    startedAt: row.started_at,
-    finishedAt: row.finished_at,
-    errorMessage: row.error_msg,
-    overallConfidenceScore: row.overall_confidence_score,
-    steps: parseJsonColumn(row.steps, []),
-    checkRunId: row.check_run_id,
-    configSnapshot: row.config_snapshot ? repoConfigSchema.parse(parseJsonColumn(row.config_snapshot, defaultRepoConfig)) : null,
-    retryOfJobId: row.retry_of_job_id,
-    workflowInstanceId: row.workflow_instance_id,
-  });
-}
 
 export async function setJobWorkflowInstance(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, workflowInstanceId: string) {
   await queryRows(
@@ -155,11 +23,9 @@ export async function setJobWorkflowInstance(env: Pick<AppBindings, 'HYPERDRIVE'
   );
 }
 
-/**
- * Refresh a job's cached PR title/author from the live pull request. The values are snapshotted at
- * job-creation time (and copied verbatim onto retries), so a title edited on GitHub afterwards would
- * otherwise keep showing stale on the dashboard. Called during prepare once the PR is fetched.
- */
+// Refresh a job's cached PR title/author from the live pull request. The values are snapshotted at
+// job-creation time (and copied verbatim onto retries), so a title edited on GitHub afterwards would
+// otherwise keep showing stale on the dashboard. Called during prepare once the PR is fetched.
 export async function setJobPullRequestMeta(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -177,35 +43,10 @@ export async function setJobPullRequestMeta(
   );
 }
 
-export async function markSystemActive(env: Pick<AppBindings, 'APP_KV'>) {
-  try {
-    // claimJobLease() calls this on every review chunk, so a single large PR (dozens of chunks) used
-    // to issue dozens of identical KV writes -- enough to blow through the Workers-Free daily KV
-    // write quota. KV reads are far cheaper and have a much higher quota, so read first and only
-    // write when the flag is actually missing (expired, or the first job after an idle period). The
-    // 20-minute TTL means an active job refreshes it at most ~once per 20 minutes, not per chunk.
-    const existing = await env.APP_KV.get('system:active_jobs');
-    if (existing) return;
-    await env.APP_KV.put('system:active_jobs', '1', { expirationTtl: 20 * 60 });
-  } catch (error) {
-    // Ignore KV errors to avoid failing the DB transaction
-  }
-}
-
-export async function clearSystemActive(env: Pick<AppBindings, 'APP_KV'>) {
-  try {
-    await env.APP_KV.delete('system:active_jobs');
-  } catch (error) {
-    // Best-effort: the 20-minute TTL on the flag is the backstop if this delete fails.
-  }
-}
-
-/**
- * Whether the scheduled maintenance loop still has anything to do: any job that could still be
- * running/recoverable (queued/running) or any terminal job whose GitHub check run hasn't been
- * completed yet. When this is false the cron can clear the `system:active_jobs` flag so subsequent
- * ticks skip the DB entirely and the serverless Postgres is allowed to suspend.
- */
+// Whether the scheduled maintenance loop still has anything to do: any job that could still be
+// running/recoverable (queued/running) or any terminal job whose GitHub check run hasn't been
+// completed yet. When this is false the cron can clear the `system:active_jobs` flag so subsequent
+// ticks skip the DB entirely and the serverless Postgres is allowed to suspend.
 export async function hasPendingMaintenanceWork(env: Pick<AppBindings, 'HYPERDRIVE'>): Promise<boolean> {
   const rows = await queryRows<{ has_work: boolean }>(
     env,
@@ -262,7 +103,7 @@ export async function insertJob(
           base_ref,
           retry_of_job_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8::jsonb, $9, $10, $11::uuid)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8::text::jsonb, $9, $10, $11::uuid)
         RETURNING *
       )
       SELECT i.*, r.owner, r.repo, r.installation_id
@@ -293,6 +134,7 @@ export async function listJobs(
   query: {
     owner?: string;
     repo?: string;
+    prNumber?: number;
     status?: string;
     verdict?: string;
     search?: string;
@@ -310,6 +152,10 @@ export async function listJobs(
   if (query.repo) {
     params.push(query.repo);
     conditions.push(`r.repo = $${params.length}`);
+  }
+  if (query.prNumber) {
+    params.push(query.prNumber);
+    conditions.push(`j.pr_number = $${params.length}`);
   }
   if (query.status) {
     params.push(query.status);
@@ -361,25 +207,6 @@ export async function listJobs(
   };
 }
 
-export async function getJobForProcessing(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string) {
-  if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
-    return null;
-  }
-  const [row] = await queryRows<JobRow>(
-    env,
-    `
-      SELECT j.*, r.owner, r.repo, r.installation_id
-      FROM jobs j
-      JOIN repositories r ON j.repository_id = r.id
-      WHERE j.id = $1
-      LIMIT 1
-    `,
-    [jobId],
-  );
-
-  return row ?? null;
-}
-
 export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string) {
   if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
     return null;
@@ -412,19 +239,23 @@ export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: 
                 'fileSummary', fr.file_summary,
                 'errorMessage', fr.error_msg,
                 'createdAt', fr.created_at,
+                'modelProvider', fr.model_provider,
+                'overallCorrectness', fr.overall_correctness,
+                'confidenceScore', fr.confidence_score,
                 'parsedComments', COALESCE(
                   (
                     SELECT JSON_AGG(
-                      JSON_BUILD_OBJECT(
-                        'path', rc.path,
-                        'line', rc.line,
-                        'position', rc.position,
-                        'severity', rc.severity,
-                        'category', rc.category,
-                        'title', rc.title,
-                        'body', rc.body,
-                        'codeSuggestion', rc.code_suggestion
-                      )
+                      ${reviewCommentJsonObject(
+                        // Correlated rather than joined so this stays one round trip. Served by the
+                        // comment_feedback (repository_id, fingerprint) index from migration 005 (now folded into 003_grounding.sql).
+                        `'humanLabel', (
+                          SELECT cf.outcome FROM comment_feedback cf
+                          WHERE cf.repository_id = j.repository_id
+                            AND cf.fingerprint = rc.fingerprint
+                            AND cf.source = 'dashboard'
+                          LIMIT 1
+                        )`,
+                      )}
                       ORDER BY rc.id ASC
                     ) FROM review_comments rc WHERE rc.file_review_id = fr.id
                   ),
@@ -461,365 +292,6 @@ export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: 
   });
 }
 
-export async function claimJobLease(
-  env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>,
-  jobId: string,
-  leaseOwner: string,
-  leaseSeconds: number,
-): Promise<JobLeaseClaim> {
-  const [claimed] = await queryRows<JobRow>(
-    env,
-    `
-      WITH claimed AS (
-        UPDATE jobs
-        SET status = CASE WHEN status = 'queued' THEN 'running' ELSE status END,
-            started_at = COALESCE(started_at, now()),
-            lease_owner = $2,
-            lease_expires_at = now() + ($3 || ' seconds')::interval,
-            heartbeat_at = now(),
-            last_queue_message_at = now()
-        WHERE id = $1
-          AND status IN ('queued', 'running')
-          AND (
-            lease_expires_at IS NULL
-            OR lease_expires_at < now()
-            OR lease_owner = $2
-          )
-          AND NOT (
-            status = 'running'
-            AND lease_owner IS NULL
-            AND last_queue_message_at IS NOT NULL
-            AND last_queue_message_at > now()
-          )
-        RETURNING *
-      )
-      SELECT c.*, r.owner, r.repo, r.installation_id
-      FROM claimed c
-      JOIN repositories r ON c.repository_id = r.id
-    `,
-    [jobId, leaseOwner, String(leaseSeconds)],
-  );
-
-  if (claimed) {
-    await markSystemActive(env);
-    return { status: 'claimed', row: claimed };
-  }
-
-  const row = await getJobForProcessing(env, jobId);
-  if (!row) {
-    return { status: 'missing' };
-  }
-
-  if (!['queued', 'running'].includes(row.status)) {
-    return { status: 'terminal', row };
-  }
-
-  const leaseExpiresAt = row.lease_expires_at ? new Date(row.lease_expires_at).getTime() : 0;
-  const delayedUntil = row.lease_owner === null && row.last_queue_message_at ? new Date(row.last_queue_message_at).getTime() : 0;
-  const retryAt = Math.max(leaseExpiresAt, delayedUntil);
-  const secondsUntilExpiry = Math.ceil((retryAt - Date.now()) / 1000);
-  return {
-    status: 'busy',
-    row,
-    retryAfterSeconds: Math.max(15, Math.min(60, Number.isFinite(secondsUntilExpiry) ? secondsUntilExpiry : 60)),
-  };
-}
-
-export async function heartbeatJobLease(
-  env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>,
-  jobId: string,
-  leaseOwner: string,
-  leaseSeconds: number,
-) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET heartbeat_at = now(),
-          lease_expires_at = now() + ($3 || ' seconds')::interval
-      WHERE id = $1
-        AND lease_owner = $2
-        AND status = 'running'
-    `,
-    [jobId, leaseOwner, String(leaseSeconds)],
-  );
-  await markSystemActive(env);
-}
-
-export async function releaseJobLease(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, leaseOwner: string) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET lease_owner = NULL,
-          lease_expires_at = NULL
-      WHERE id = $1
-        AND lease_owner = $2
-    `,
-    [jobId, leaseOwner],
-  );
-}
-
-// Records that a job is rescheduling the same phase (a continuation) and returns the resulting
-// no-progress continuation count. The counter is bumped here and cleared by
-// resetJobContinuationCount() whenever a chunk actually completes a file, so a healthy job that
-// keeps making headway stays near zero while a job that can never progress climbs toward the
-// MAX_JOB_CONTINUATIONS ceiling and is failed terminally.
-export async function markJobContinuationQueued(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, delaySeconds = 0) {
-  const rows = await queryRows<{ continuation_count: number }>(
-    env,
-    `
-      UPDATE jobs
-      SET heartbeat_at = now(),
-          continuation_count = continuation_count + 1,
-          last_queue_message_at = CASE
-            WHEN $2::int > 0 THEN now() + ($2::text || ' seconds')::interval
-            ELSE now()
-          END
-      WHERE id = $1
-        AND status = 'running'
-      RETURNING continuation_count
-    `,
-    [jobId, delaySeconds],
-  );
-  return rows[0]?.continuation_count ?? 0;
-}
-
-// Clears the no-progress continuation counter after a chunk completes at least one file review,
-// so slow-but-progressing jobs never trip the MAX_JOB_CONTINUATIONS safety net.
-export async function resetJobContinuationCount(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET continuation_count = 0
-      WHERE id = $1
-        AND status = 'running'
-        AND continuation_count <> 0
-    `,
-    [jobId],
-  );
-}
-
-export async function updateJobCheckRun(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, checkRunId: number) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET check_run_id = $2
-      WHERE id = $1
-    `,
-    [jobId, checkRunId],
-  );
-}
-
-export async function completeJob(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-  input: {
-    verdict: 'approve' | 'comment';
-    fileCount: number;
-    commentCount: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-    summaryMarkdown: string;
-    reviewId: number | null;
-    summaryModel: string | null;
-    overallConfidenceScore?: number | null;
-    errorMessage?: string | null;
-  },
-) {
-  const now = new Date().toISOString();
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET status = 'done',
-          finished_at = now(),
-          -- NOTE: check_run_completed_at is intentionally NOT set here. It's set only once the
-          -- GitHub check run has actually been updated (markJobCheckRunCompleted, called after the
-          -- best-effort updateCheckRun in finalize). That way, if finalize couldn't update the
-          -- check run (e.g. subrequest budget spent on a huge PR), it stays NULL and the maintenance
-          -- sweep (completeTerminalCheckRuns) reconciles it -- the check run always ends 'completed'.
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          verdict = $2,
-          file_count = $3,
-          comment_count = $4,
-          total_input_tokens = $5,
-          total_output_tokens = $6,
-          summary_markdown = $7,
-          review_id = $8,
-          summary_model = $9,
-          overall_confidence_score = $10,
-          error_msg = $11,
-          steps = CASE
-            WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(steps, '[]'::jsonb)) s WHERE s->>'name' = 'Completing')
-            THEN (
-              SELECT jsonb_agg(
-                CASE
-                  WHEN s->>'name' = 'Completing'
-                  THEN s || jsonb_build_object('status', 'done', 'finishedAt', $12::text, 'error', NULL)
-                  ELSE s
-                END
-              ) FROM jsonb_array_elements(COALESCE(steps, '[]'::jsonb)) s
-            )
-            ELSE COALESCE(steps, '[]'::jsonb) || jsonb_build_array(
-              jsonb_build_object(
-                'name', 'Completing',
-                'status', 'done',
-                'startedAt', $12::text,
-                'finishedAt', $12::text,
-                'error', NULL
-              )
-            )
-          END
-      WHERE id = $1
-    `,
-    [
-      jobId,
-      input.verdict,
-      input.fileCount,
-      input.commentCount,
-      input.totalInputTokens,
-      input.totalOutputTokens,
-      input.summaryMarkdown,
-      input.reviewId,
-      input.summaryModel,
-      input.overallConfidenceScore ?? null,
-      input.errorMessage ?? null,
-      now
-    ],
-  );
-}
-
-export async function failJob(env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>, jobId: string, errorMessage: string) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET status = 'failed',
-          finished_at = now(),
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          error_msg = $2,
-          steps = CASE
-            WHEN steps IS NOT NULL THEN (
-              SELECT jsonb_agg(
-                CASE
-                  WHEN s->>'status' = 'running'
-                  THEN s || jsonb_build_object('status', 'failed', 'finishedAt', now(), 'error', $2::text)
-                  ELSE s
-                END
-              ) FROM jsonb_array_elements(steps) s
-            )
-            ELSE steps
-          END
-      WHERE id = $1
-    `,
-    [jobId, errorMessage],
-  );
-  await markSystemActive(env);
-}
-
-/**
- * Stop an ongoing (queued/running) job at the user's request: mark it terminal as 'cancelled',
- * clear the lease (so lease-recovery won't requeue it) and mark any running steps failed. Returns
- * true if a job was actually transitioned (false if it was already terminal). The caller is
- * responsible for terminating the Cloudflare Workflow instance.
- */
-export async function cancelJob(env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>, jobId: string): Promise<boolean> {
-  const rows = await queryRows<{ id: string }>(
-    env,
-    `
-      UPDATE jobs
-      SET status = 'cancelled',
-          finished_at = now(),
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          error_msg = COALESCE(error_msg, 'Stopped by user.'),
-          steps = CASE
-            WHEN steps IS NOT NULL THEN (
-              SELECT jsonb_agg(
-                CASE
-                  WHEN s->>'status' = 'running'
-                  THEN s || jsonb_build_object('status', 'failed', 'finishedAt', now(), 'error', 'Stopped by user.')
-                  ELSE s
-                END
-              ) FROM jsonb_array_elements(steps) s
-            )
-            ELSE steps
-          END
-      WHERE id = $1 AND status IN ('queued', 'running')
-      RETURNING id
-    `,
-    [jobId],
-  );
-  // Keep the maintenance flag set so the cron completes the GitHub check run for the cancelled job.
-  if (rows.length > 0) await markSystemActive(env);
-  return rows.length > 0;
-}
-
-/**
- * Permanently delete a job. file_reviews and review_comments cascade automatically (ON DELETE
- * CASCADE); child retry jobs have their retry_of_job_id nulled (ON DELETE SET NULL). Returns true
- * if a row was deleted.
- */
-export async function deleteJob(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string): Promise<boolean> {
-  const rows = await queryRows<{ id: string }>(
-    env,
-    `DELETE FROM jobs WHERE id = $1 RETURNING id`,
-    [jobId],
-  );
-  return rows.length > 0;
-}
-
-export async function markJobCheckRunCompleted(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET check_run_completed_at = now()
-      WHERE id = $1
-    `,
-    [jobId],
-  );
-}
-
-export async function updateJobFileCount(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, fileCount: number) {
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET file_count = $2
-      WHERE id = $1
-    `,
-    [jobId, fileCount],
-  );
-}
-
-export async function completePreparationStep(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, fileCount: number) {
-  const now = new Date().toISOString();
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET file_count = $2,
-          steps = (
-            SELECT jsonb_agg(
-              CASE
-                WHEN s->>'name' = 'Preparation'
-                THEN s || jsonb_build_object('status', 'done', 'finishedAt', $3::text)
-                ELSE s
-              END
-            ) FROM jsonb_array_elements(steps) s
-          )
-      WHERE id = $1
-    `,
-    [jobId, fileCount, now],
-  );
-}
-
 export async function findExistingJobForHead(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: { owner: string; repo: string; prNumber: number; commitSha: string; trigger: 'auto' | 'mention' },
@@ -844,228 +316,32 @@ export async function findExistingJobForHead(
   return row ? mapJob(row) : null;
 }
 
-export async function updateJobStep(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-  stepName: string,
-  update: {
-    status: 'pending' | 'running' | 'done' | 'failed';
-    startedAt?: string | null;
-    finishedAt?: string | null;
-    error?: string | null;
-  },
-) {
-  const now = new Date().toISOString();
-  const startedAt = update.status === 'running' ? now : (update.startedAt ?? null);
-  const finishedAt = update.status === 'done' || update.status === 'failed' ? now : (update.finishedAt ?? null);
-  const error = update.error ?? null;
-
-  // Single query that either updates existing step or appends a new one
-  await queryRows(
-    env,
-    `
-      UPDATE jobs
-      SET heartbeat_at = now(),
-          steps = CASE
-        WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(steps, '[]'::jsonb)) s WHERE s->>'name' = $2)
-        THEN (
-          SELECT jsonb_agg(
-            CASE
-              WHEN s->>'name' = $2
-              THEN s || jsonb_build_object(
-                'status', $3::text,
-                -- Preserve the FIRST start time. A phase (e.g. "Reviewing Files") re-enters
-                -- 'running' once per hibernated chunk; overwriting startedAt each time would make
-                -- the displayed duration reflect only the last chunk (~seconds) instead of the full
-                -- multi-minute wall-clock. Keep the existing start; only seed it when absent.
-                'startedAt', COALESCE(s->>'startedAt', $4::text),
-                -- 'running' clears any stale finish (step is back in progress). Otherwise keep the
-                -- FIRST finish already recorded for this run -- so re-marking a step 'done' (e.g.
-                -- finalize defensively re-confirming "Reviewing Files") doesn't push the timestamp
-                -- later and inflate the displayed duration. A re-run resets it via the 'running' clear.
-                'finishedAt', CASE WHEN $3::text = 'running' THEN NULL ELSE COALESCE(s->>'finishedAt', $5::text) END,
-                'error', COALESCE($6::text, s->>'error')
-              )
-              ELSE s
-            END
-          ) FROM jsonb_array_elements(COALESCE(steps, '[]'::jsonb)) s
-        )
-        ELSE COALESCE(steps, '[]'::jsonb) || jsonb_build_array(
-          jsonb_build_object(
-            'name', $2::text,
-            'status', $3::text,
-            'startedAt', $4::text,
-            'finishedAt', $5::text,
-            'error', $6::text
-          )
-        )
-      END
-      WHERE id = $1
-    `,
-    [jobId, stepName, update.status, startedAt, finishedAt, error],
-  );
-}
-
-export async function recoverExpiredJobLeases(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  maxRecoveryCount = 3,
-  unleasedGraceSeconds = 300,
-) {
-  const requeued = await queryRows<{ id: string }>(
-    env,
-    `
-      WITH expired AS (
-        SELECT id
-        FROM jobs
-        WHERE status = 'running'
-          AND (
-            (
-              lease_expires_at IS NOT NULL
-              AND lease_expires_at < now()
-            )
-            OR (
-              lease_expires_at IS NULL
-              AND COALESCE(last_queue_message_at, heartbeat_at, started_at, created_at) < now() - ($2 || ' seconds')::interval
-            )
-          )
-          AND recovery_count < $1
-        ORDER BY COALESCE(lease_expires_at, last_queue_message_at, heartbeat_at, started_at, created_at) ASC
-        LIMIT 25
-        FOR UPDATE SKIP LOCKED
-      )
-      UPDATE jobs j
-      SET lease_owner = NULL,
-          lease_expires_at = NULL,
-          heartbeat_at = NULL,
-          recovery_count = recovery_count + 1,
-          last_queue_message_at = now(),
-          error_msg = NULL
-      FROM expired
-      WHERE j.id = expired.id
-      RETURNING j.id
-    `,
-    [maxRecoveryCount, String(unleasedGraceSeconds)],
-  );
-
-  const failed = await queryRows<JobRow>(
-    env,
-    `
-      WITH expired AS (
-        SELECT id
-        FROM jobs
-        WHERE status = 'running'
-          AND (
-            (
-              lease_expires_at IS NOT NULL
-              AND lease_expires_at < now()
-            )
-            OR (
-              lease_expires_at IS NULL
-              AND COALESCE(last_queue_message_at, heartbeat_at, started_at, created_at) < now() - ($2 || ' seconds')::interval
-            )
-          )
-          AND recovery_count >= $1
-        ORDER BY COALESCE(lease_expires_at, last_queue_message_at, heartbeat_at, started_at, created_at) ASC
-        LIMIT 25
-        FOR UPDATE SKIP LOCKED
-      ),
-      updated AS (
-        UPDATE jobs j
-        SET status = 'failed',
-            finished_at = now(),
-            lease_owner = NULL,
-            lease_expires_at = NULL,
-            heartbeat_at = NULL,
-            error_msg = 'Job timed out: worker crashed or was evicted.',
-            steps = CASE
-              WHEN steps IS NOT NULL THEN (
-                SELECT jsonb_agg(
-                  CASE
-                    WHEN s->>'status' = 'running'
-                    THEN s || jsonb_build_object('status', 'failed', 'finishedAt', now(), 'error', 'Job timed out: worker crashed or was evicted.')
-                    ELSE s
-                  END
-                ) FROM jsonb_array_elements(steps) s
-              )
-              ELSE steps
-            END
-        FROM expired
-        WHERE j.id = expired.id
-        RETURNING j.*
-      )
-      SELECT u.*, r.owner, r.repo, r.installation_id
-      FROM updated u
-      JOIN repositories r ON u.repository_id = r.id
-    `,
-    [maxRecoveryCount, String(unleasedGraceSeconds)],
-  );
-
-  return {
-    requeuedJobIds: requeued.map((row) => row.id),
-    failedJobs: failed,
-  };
-}
-
-export async function getTerminalJobsNeedingCheckRunCompletion(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  limit = 25,
-) {
-  return queryRows<JobRow>(
-    env,
-    `
-      SELECT j.*, r.owner, r.repo, r.installation_id
-      FROM jobs j
-      JOIN repositories r ON j.repository_id = r.id
-      WHERE j.status IN ('done', 'failed', 'superseded', 'cancelled')
-        AND j.check_run_id IS NOT NULL
-        AND j.check_run_completed_at IS NULL
-      ORDER BY COALESCE(j.finished_at, j.started_at, j.created_at) ASC
-      LIMIT $1
-    `,
-    [limit],
-  );
-}
-
-export async function supersedeOlderJobs(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  input: {
-    installationId: string;
-    owner: string;
-    repo: string;
-    prNumber: number;
-    newJobId: string;
-  },
-): Promise<number> {
-  const rows = await queryRows<{ id: string }>(
-    env,
-    `
-      UPDATE jobs j
-      SET status = 'superseded',
-          finished_at = now(),
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          error_msg = 'Superseded by a newer commit or job.'
-      FROM repositories r
-      WHERE j.repository_id = r.id
-        AND r.installation_id = $1
-        AND r.owner = $2
-        AND r.repo = $3
-        AND j.pr_number = $4
-        AND j.id != $5
-        AND j.status IN ('queued', 'running')
-      RETURNING j.id
-    `,
-    [input.installationId, input.owner, input.repo, input.prNumber, input.newJobId],
-  );
-
-  return rows.length;
-}
-
-export async function getOtherRunningJobsCount(env: Pick<import('@server/env').AppBindings, 'HYPERDRIVE'>, excludeJobId: string): Promise<number> {
-  const [result] = await queryRows<{ count: string }>(
-    env,
-    `SELECT count(*) as count FROM jobs WHERE status = 'running' AND id != $1`,
-    [excludeJobId]
-  );
-  return parseInt(result?.count ?? '0', 10);
-}
+// Re-exported so '@server/db/jobs' stays the single import path for the whole family. Eight specs
+// vi.mock this specifier; importing a sibling directly would bypass the mock and the test would
+// keep passing while asserting nothing. eslint's no-restricted-imports enforces this.
+export { type JobRow, bytesToHex, mapJob } from './jobs-mapping';
+export { markSystemActive, clearSystemActive } from './jobs-activity';
+export {
+  type JobLeaseClaim,
+  getJobForProcessing,
+  claimJobLease,
+  heartbeatJobLease,
+  releaseJobLease,
+  markJobContinuationQueued,
+  resetJobContinuationCount,
+  recoverExpiredJobLeases,
+  getOtherRunningJobsCount,
+} from './jobs-leases';
+export {
+  updateJobCheckRun,
+  completeJob,
+  failJob,
+  cancelJob,
+  deleteJob,
+  markJobCheckRunCompleted,
+  updateJobFileCount,
+  completePreparationStep,
+  updateJobStep,
+  getTerminalJobsNeedingCheckRunCompletion,
+  supersedeOlderJobs,
+} from './jobs-lifecycle';

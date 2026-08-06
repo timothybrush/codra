@@ -2,10 +2,9 @@ import type { JobSummary } from '@shared/schema';
 
 interface LiveReviewStepperProps {
   job: JobSummary;
-  compact?: boolean;
 }
 
-export function LiveReviewStepper({ job, compact = true }: LiveReviewStepperProps) {
+export function LiveReviewStepper({ job }: LiveReviewStepperProps) {
   const { status, steps = [] } = job;
 
   let activeLabel = '';

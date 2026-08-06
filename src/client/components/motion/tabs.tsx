@@ -1,7 +1,6 @@
 // beui.dev/components/motion/tabs
 import { motion, MotionConfig, useReducedMotion, type Transition } from 'motion/react';
 import { createContext, useContext, useId, useState, type ReactNode } from 'react';
-import { EASE_OUT } from '@client/lib/ease';
 import { cn } from '@client/lib/utils';
 
 type Variant = 'pill' | 'underline' | 'segment';
@@ -72,7 +71,7 @@ export function Tabs({
 const listClasses: Record<Variant, string> = {
   pill: 'inline-flex items-center gap-1 rounded-full bg-card p-1',
   underline: 'inline-flex items-center gap-1 border-b border-border',
-  segment: 'inline-flex items-center gap-0 rounded-lg bg-card p-0.5',
+  segment: 'inline-flex items-center gap-0 rounded-md border border-ui-line bg-ui-fill/40 p-0.5',
 };
 
 export function TabsList({ children, className }: { children: ReactNode; className?: string }) {
@@ -122,17 +121,23 @@ export function TabsTrigger({
     );
   }
 
-  // Pill + Segment use the same trick: a max-contrast pill slides via layoutId,
-  // text uses `mix-blend-exclusion` so it inverts dynamically against the moving bg.
-  const radius = variant === 'pill' ? 'rounded-full' : 'rounded-md';
+  // Pill slides a max-contrast primary pill; segment uses a neutral raised surface
+  // (matching the app's ui-* tokens) so it reads like a standard segmented control.
+  const isSegment = variant === 'segment';
+  const radius = variant === 'pill' ? 'rounded-full' : 'rounded-[5px]';
+  const indicatorBg = isSegment ? 'bg-ui-base shadow-sm ring-1 ring-ui-line' : 'bg-primary';
+  const activeText = isSegment ? 'text-ui-strong' : 'text-primary-foreground';
+  const inactiveText = isSegment
+    ? 'text-ui-subtle hover:text-ui-default'
+    : 'text-muted-foreground hover:text-foreground';
 
   return (
     <div className="relative">
       {active ? (
         <motion.span
           layoutId={layoutId}
-          style={{ borderRadius: variant === 'pill' ? 9999 : 8 }}
-          className={cn('absolute inset-0 bg-primary', radius, indicatorClassName)}
+          style={{ borderRadius: variant === 'pill' ? 9999 : 5 }}
+          className={cn('absolute inset-0', indicatorBg, radius, indicatorClassName)}
         />
       ) : null}
       <button
@@ -142,7 +147,7 @@ export function TabsTrigger({
         onClick={() => setValue(value)}
         className={cn(
           'relative z-10 inline-flex items-center justify-center whitespace-nowrap bg-transparent px-3.5 py-1.5 text-sm font-medium capitalize transition-colors outline-none',
-          active ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+          active ? activeText : inactiveText,
           radius,
           className,
         )}
@@ -150,40 +155,5 @@ export function TabsTrigger({
         {children}
       </button>
     </div>
-  );
-}
-
-export function TabsContent({
-  value,
-  children,
-  className,
-}: {
-  value: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  const { value: current } = useTabs();
-  const reduce = useReducedMotion();
-  const active = current === value;
-  // Inactive panels stay mounted but hidden, so their content (e.g. source
-  // code) is present in the server-rendered HTML for crawlers and assistive
-  // tech, instead of being dropped from the DOM.
-  if (!active) {
-    return (
-      <div hidden className={className}>
-        {children}
-      </div>
-    );
-  }
-  return (
-    <motion.div
-      key={value}
-      initial={{ opacity: 0, y: reduce ? 0 : 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: EASE_OUT }}
-      className={cn('mt-4', className)}
-    >
-      {children}
-    </motion.div>
   );
 }

@@ -1,10 +1,11 @@
 import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
 import { logger } from '@server/core/logger';
-import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewSettingsSchema, type ReviewSettings } from '@shared/schema';
+import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@shared/schema';
 
 const CONCURRENCY_KEY = 'review_concurrency_level';
 const MAX_COMMENTS_KEY = 'review_max_comments';
+const MAX_FILES_KEY = 'review_max_files';
 
 const DEFAULT_REVIEW_SETTINGS: ReviewSettings = reviewSettingsSchema.parse({});
 const CONCURRENCY_LEVELS = new Set<string>(reviewConcurrencyLevels);
@@ -15,12 +16,14 @@ export async function getReviewSettings(env: Pick<AppBindings, 'HYPERDRIVE'>): P
     const rows = await queryRows<{ key: string; value: string }>(
       env,
       'SELECT key, value FROM global_settings WHERE key = ANY($1)',
-      [[CONCURRENCY_KEY, MAX_COMMENTS_KEY]],
+      [[CONCURRENCY_KEY, MAX_COMMENTS_KEY, MAX_FILES_KEY]],
     );
     const map = new Map(rows.map((row) => [row.key, row.value]));
     const storedConcurrency = map.get(CONCURRENCY_KEY);
     const storedMaxComments = map.get(MAX_COMMENTS_KEY);
+    const storedMaxFiles = map.get(MAX_FILES_KEY);
     const parsedMaxComments = storedMaxComments === undefined ? NaN : Number(storedMaxComments);
+    const parsedMaxFiles = storedMaxFiles === undefined ? NaN : Number(storedMaxFiles);
 
     return reviewSettingsSchema.parse({
       concurrencyLevel: storedConcurrency && CONCURRENCY_LEVELS.has(storedConcurrency)
@@ -29,6 +32,11 @@ export async function getReviewSettings(env: Pick<AppBindings, 'HYPERDRIVE'>): P
       maxComments: MAX_COMMENTS_OPTIONS.has(parsedMaxComments)
         ? parsedMaxComments
         : DEFAULT_REVIEW_SETTINGS.maxComments,
+      // Unlike the other two this is a free numeric field, so clamp rather than fall back to
+      // the default: a stored value outside the range should be pulled into it, not discarded.
+      maxFiles: Number.isFinite(parsedMaxFiles)
+        ? Math.min(reviewMaxFilesRange.max, Math.max(reviewMaxFilesRange.min, Math.trunc(parsedMaxFiles)))
+        : DEFAULT_REVIEW_SETTINGS.maxFiles,
     });
   } catch (error) {
     logger.warn('Failed to load review settings, using defaults', {
@@ -41,8 +49,12 @@ export async function getReviewSettings(env: Pick<AppBindings, 'HYPERDRIVE'>): P
 export async function updateReviewSettings(env: Pick<AppBindings, 'HYPERDRIVE'>, settings: ReviewSettings): Promise<void> {
   await queryRows(
     env,
-    `INSERT INTO global_settings (key, value) VALUES ($1, $2), ($3, $4)
+    `INSERT INTO global_settings (key, value) VALUES ($1, $2), ($3, $4), ($5, $6)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-    [CONCURRENCY_KEY, settings.concurrencyLevel, MAX_COMMENTS_KEY, String(settings.maxComments)],
+    [
+      CONCURRENCY_KEY, settings.concurrencyLevel,
+      MAX_COMMENTS_KEY, String(settings.maxComments),
+      MAX_FILES_KEY, String(settings.maxFiles),
+    ],
   );
 }

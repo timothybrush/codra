@@ -77,7 +77,7 @@ export function createReposRouter() {
               });
               return `${repo.owner.login}/${repo.name}`;
             } catch (repoError) {
-              console.error(`Failed to sync ${repo.owner.login}/${repo.name}:`, repoError);
+              console.error('Failed to sync repo:', `${repo.owner.login}/${repo.name}`, repoError);
               return null;
             }
           },

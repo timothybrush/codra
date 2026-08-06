@@ -4,6 +4,30 @@ import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import type { JobDetail } from '@shared/schema';
 
+/* Session-scoped cache so revisiting a job paints instantly from the last
+   payload while the network refresh runs in the background. Job detail carries
+   every file's full diff, so writes are best-effort (quota is swallowed). */
+function jobCacheKey(id: string) {
+  return `codra:job:${id}`;
+}
+
+function readJobCache(id: string): JobDetail | null {
+  try {
+    const raw = sessionStorage.getItem(jobCacheKey(id));
+    return raw ? (JSON.parse(raw) as JobDetail) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJobCache(id: string, job: JobDetail) {
+  try {
+    sessionStorage.setItem(jobCacheKey(id), JSON.stringify(job));
+  } catch {
+    /* quota exceeded / unavailable - skip */
+  }
+}
+
 export function useJobDetail(id: string) {
   const navigate = useNavigate();
   const [job, setJob] = useState<JobDetail | null>(null);
@@ -36,6 +60,7 @@ export function useJobDetail(id: string) {
       if (!response.notModified && response.data) {
         latestJob.current = response.data.job;
         setJob(response.data.job);
+        writeJobCache(id, response.data.job);
       }
       setError(null);
       schedulePolling();
@@ -59,25 +84,48 @@ export function useJobDetail(id: string) {
     pollTimeout.current = window.setTimeout(() => fetchJob(true), delay);
   };
 
+  /**
+   * `fetchJob` and `schedulePolling` are mutually recursive, so neither can be memoized without the
+   * other and both get a new identity every render. Holding them in refs gives the effects below a
+   * stable thing to call, which is what lets their dependency arrays be honest about what actually
+   * triggers them rather than being silenced.
+   */
+  const fetchJobRef = useRef(fetchJob);
+  const schedulePollingRef = useRef(schedulePolling);
+  useEffect(() => {
+    fetchJobRef.current = fetchJob;
+    schedulePollingRef.current = schedulePolling;
+  });
+
   useEffect(() => {
     if (id) {
       etag.current = null;
-      latestJob.current = null;
-      fetchJob();
+      // Paint the cached copy immediately, then revalidate over the network.
+      const cached = readJobCache(id);
+      if (cached) {
+        latestJob.current = cached;
+        setJob(cached);
+      } else {
+        latestJob.current = null;
+        setJob(null);
+      }
+      fetchJobRef.current();
     }
     return () => stopPolling();
   }, [id]);
 
+  // Only the two fields `getPollDelay` reads. `latestJob.current` is not assigned here because
+  // `fetchJob` already sets it on every successful response, and those are the only writes to `job`.
   useEffect(() => {
-    latestJob.current = job;
-    schedulePolling();
+    schedulePollingRef.current();
   }, [job?.status, job?.nextRetryAt]);
 
+  // Mount-only: the listener reads through the ref, so it never needs rebinding.
   useEffect(() => {
-    const reschedule = () => schedulePolling();
+    const reschedule = () => schedulePollingRef.current();
     document.addEventListener('visibilitychange', reschedule);
     return () => document.removeEventListener('visibilitychange', reschedule);
-  }, [id, job?.status, job?.nextRetryAt]);
+  }, []);
 
   const handleRetry = async () => {
     if (!job) return;

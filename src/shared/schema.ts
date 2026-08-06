@@ -1,15 +1,88 @@
 import { z } from 'zod';
+import {
+  reviewSeverities,
+  reviewConcurrencyLevels,
+  type ReviewConcurrencyLevel,
+  REVIEW_CONCURRENCY_LIMITS,
+  reviewMaxCommentsOptions,
+  reviewMaxFilesRange,
+} from './review-limits';
+import {
+  reviewTriggers,
+  jobStatuses,
+  fileStatuses,
+  reviewVerdicts,
+  reviewCategories,
+  llmApiFormats,
+} from './schema-enums';
+import {
+  claimTypes,
+  type ClaimType,
+  CLAIM_TYPE_CATEGORY,
+  toClaimType,
+  CLAIM_TYPE_DECIDABILITY,
+  DEFAULT_DENIED_CLAIM_TYPES,
+  DEFAULT_SHADOW_RULE_IDS,
+  findingDispositions,
+  type FindingDisposition,
+} from './schema-claims';
+import {
+  reviewConfigSchema,
+  repoConfigSchema,
+  type RepoConfig,
+  KIMI_K2_5_MODEL,
+  KIMI_K2_6_MODEL,
+  DEPRECATED_MODEL_ALIASES,
+  normalizeModelId,
+  normalizeRepoModelConfig,
+  normalizeRepoConfig,
+  defaultRepoConfig,
+} from './schema-repo-config';
 
-export const reviewTriggers = ['auto', 'mention', 'retry'] as const;
-export const jobStatuses = ['queued', 'running', 'done', 'failed', 'superseded', 'cancelled', 'stopped'] as const;
-export const fileStatuses = ['pending', 'done', 'skipped', 'failed'] as const;
-export const reviewVerdicts = ['approve', 'comment'] as const;
-export const reviewSeverities = ['P0', 'P1', 'P2', 'P3', 'nit'] as const;
-export const reviewCategories = ['security', 'bugs', 'performance', 'correctness', 'quality'] as const; // Keeping for DB compatibility but will deprecate usage in prompts
-export const llmApiFormats = ['openai', 'anthropic', 'gemini', 'cloudflare-workers-ai'] as const;
+// Re-exported for server-side consumers that import these from @shared/schema; the client should
+// import from @shared/review-limits directly to avoid pulling zod into the browser bundle.
+export {
+  reviewSeverities,
+  reviewConcurrencyLevels,
+  type ReviewConcurrencyLevel,
+  REVIEW_CONCURRENCY_LIMITS,
+  reviewMaxCommentsOptions,
+  reviewMaxFilesRange,
+};
+export {
+  reviewTriggers,
+  jobStatuses,
+  fileStatuses,
+  reviewVerdicts,
+  reviewCategories,
+  llmApiFormats,
+};
+export {
+  claimTypes,
+  type ClaimType,
+  CLAIM_TYPE_CATEGORY,
+  toClaimType,
+  CLAIM_TYPE_DECIDABILITY,
+  DEFAULT_DENIED_CLAIM_TYPES,
+  DEFAULT_SHADOW_RULE_IDS,
+  findingDispositions,
+  type FindingDisposition,
+};
+export {
+  reviewConfigSchema,
+  repoConfigSchema,
+  type RepoConfig,
+  KIMI_K2_5_MODEL,
+  KIMI_K2_6_MODEL,
+  DEPRECATED_MODEL_ALIASES,
+  normalizeModelId,
+  normalizeRepoModelConfig,
+  normalizeRepoConfig,
+  defaultRepoConfig,
+};
 
-export const dateStringSchema = z.union([z.string(), z.date()]).transform((d) => (d instanceof Date ? d.toISOString() : d));
-export const coerceNumberSchema = z.coerce.number();
+const dateStringSchema = z.union([z.string(), z.date()]).transform((d) => (d instanceof Date ? d.toISOString() : d));
+const coerceNumberSchema = z.coerce.number();
 
 export const jobStepSchema = z.object({
   name: z.string(),
@@ -28,7 +101,44 @@ export const parsedReviewCommentSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   codeSuggestion: z.string().min(1).nullable().optional(),
+  confidenceScore: z.number().min(0).max(1).nullable().optional(),
+  // The verbatim line of code the finding claims to be about, used to anchor the comment and to
+  // verify the claim is grounded in code that actually exists in the diff.
+  evidence: z.string().min(1).nullable().optional(),
+  // Stable identity of the finding (path + title), so the same issue can be recognized across
+  // re-reviews of the same PR.
+  fingerprint: z.string().min(1).nullable().optional(),
+  // Hash of the anchored line's content. When this changes the underlying code changed, so a
+  // previously-posted finding is legitimately raised again.
+  anchorHash: z.string().min(1).nullable().optional(),
+  // Whether this finding reached the pull request. Without it, 11 generated and 1 posted looks
+  // identical to 11 posted.
+  posted: z.boolean().nullable().optional(),
+  // Never folded into the title: buildFindingFingerprint hashes the title, so a format change would
+  // reset cross-run suppression and unmatch every human dismissal in comment_feedback.
+  claimType: z.enum(claimTypes).nullable().optional(),
+  // Captured at parse time: diff_input is nulled by migration 003 and the KV diff cache expires
+  // after 6 hours, so historical findings have no other retrievable context.
+  contextSnippet: z.string().nullable().optional(),
+  // Which pipeline stage ended this finding's life.
+  disposition: z.enum(findingDispositions).nullable().optional(),
+  // The verifier's own justification, for kept findings as well as dropped ones. The tuning surface:
+  // a subtraction stage nobody can inspect is a subtraction stage nobody can improve.
+  verifyReason: z.string().nullable().optional(),
+  // A human's verdict from the dashboard, if any. `null` means UNLABELLED, which is not a verdict --
+  // precision may only be computed over the labelled subset.
+  humanLabel: z.enum(['marked_right', 'marked_wrong']).nullable().optional(),
+  // Title-independent identity, OR-matched with `fingerprint` for cross-run suppression.
+  fingerprintV2: z.string().min(1).nullable().optional(),
+  // Absent means 'llm', so every pre-existing row reads correctly with no backfill. Always test
+  // `=== 'rule'` positively, or anything COUNTING findings silently includes deterministic hits.
+  source: z.enum(['llm', 'rule']).nullable().optional(),
+  // Which rule fired, when source is 'rule'. The retirement signal: a rule with many generated and
+  // no posted findings is one the filter always rejects, and should be deleted or fixed.
+  ruleId: z.string().min(1).nullable().optional(),
 });
+
+export const findingLabelSchema = z.object({ label: z.enum(['right', 'wrong']) });
 
 export const fileReviewModelOutputSchema = z.object({
   findings: z.array(
@@ -36,7 +146,13 @@ export const fileReviewModelOutputSchema = z.object({
       title: z.string().max(100),
       body: z.string().min(1),
       confidence_score: z.number().min(0).max(1).optional(),
-      priority: z.number().int().min(0).max(3).optional(),
+      // Kept in lockstep with the clamp in normalizeFinding and the JSON grammar: tighter here than
+      // there fails the parse for the ENTIRE file, not just one finding.
+      priority: z.number().int().min(0).max(4).optional(),
+      evidence: z.string().optional(),
+      // `unknown`, not `string`: a Zod rejection here discards every finding in the file over one
+      // bad label. Validated in toClaimType instead, which coerces to 'other'.
+      claim_type: z.unknown().optional(),
       code_location: z.object({
         absolute_file_path: z.string(),
         line_range: z.object({
@@ -51,100 +167,6 @@ export const fileReviewModelOutputSchema = z.object({
   overall_correctness: z.string().optional().default('patch is correct'),
   overall_explanation: z.string().optional().default('Review completed (partial output).'),
   overall_confidence_score: z.number().min(0).max(1).optional(),
-});
-
-export const summaryModelOutputSchema = z.union([
-  z.array(z.object({ summary: z.string().min(1) })),
-  z.object({ summary: z.string().min(1) }),
-]);
-
-export const labelsSchema = z.union([
-  z.literal(false),
-  z.object({
-    p1: z.string().min(1),
-    p2: z.string().min(1),
-    p3: z.string().min(1),
-  }),
-]);
-
-export const reviewConfigSchema = z.object({
-  on: z.array(z.enum(['opened', 'synchronize', 'ready_for_review', 'reopened', 'closed'])).default(['opened', 'synchronize', 'ready_for_review', 'reopened']),
-  ignore_drafts: z.boolean().default(true),
-  mention_trigger: z.union([z.literal(false), z.string().min(1)]).default('@codra-app'),
-  skip_files: z
-    .array(z.string().min(1))
-    .default(['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**']),
-  max_files: z.number().int().min(1).max(150).default(150),
-  large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
-  max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
-  max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
-  max_comments: z.number().int().min(1).max(150).default(10),
-  min_severity: z.enum(reviewSeverities).default('nit'),
-  focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),
-  custom_rules: z.array(z.string().min(1)).default([]),
-  labels: labelsSchema.default({
-    p1: 'review: needs-attention',
-    p2: 'review: approved',
-    p3: 'review: approved',
-  }),
-  exec: z
-    .object({
-      enabled: z.boolean().default(false),
-      on_file_types: z.array(z.string().min(1)).default(['.ts', '.tsx', '.js']),
-      command: z.string().min(1).default('npm run lint && npm run typecheck'),
-    })
-    .default({
-      enabled: false,
-      on_file_types: ['.ts', '.tsx', '.js'],
-      command: 'npm run lint && npm run typecheck',
-    }),
-});
-
-export const repoConfigSchema = z.object({
-  review: reviewConfigSchema.default({
-    on: ['opened', 'synchronize', 'ready_for_review', 'reopened'],
-    ignore_drafts: true,
-    mention_trigger: '@codra-app',
-    skip_files: ['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**'],
-    max_files: 150,
-    large_file_threshold_lines: 200,
-    max_diff_lines_per_file: 800,
-    max_total_diff_chars: 150_000,
-    max_comments: 10,
-    min_severity: 'nit',
-    focus: [...reviewCategories],
-    custom_rules: [],
-    labels: {
-      p1: 'review: needs-attention',
-      p2: 'review: approved',
-      p3: 'review: approved',
-    },
-    exec: {
-      enabled: false,
-      on_file_types: ['.ts', '.tsx', '.js'],
-      command: 'npm run lint && npm run typecheck',
-    },
-  }),
-  model: z
-    .object({
-      main: z.string().nullable().default(null),
-      fallbacks: z.array(z.string()).nullable().default([]),
-      size_overrides: z
-        .array(
-          z.object({
-            max_lines: z.number().int().positive(),
-            model: z.string(),
-            fallbacks: z.array(z.string()).optional(),
-          }),
-        )
-        .nullable()
-        .optional(),
-    })
-    .default({
-      main: null,
-      fallbacks: [],
-      size_overrides: [],
-    }),
 });
 
 export const reviewJobMessageSchema = z.object({
@@ -212,6 +234,10 @@ export const jobSummarySchema = z.object({
 export const jobsQuerySchema = z.object({
   owner: z.string().optional(),
   repo: z.string().optional(),
+  prNumber: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : Number(v)),
+    z.number().int().positive().optional(),
+  ),
   status: z.enum(jobStatuses).optional(),
   verdict: z.enum(reviewVerdicts).optional(),
   search: z.string().optional(),
@@ -219,10 +245,9 @@ export const jobsQuerySchema = z.object({
   offset: z.preprocess((v) => Number(v), z.number().int().min(0)).default(0),
 });
 
-export type JobsQuery = z.infer<typeof jobsQuerySchema>;
 export type JobStep = z.infer<typeof jobStepSchema>;
 
-export const fileReviewRecordSchema = z.object({
+const fileReviewRecordSchema = z.object({
   id: z.string().uuid(),
   jobId: z.string().uuid(),
   filePath: z.string(),
@@ -340,49 +365,12 @@ export const statsSchema = z.object({
 });
 
 export type ParsedReviewComment = z.infer<typeof parsedReviewCommentSchema>;
-export type FileReviewModelOutput = z.infer<typeof fileReviewModelOutputSchema>;
-export type RepoConfig = z.infer<typeof repoConfigSchema>;
-export const KIMI_K2_5_MODEL = '@cf/moonshotai/kimi-k2.5';
-export const KIMI_K2_6_MODEL = '@cf/moonshotai/kimi-k2.6';
-export const DEPRECATED_MODEL_ALIASES: Record<string, string> = {
-  [KIMI_K2_5_MODEL]: KIMI_K2_6_MODEL,
-};
-
-export function normalizeModelId(model: string) {
-  return DEPRECATED_MODEL_ALIASES[model] ?? model;
-}
-
-export function normalizeRepoModelConfig(model: RepoConfig['model']): RepoConfig['model'] {
-  return {
-    ...model,
-    main: model.main ? normalizeModelId(model.main) : null,
-    fallbacks: model.fallbacks === null
-      ? null
-      : Array.isArray(model.fallbacks)
-        ? model.fallbacks.map(normalizeModelId)
-        : [],
-    size_overrides: model.size_overrides === null || model.size_overrides === undefined
-      ? model.size_overrides
-      : model.size_overrides.map((tier) => ({
-          ...tier,
-          model: normalizeModelId(tier.model),
-          fallbacks: tier.fallbacks?.map(normalizeModelId),
-        })),
-  };
-}
-
-export function normalizeRepoConfig(config: RepoConfig): RepoConfig {
-  return {
-    ...config,
-    model: normalizeRepoModelConfig(config.model),
-  };
-}
-
 export type ReviewJobMessage = z.infer<typeof reviewJobMessageSchema>;
 export type JobSummary = z.infer<typeof jobSummarySchema>;
 export type FileReviewRecord = z.infer<typeof fileReviewRecordSchema>;
 export type JobDetail = z.infer<typeof jobDetailSchema>;
 export type RepoConfigRecord = z.infer<typeof repoConfigRecordSchema>;
+
 export const llmProviderSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -408,21 +396,16 @@ export type LlmProvider = z.infer<typeof llmProviderSchema>;
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 export type StatsPayload = z.infer<typeof statsSchema>;
 
-export const defaultRepoConfig = repoConfigSchema.parse({});
-
-export const reviewConcurrencyLevels = ['low', 'medium', 'high', 'max'] as const;
-export type ReviewConcurrencyLevel = typeof reviewConcurrencyLevels[number];
-export const REVIEW_CONCURRENCY_LIMITS: Record<ReviewConcurrencyLevel, number> = {
-  low: 1,
-  medium: 2,
-  high: 3,
-  max: 4,
-};
-
-export const reviewMaxCommentsOptions = [5, 10, 15, 20] as const;
-
 export const reviewSettingsSchema = z.object({
   concurrencyLevel: z.enum(reviewConcurrencyLevels).default('medium'),
   maxComments: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20)]).default(10),
+  // Instance-wide, not per-repo: bounds the Workers subrequest budget and provider rate limit,
+  // both shared across every repository.
+  maxFiles: z
+    .number()
+    .int()
+    .min(reviewMaxFilesRange.min)
+    .max(reviewMaxFilesRange.max)
+    .default(reviewMaxFilesRange.default),
 });
 export type ReviewSettings = z.infer<typeof reviewSettingsSchema>;

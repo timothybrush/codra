@@ -28,14 +28,16 @@ export async function recordWebhookDelivery(
     env,
     `
       INSERT INTO webhook_deliveries (delivery_id, event_name, repository_id, payload)
-      VALUES ($1, $2, $3, $4::jsonb)
+      VALUES ($1, $2, $3, $4::text::jsonb)
       ON CONFLICT (delivery_id) DO NOTHING
       RETURNING id
     `,
     [input.deliveryId, input.eventName, repositoryId, JSON.stringify(input.payload)],
   );
 
-  return rows.length > 0;
+  // `repositoryId` is returned rather than discarded so callers that need it (the feedback handler)
+  // don't pay for a second identical lookup.
+  return { inserted: rows.length > 0, repositoryId };
 }
 
 export async function getWebhookDelivery(

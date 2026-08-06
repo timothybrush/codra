@@ -57,7 +57,7 @@ export async function invalidateRepoConfigCache(env: Pick<AppBindings, 'APP_KV'>
   await env.APP_KV.delete(await cacheKey(env, owner, repo));
 }
 
-export async function invalidateAllRepoConfigCache(env: Pick<AppBindings, 'APP_KV'>) {
+async function invalidateAllRepoConfigCache(env: Pick<AppBindings, 'APP_KV'>) {
   await env.APP_KV.put(REPO_CONFIG_REVISION_KEY, String(Date.now()));
 }
 

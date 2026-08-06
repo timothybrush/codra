@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import { Check, Mail, RefreshCw } from 'lucide-react';
-import { api } from '@client/lib/api';
+import { Check, Mail } from 'lucide-react';
 import { Button } from '@client/components/ui/button';
 import { Input } from '@client/components/ui/input';
+import { api } from '@client/lib/api';
 import type { UpdatesEmailResponse } from '@shared/api';
 
 export function UpdatesEmailPrompt() {
@@ -48,17 +48,19 @@ export function UpdatesEmailPrompt() {
   };
 
   return (
-    <section className="surface overflow-hidden">
-      <div className="flex flex-col gap-4 px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between md:gap-6">
+    <section className="ui-font-sans rounded-lg border border-ui-line bg-white p-3.5 dark:border-[oklch(0.27_0_0)] dark:bg-black sm:p-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-6">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Mail size={16} strokeWidth={2.1} />
+          <span className="ui-well hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-ui-default sm:flex">
+            <Mail size={15} strokeWidth={2} />
           </span>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">Get important Codra updates</h2>
-            <p className="mt-0.5 text-sm text-muted-foreground leading-relaxed">
-              Add an email for release notes, security fixes, and upgrade heads-up.{' '}
-              <span className="hidden sm:inline">You can opt out from any update email later. No spam.</span>
+            <h2 className="text-[13px] font-medium text-ui-default">Get important Codra updates</h2>
+            <p className="mt-0.5 text-xs leading-relaxed text-ui-subtle">
+              Get release notes, security fixes, and upgrade heads-ups by email.
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-ui-subtle">
+              Opt out anytime. No{'\u00A0'}spam.
             </p>
           </div>
         </div>
@@ -67,14 +69,21 @@ export function UpdatesEmailPrompt() {
           <Input
             type="email"
             required
+            size="sm"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@example.com"
-            className="h-9 min-w-0 flex-1"
+            className="min-w-0 px-3 sm:flex-1"
             aria-label="Email for Codra release updates"
           />
-          <Button type="submit" size="sm" disabled={submitting} className="w-full gap-2 sm:w-auto sm:shrink-0">
-            {submitting ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            loading={submitting}
+            icon={<Check size={13} />}
+            className="w-full sm:w-auto sm:shrink-0"
+          >
             Save email
           </Button>
         </form>

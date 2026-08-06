@@ -531,7 +531,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS file_reviews_job_file_path_key
 CREATE TABLE IF NOT EXISTS llm_providers (
   id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   name              TEXT        NOT NULL UNIQUE,
-  api_format        TEXT        NOT NULL CHECK (api_format IN ('openai', 'anthropic', 'gemini', 'cloudflare-workers-ai')),
+  api_format        TEXT        NOT NULL CHECK (api_format IN ('openai', 'anthropic', 'gemini', 'cloudflare-workers-ai', 'vertex')),
   base_url          TEXT,
   encrypted_api_key TEXT,
   enabled           BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -553,7 +553,8 @@ VALUES
   ('Google', 'gemini', 'https://generativelanguage.googleapis.com/v1beta', FALSE),
   ('OpenAI', 'openai', 'https://api.openai.com/v1', FALSE),
   ('Anthropic', 'anthropic', 'https://api.anthropic.com/v1', FALSE),
-  ('OpenRouter', 'openai', 'https://openrouter.ai/api/v1', FALSE)
+  ('OpenRouter', 'openai', 'https://openrouter.ai/api/v1', FALSE),
+  ('Vertex AI', 'vertex', NULL, FALSE)
 ON CONFLICT (name) DO UPDATE SET
   api_format = EXCLUDED.api_format,
   base_url = EXCLUDED.base_url,
@@ -588,6 +589,15 @@ WHERE mc.provider_id IS NULL
 UPDATE model_configs
 SET model_name = model_id
 WHERE model_name IS NULL;
+
+-- The CREATE TABLE above is IF NOT EXISTS, so on a database where model_configs already exists it did
+-- nothing -- and a database created after rpm/tpm/rpd were retired has a model_configs without them.
+-- The statements below still name those columns, so without this they fail with
+-- `column "rpm" of relation "model_configs" does not exist` and roll back the whole migration.
+-- These three are legacy and unread by the application; they are set here only to be nulled out below.
+ALTER TABLE model_configs ADD COLUMN IF NOT EXISTS rpm INTEGER;
+ALTER TABLE model_configs ADD COLUMN IF NOT EXISTS tpm INTEGER;
+ALTER TABLE model_configs ADD COLUMN IF NOT EXISTS rpd INTEGER;
 
 INSERT INTO model_configs (model_id, rpm, tpm, rpd, provider, provider_id, model_name, updated_at)
 SELECT '@cf/moonshotai/kimi-k2.6', 10, 131072, 300, 'cloudflare', p.id, '@cf/moonshotai/kimi-k2.6', now()

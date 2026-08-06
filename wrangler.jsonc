@@ -53,7 +53,6 @@
         "max_batch_size": 1,
         "max_batch_timeout": 5,
         "max_concurrency": 1,
-        "visibility_timeout_ms": 900000,
         "retry_delay": 60,
         "max_retries": 3
       }

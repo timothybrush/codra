@@ -1,9 +1,11 @@
-import { 
-  findPositionForLine, 
-  filterReviewableFiles, 
-  getValidNewLines, 
+import {
+  chunkFileDiff,
+  filterReviewableFiles,
+  findPositionForLine,
+  getValidNewLines,
+  parseDiffHeaderPath,
   parseUnifiedDiff,
-  truncateFileDiff 
+  truncateFileDiff,
 } from '@server/core/diff';
 import { defaultRepoConfig } from '@shared/schema';
 
@@ -132,6 +134,90 @@ Binary files a/image.png and b/image.png differ
     });
   });
 
+  // First coverage for chunkFileDiff, which had none - and it decides how much of a large file any model
+  // ever sees. `reviewFile` chunks at `max_diff_lines_per_file` and then keeps only the first MAX_CHUNKS,
+  // so a silent partition bug here means whole regions of a file are never reviewed and nothing reports it.
+  //
+  // The invariant that matters is exact partition: every original line appears in exactly one chunk, in
+  // order. Truncation is allowed (it is capped and reported); losing a line in the middle is not.
+  describe('chunkFileDiff', () => {
+    // Distinct content per line so a dropped or duplicated line is detectable - Array(n).fill(sameObject)
+    // would hide exactly the bug this is looking for.
+    const fileOf = (hunkSizes: number[]) => {
+      let n = 0;
+      return {
+        path: 'large.ts',
+        previousPath: null,
+        isNew: false,
+        isDeleted: false,
+        isBinary: false,
+        lineCount: hunkSizes.reduce((a, b) => a + b, 0),
+        hunks: hunkSizes.map((size, h) => ({
+          header: `@@ hunk${h} @@`,
+          lines: Array.from({ length: size }, () => {
+            n += 1;
+            return { kind: 'add', content: `line ${n}`, newLineNumber: n, position: n };
+          }),
+        })),
+      } as any;
+    };
+
+    const linesOf = (files: any[]) => files.flatMap((f) => f.hunks.flatMap((h: any) => h.lines));
+
+    it('returns the file untouched when it fits, without marking it truncated', () => {
+      const file = fileOf([40]);
+      const chunks = chunkFileDiff(file, 100);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]).toBe(file);
+      expect(chunks[0].isTruncated).toBeUndefined();
+    });
+
+    it('partitions every line exactly once, in order, across chunk boundaries', () => {
+      const file = fileOf([50, 50, 50]);
+      const chunks = chunkFileDiff(file, 40);
+
+      const partitioned = linesOf(chunks);
+      expect(partitioned).toHaveLength(150);
+      expect(partitioned.map((l) => l.content)).toEqual(linesOf([file]).map((l) => l.content));
+    });
+
+    it('splits a single hunk larger than the cap, keeping the hunk header on both halves', () => {
+      // Without the header the model cannot resolve line numbers for the second half's findings.
+      const chunks = chunkFileDiff(fileOf([100]), 40);
+      expect(chunks).toHaveLength(3);
+      for (const chunk of chunks) {
+        expect(chunk.hunks.every((h: any) => h.header === '@@ hunk0 @@')).toBe(true);
+      }
+      expect(chunks.map((c) => c.lineCount)).toEqual([40, 40, 20]);
+    });
+
+    it('never exceeds the cap, and reports lineCount that matches the lines actually carried', () => {
+      const chunks = chunkFileDiff(fileOf([13, 71, 5, 44]), 30);
+      for (const chunk of chunks) {
+        const actual = chunk.hunks.reduce((sum: number, h: any) => sum + h.lines.length, 0);
+        expect(chunk.lineCount).toBe(actual);
+        expect(actual).toBeLessThanOrEqual(30);
+        expect(actual).toBeGreaterThan(0);
+      }
+    });
+
+    it('carries the original line count on every chunk so truncation is reportable', () => {
+      const chunks = chunkFileDiff(fileOf([90]), 25);
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.originalLineCount).toBe(90);
+        expect(chunk.isTruncated).toBe(true);
+      }
+    });
+
+    // The MAX_CHUNKS cap in reviewFile is what makes this the load-bearing number: at 800 lines/chunk,
+    // 4 chunks meant any file over 3,200 diff lines was silently cut off. src/server/core/review.ts
+    // changed 3,749 lines in PR #55, so ~15% of the largest file in the PR reached no model at all.
+    it('produces more than four chunks for a file the size of the largest in PR #55', () => {
+      expect(chunkFileDiff(fileOf([3_749]), 800).length).toBeGreaterThan(4);
+    });
+  });
+
   describe('filterReviewableFiles', () => {
     it('applies complex exclusion patterns', () => {
       const files = [
@@ -145,18 +231,75 @@ Binary files a/image.png and b/image.png differ
         skip_files: ['dist/**', '**/*.spec.ts'],
       };
 
-      const filtered = filterReviewableFiles(files, config);
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].path).toBe('src/main.ts');
+      const filtered = filterReviewableFiles(files, config, 150);
+      expect(filtered.files).toHaveLength(1);
+      expect(filtered.files[0].path).toBe('src/main.ts');
+      expect(filtered.skipped).toBe(0);
     });
 
-    it('respects max_files limit', () => {
+    it('respects the file limit and reports how many it left out', () => {
       const manyFiles = Array(20).fill(0).map((_, i) => ({
         path: `file${i}.ts`, isDeleted: false, isBinary: false, isNew: false, hunks: []
       })) as any;
 
-      const filtered = filterReviewableFiles(manyFiles, { ...defaultRepoConfig.review, max_files: 5 });
-      expect(filtered).toHaveLength(5);
+      const filtered = filterReviewableFiles(manyFiles, defaultRepoConfig.review, 5);
+      expect(filtered.files).toHaveLength(5);
+      // Callers need this to say "5 of 20" instead of silently reviewing part of a PR.
+      expect(filtered.skipped).toBe(15);
     });
+
+    it('does not count files excluded by skip patterns as skipped-for-limit', () => {
+      const files = [
+        { path: 'src/main.ts', isDeleted: false, isBinary: false, isNew: false, hunks: [] },
+        { path: 'dist/bundle.js', isDeleted: false, isBinary: false, isNew: false, hunks: [] },
+      ] as any;
+
+      const filtered = filterReviewableFiles(files, defaultRepoConfig.review, 150);
+      expect(filtered.files).toHaveLength(1);
+      expect(filtered.skipped).toBe(0);
+    });
+  });
+});
+
+describe('diff --git header paths', () => {
+  const header = (line: string) => parseDiffHeaderPath(line);
+
+  it('reads an ordinary path', () => {
+    expect(header('diff --git a/src/app.ts b/src/app.ts')).toBe('src/app.ts');
+  });
+
+  // Git does not quote spaces in this header. Splitting on the last space produced `file.ts`, a path
+  // not in the PR, so GitHub rejected the whole review with a 422 and every inline comment was lost.
+  it('reads a path containing spaces', () => {
+    expect(header('diff --git a/src/my file.ts b/src/my file.ts')).toBe('src/my file.ts');
+    expect(header('diff --git a/docs/release notes.md b/docs/release notes.md')).toBe('docs/release notes.md');
+  });
+
+  // Two such files sharing a last token collapsed to one path, desynchronising the file count from
+  // the review count and wedging the job in a review -> finalize loop.
+  it('keeps two space-named files distinct', () => {
+    expect(header('diff --git a/docs/release notes.md b/docs/release notes.md'))
+      .not.toBe(header('diff --git a/spec/api notes.md b/spec/api notes.md'));
+  });
+
+  it('takes the b-side on a rename', () => {
+    expect(header('diff --git a/old name.ts b/new name.ts')).toBe('new name.ts');
+  });
+
+  // The symmetric split resolves even a filename that itself contains " b/".
+  it('reads a path containing a literal b/ segment', () => {
+    expect(header('diff --git a/a b/b b/a b/b')).toBe('a b/b');
+  });
+
+  it('parses a full diff with a spaced path end to end', () => {
+    const [file] = parseUnifiedDiff([
+      'diff --git a/src/my file.ts b/src/my file.ts',
+      '--- a/src/my file.ts',
+      '+++ b/src/my file.ts',
+      '@@ -0,0 +1 @@',
+      '+console.log(1);',
+    ].join('\n'));
+    expect(file.path).toBe('src/my file.ts');
+    expect(file.hunks[0].lines[0].content).toBe('console.log(1);');
   });
 });

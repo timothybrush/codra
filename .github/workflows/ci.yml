@@ -49,10 +49,10 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
           cache: 'npm'
@@ -63,5 +63,17 @@ jobs:
       - name: Static Analysis (Typecheck)
         run: npm run typecheck
 
+      # Lint is not cosmetic here: eslint.config.js carries the barrel guards that stop a module from
+      # importing a mocked barrel's sibling (which would silently void a vi.mock), plus max-lines and
+      # import-x/no-cycle. Without this step those guards only ever ran on a developer's machine.
+      - name: Static Analysis (Lint)
+        run: npm run lint
+
       - name: Automated Tests
         run: npm test
+
+      # Catches bundler-level breakage typecheck cannot see -- notably a client file pulling zod into
+      # the browser bundle through @shared/schema. `vite build` rather than `npm run build` so CI does
+      # not depend on the `wrangler types` step, which only regenerates a local .d.ts.
+      - name: Build (client bundle)
+        run: npx vite build

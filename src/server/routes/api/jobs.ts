@@ -1,20 +1,21 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { defaultRepoConfig, jobsQuerySchema } from '@shared/schema';
-import type { AppEnv } from '@server/env';
+import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@shared/schema';
+import { getFindingLabelTarget } from '@server/db/file-reviews';
+import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
+import type { AppBindings, AppEnv } from '@server/env';
 import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@server/db/jobs';
 import { jsonError } from '@server/core/http';
 import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';
 import { logger } from '@server/core/logger';
-import type { AppBindings } from '@server/env';
+import { getOrFetchRawDiffForCompletedJob } from '@server/core/review';
+import { parseUnifiedDiff } from '@server/core/diff';
+import { buildFileReviewPrompts } from '@server/prompts/file-review';
+import { GitHubService } from '@server/services/github';
 
-/**
- * Best-effort termination of a job's Cloudflare Workflow instance. The instance id is the one we
- * stored (workflowInstanceId) or, as a fallback, the job id we passed to REVIEW_WORKFLOW.create().
- * .get() throws if the instance doesn't exist and .terminate() throws if it's already terminal --
- * both are non-fatal here (there's simply nothing left to stop).
- */
+// Best-effort terminate, by stored workflowInstanceId or the job id fallback. .get() throws when the
+// instance is gone and .terminate() when already terminal; both are non-fatal.
 async function terminateJobWorkflow(env: AppBindings, job: { id: string; workflowInstanceId?: string | null }) {
   const instanceId = job.workflowInstanceId ?? job.id;
   try {
@@ -79,10 +80,60 @@ export function createJobsRouter() {
     return response;
   });
 
-  // Shared logic for "re-run" (retry) and "rerun from start". Creates a fresh job for the same PR,
-  // supersedes any older queued/running jobs, and enqueues the prepare phase. When inherit=true the
-  // new job links to its parent (retryOfJobId) and reuses already-`done` file reviews; when false
-  // it starts from scratch (no inheritance) so every file is reviewed again.
+  // diff_input is not persisted; rebuilt on demand when the client opens Files-changed/Raw Logs. Uses
+  // the job's KV cache while warm, then re-derives from GitHub at the job's own base/head commits
+  // (not the live PR) once the 6h TTL lapses.
+  app.get('/:id/diffs', async (c) => {
+    const job = await getJobDetail(c.env, c.req.param('id'));
+    if (!job) {
+      return jsonError('Job not found.', 404);
+    }
+
+    const config = job.configSnapshot ?? defaultRepoConfig;
+    const github = new GitHubService(c.env, job.installationId);
+
+    let rawDiff: string;
+    try {
+      rawDiff = await getOrFetchRawDiffForCompletedJob(
+        c.env,
+        { id: job.id, owner: job.owner, repo: job.repo, baseSha: job.baseSha, commitSha: job.commitSha },
+        github,
+      );
+    } catch (error) {
+      logger.warn(`Could not reconstruct diff for job ${job.id}`, error instanceof Error ? error : new Error(String(error)));
+      return c.json({ diffs: {} });
+    }
+
+    // Reconstructs the prompt the MODEL SAW, so it must include the PR description: passing null
+    // rendered a prompt silently different from the real one, in a view meant for debugging exactly that.
+    let prDescription: string | null = null;
+    try {
+      prDescription = (await github.getPullRequest(job.owner, job.repo, job.prNumber)).body ?? null;
+    } catch (error) {
+      // Best-effort: a missing description degrades fidelity, never fails the view.
+      logger.warn(`Could not load the PR body for job ${job.id}; prompts will omit the description`,
+        error instanceof Error ? error : new Error(String(error)));
+    }
+
+    // The ENTIRE PR diff, not just files with a review row, so Files-changed matches GitHub mid-review.
+    const diffs: Record<string, string> = {};
+    for (const file of parseUnifiedDiff(rawDiff, config.review)) {
+      if (file.isDeleted || file.isBinary || !file.path) continue;
+      diffs[file.path] = buildFileReviewPrompts({
+        file,
+        prTitle: job.prTitle,
+        prDescription,
+        config: config.review,
+      }).userPrompt;
+    }
+
+    const response = c.json({ diffs });
+    response.headers.set('Cache-Control', 'private, max-age=60');
+    return response;
+  });
+
+  // Shared by re-run and rerun-from-start: fresh job, supersede older queued/running ones, enqueue
+  // prepare. inherit=true links retryOfJobId and reuses `done` file reviews; false reviews everything.
   async function startReplacementJob(c: Context<AppEnv>, rawSource: NonNullable<Awaited<ReturnType<typeof getJobForProcessing>>>, options: { inherit: boolean }) {
     const source = mapJob(rawSource);
     let configSnapshot;
@@ -113,7 +164,6 @@ export function createJobsRouter() {
       ...(options.inherit ? { retryOfJobId: source.id } : {}),
     });
 
-    // Supersede any older pending/running jobs for this PR
     await supersedeOlderJobs(c.env, {
       installationId: source.installationId,
       owner: source.owner,
@@ -122,7 +172,6 @@ export function createJobsRouter() {
       newJobId: job.id,
     });
 
-    // Send to queue using the NEW schema (background worker will handle it)
     await c.env.REVIEW_QUEUE.send({
       jobId: job.id,
       deliveryId: crypto.randomUUID(),
@@ -133,7 +182,7 @@ export function createJobsRouter() {
     return job;
   }
 
-  // Re-run: reuse the parent's already-completed file reviews where the model strategy still matches.
+  // Re-run: reuse the parent's completed reviews where the model strategy still matches.
   app.post('/:id/retry', async (c) => {
     const rawSource = await getJobForProcessing(c.env, c.req.param('id'));
     if (!rawSource) {
@@ -143,8 +192,7 @@ export function createJobsRouter() {
     return c.json({ job }, 202);
   });
 
-  // Rerun from start: review every file again from scratch (no inheritance). Stops the current run
-  // first so two workflows don't race on the same PR.
+  // Rerun from start: no inheritance. Stops the current run so two workflows cannot race.
   app.post('/:id/rerun', async (c) => {
     const rawSource = await getJobForProcessing(c.env, c.req.param('id'));
     if (!rawSource) {
@@ -175,7 +223,47 @@ export function createJobsRouter() {
     return c.json({ job: updated ? mapJob(updated) : job }, 200);
   });
 
-  // Delete a job (cascades to its file reviews and comments). Stops the workflow first if running.
+  // Human verdict on one finding: the only ground-truth path. The previous one (a human deleting an
+  // inline GitHub comment) nobody used, so `comment_feedback` sat empty and accuracy meant hand-audits.
+  // WRONG suppresses repository-wide; RIGHT suppresses nothing and is purely measurement.
+  app.put('/:id/findings/:fingerprint/label', async (c) => {
+    const jobId = c.req.param('id');
+    const fingerprint = c.req.param('fingerprint');
+
+    const parsed = findingLabelSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return jsonError('Body must be {"label":"right"|"wrong"}.', 400);
+
+    const target = await getFindingLabelTarget(c.env, jobId, fingerprint);
+    if (!target) return jsonError('Finding not found on this job.', 404);
+
+    await upsertDashboardFeedback(c.env, {
+      repositoryId: target.repository_id,
+      prNumber: target.pr_number,
+      fingerprint,
+      anchorHash: target.anchor_hash,
+      // Carried so a rejection survives the model rewording its title.
+      fingerprintV2: target.fingerprint_v2,
+      jobId,
+      labelledBy: c.get('sessionUser')?.githubUserId ?? null,
+      outcome: parsed.data.label === 'wrong' ? 'marked_wrong' : 'marked_right',
+    });
+
+    return c.json({ label: parsed.data.label }, 200);
+  });
+
+  // Undo a label, scoped to dashboard rows so a real GitHub deletion stays recorded.
+  app.delete('/:id/findings/:fingerprint/label', async (c) => {
+    const jobId = c.req.param('id');
+    const fingerprint = c.req.param('fingerprint');
+
+    const target = await getFindingLabelTarget(c.env, jobId, fingerprint);
+    if (!target) return jsonError('Finding not found on this job.', 404);
+
+    await clearDashboardFeedback(c.env, target.repository_id, fingerprint);
+    return c.body(null, 204);
+  });
+
+  // Delete a job, cascading to reviews and comments. Stops the workflow first.
   app.delete('/:id', async (c) => {
     const id = c.req.param('id');
     const raw = await getJobForProcessing(c.env, id);

@@ -19,7 +19,7 @@ export async function getUpdatesEmailPreference(
   return await env.APP_KV.get(updatesEmailKey(githubUserId), 'json') as UpdatesEmailRecord | null;
 }
 
-export async function hasUpdatesEmailPreference(
+async function hasUpdatesEmailPreference(
   env: Pick<AppBindings, 'APP_KV'>,
   githubUserId: number,
 ) {

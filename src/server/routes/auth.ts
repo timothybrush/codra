@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import type { AppEnv } from '@server/env';
 import { createOAuthState, consumeOAuthState, parseAllowedUsers } from '@server/core/oauth';
 import { createSession, destroySession } from '@server/core/sessions';
-import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@server/core/github-oauth';
+import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@server/core/github/oauth';
+import { upsertAccountSettings } from '@server/db/accounts';
+import { logger } from '@server/core/logger';
 
 function redirectToLogin(reason: string) {
   const params = new URLSearchParams({ error: reason });
@@ -51,6 +53,22 @@ export function createAuthRouter() {
 
       await destroySession(c);
       await createSession(c, toDashboardSessionUser(profile));
+
+      // Persist a durable account record. Best-effort: a DB hiccup must not
+      // block sign-in (the account page self-heals the row on next load).
+      try {
+        await upsertAccountSettings(c.env, {
+          githubUserId: profile.id,
+          githubUsername: profile.login,
+          accountName: profile.name,
+          accountEmail: profile.email,
+        });
+      } catch (err) {
+        logger.warn('Failed to persist account settings on sign-in', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
       return c.redirect('/dashboard', 302);
     } catch {
       return c.redirect(redirectToLogin('oauth_failed'), 302);

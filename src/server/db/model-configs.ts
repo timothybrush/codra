@@ -70,6 +70,11 @@ function mapModelConfig(row: ModelConfigRow): ModelConfig {
   });
 }
 
+// The llm_providers column list, in one place. It was inlined at six sites -- four SELECTs and two
+// RETURNINGs -- so adding a column meant finding all six, and `listLlmProviders` /
+// `listLlmProviderSecrets` were the identical query differing only in which mapper ran over it.
+const PROVIDER_COLUMNS = 'id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at';
+
 const MODEL_SELECT = `
   SELECT
     mc.model_id,
@@ -85,9 +90,7 @@ const MODEL_SELECT = `
 export async function listLlmProviders(env: Pick<AppBindings, 'HYPERDRIVE'>): Promise<LlmProvider[]> {
   const rows = await queryRows<ProviderRow>(
     env,
-    `SELECT id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at
-     FROM llm_providers
-     ORDER BY name ASC`,
+    `SELECT ${PROVIDER_COLUMNS} FROM llm_providers ORDER BY name ASC`,
   );
   return rows.map(mapProvider);
 }
@@ -95,9 +98,7 @@ export async function listLlmProviders(env: Pick<AppBindings, 'HYPERDRIVE'>): Pr
 export async function listLlmProviderSecrets(env: Pick<AppBindings, 'HYPERDRIVE'>): Promise<LlmProviderSecret[]> {
   const rows = await queryRows<ProviderRow>(
     env,
-    `SELECT id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at
-     FROM llm_providers
-     ORDER BY name ASC`,
+    `SELECT ${PROVIDER_COLUMNS} FROM llm_providers ORDER BY name ASC`,
   );
   return rows.map(mapProviderSecret);
 }
@@ -105,9 +106,7 @@ export async function listLlmProviderSecrets(env: Pick<AppBindings, 'HYPERDRIVE'
 export async function getLlmProvider(env: Pick<AppBindings, 'HYPERDRIVE'>, id: string): Promise<LlmProviderSecret | null> {
   const [row] = await queryRows<ProviderRow>(
     env,
-    `SELECT id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at
-     FROM llm_providers
-     WHERE id = $1`,
+    `SELECT ${PROVIDER_COLUMNS} FROM llm_providers WHERE id = $1`,
     [id],
   );
   return row ? mapProviderSecret(row) : null;
@@ -128,7 +127,7 @@ export async function createLlmProvider(
     `
     INSERT INTO llm_providers (name, api_format, base_url, encrypted_api_key, enabled, updated_at)
     VALUES ($1, $2, $3, $4, $5, now())
-    RETURNING id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at
+    RETURNING ${PROVIDER_COLUMNS}
     `,
     [input.name, input.apiFormat, input.baseUrl, input.encryptedApiKey, input.enabled],
   );
@@ -138,9 +137,7 @@ export async function createLlmProvider(
 export async function findLlmProviderByName(env: Pick<AppBindings, 'HYPERDRIVE'>, name: string): Promise<LlmProvider | null> {
   const [row] = await queryRows<ProviderRow>(
     env,
-    `SELECT id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at
-     FROM llm_providers
-     WHERE lower(name) = lower($1)`,
+    `SELECT ${PROVIDER_COLUMNS} FROM llm_providers WHERE lower(name) = lower($1)`,
     [name],
   );
   return row ? mapProvider(row) : null;
@@ -176,7 +173,7 @@ export async function updateLlmProvider(
       updated_at = now()
       ${apiKeySql}
     WHERE id = $1
-    RETURNING id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at
+    RETURNING ${PROVIDER_COLUMNS}
     `,
     params,
   );
@@ -210,16 +207,6 @@ export async function listModelConfigs(env: Pick<AppBindings, 'HYPERDRIVE'>): Pr
     [KIMI_K2_5_MODEL],
   );
   return rows.map(mapModelConfig);
-}
-
-export async function getModelConfig(env: Pick<AppBindings, 'HYPERDRIVE'>, modelId: string): Promise<ModelConfig | null> {
-  const [row] = await queryRows<ModelConfigRow>(
-    env,
-    `${MODEL_SELECT}
-     WHERE mc.model_id = $1`,
-    [modelId],
-  );
-  return row ? mapModelConfig(row) : null;
 }
 
 export async function getResolvedModelConfig(

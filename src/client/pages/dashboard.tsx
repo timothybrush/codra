@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { api } from '@client/lib/api';
-import type { StatsPayload } from '@shared/schema';
-import type { JobSummary } from '@shared/schema';
-import { ArrowRight, GitPullRequest } from 'lucide-react';
+import type { StatsPayload, JobSummary } from '@shared/schema';
+import { ArrowRight, GitPullRequest, Activity } from 'lucide-react';
 import { JobsTable } from '@client/components/shared/jobs-table';
 import { EmptyState } from '@client/components/shared/empty-state';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';
@@ -12,7 +11,7 @@ import { Button } from '@client/components/ui/button';
 import { PageHeader } from '@client/components/layout/page-header';
 import { OverviewStats } from '@client/components/features/stats/overview-stats';
 import { usePolling } from '@client/hooks/use-polling';
-import { Alert } from '@client/components/ui/alert';
+import { LoadError } from '@client/components/shared/load-error';
 
 export function DashboardPage() {
   const [stats, setStats] = useState<StatsPayload | null>(null);
@@ -21,7 +20,15 @@ export function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(14);
+
+  // Switching the range reloads the stat cards, so clear them to show skeletons
+  // while the new range loads (same as the initial page load). The recent-jobs
+  // table is range-independent, so it keeps its data.
+  const changeDays = (next: number) => {
+    setStats(null);
+    setDays(next);
+  };
 
   const load = async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -53,35 +60,43 @@ export function DashboardPage() {
         actions={
           <PageHeaderActions
             days={days}
-            onDaysChange={setDays}
+            onDaysChange={changeDays}
             onRefresh={() => load(true)}
             refreshing={refreshing}
           />
         }
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {error && (
+        <LoadError
+          title="Couldn't load dashboard data"
+          detail={error}
+          onRetry={() => load(true)}
+          retrying={refreshing}
+        />
+      )}
 
-      <OverviewStats stats={stats} days={days} />
+      <OverviewStats stats={stats} />
 
-      {/* ── Activity Stream ── */}
-      <div className="flex flex-col gap-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-sm font-semibold text-foreground">Recent reviews</h2>
+      {/* ── Activity Stream: header + table + footer in one panel ── */}
+      <div className="ui-panel min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-2 border-b border-ui-line px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Activity size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+            <h2 className="truncate text-[13px] font-medium text-ui-default">Recent reviews</h2>
           </div>
           <Link to="/jobs">
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              className="h-7 gap-1.5 text-xs text-ui-subtle hover:text-ui-default"
             >
               View all <ArrowRight size={13} />
             </Button>
           </Link>
         </div>
 
-        <div className="surface min-w-0 overflow-hidden">
+        <div className="min-w-0">
           {(loading || recentJobs.length > 0) && (
             <JobsTable jobs={recentJobs} loading={loading} />
           )}
@@ -90,7 +105,7 @@ export function DashboardPage() {
             <EmptyState
               icon={<GitPullRequest />}
               title="No jobs yet"
-              description="Your pull request analysis logs will appear here"
+              description="Your pull request reviews will appear here"
               hints={[
                 'Once you open a PR in any of the connected repos, analysis triggers automatically',
                 'To trigger manually, comment @codra on any PR',
@@ -101,14 +116,6 @@ export function DashboardPage() {
               }}
               className="rounded-none border-0"
             />
-          )}
-
-          {!loading && recentJobs.length > 0 && (
-            <div className="px-5 py-2.5 bg-muted/20 border-t border-border/50">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/40 text-center">
-                {recentJobs.length} review jobs · refreshes every 15s
-              </p>
-            </div>
           )}
         </div>
       </div>

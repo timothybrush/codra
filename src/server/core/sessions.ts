@@ -1,3 +1,4 @@
+import { randomHex } from '@shared/hex';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import type { AppEnv, DashboardSessionUser } from '@server/env';
@@ -7,30 +8,8 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 type SessionRecord = DashboardSessionUser;
 
-function randomHex(size = 32) {
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 function sessionKey(token: string) {
   return `session:${token}`;
-}
-
-export function constantTimeEqual(left: string, right: string) {
-  const encoder = new TextEncoder();
-  const leftBytes = encoder.encode(left);
-  const rightBytes = encoder.encode(right);
-
-  if (leftBytes.byteLength !== rightBytes.byteLength) {
-    return false;
-  }
-
-  let result = 0;
-  for (let index = 0; index < leftBytes.byteLength; index += 1) {
-    result |= leftBytes[index] ^ rightBytes[index];
-  }
-
-  return result === 0;
 }
 
 export async function createSession(c: Context<AppEnv>, session: SessionRecord) {

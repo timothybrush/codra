@@ -1,7 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@client/components/ui/button';
 import { TimeRangeSelect } from '@client/components/features/stats/time-range-select';
-import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
 
 interface PageHeaderActionsProps {
   days: number;
@@ -16,25 +15,16 @@ export function PageHeaderActions({
   onRefresh,
   refreshing,
 }: PageHeaderActionsProps) {
-  const isDark = useIsDarkMode();
-  const btnBg = isDark ? undefined : '#ffffff';
-
   return (
     <>
-      <TimeRangeSelect
-        value={days}
-        onValueChange={onDaysChange}
-        triggerStyle={btnBg ? { backgroundColor: btnBg } : undefined}
-      />
+      <TimeRangeSelect value={days} onValueChange={onDaysChange} />
       <Button
-        variant="outline"
+        variant="secondary"
         size="sm"
         onClick={onRefresh}
         disabled={refreshing}
-        className="gap-2"
-        style={btnBg ? { backgroundColor: btnBg } : undefined}
+        icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
       >
-        <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
         Refresh
       </Button>
     </>

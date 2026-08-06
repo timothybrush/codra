@@ -28,15 +28,3 @@ export const Skeleton: React.FC<SkeletonProps> = ({
     />
   );
 };
-
-/** A full Skeleton card placeholder for loading states */
-export function SkeletonCard({ lines = 3 }: { lines?: number }) {
-  return (
-    <div className="rounded-md border border-border/60 bg-card/80 p-5 space-y-3">
-      <Skeleton height="1.25rem" width="45%" />
-      {Array.from({ length: lines }).map((_, i) => (
-        <Skeleton key={i} height="0.9rem" width={`${70 - i * 10}%`} />
-      ))}
-    </div>
-  );
-}

@@ -1,6 +1,6 @@
-import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { AppBindings } from '@server/env';
-import { runReviewJob } from '@server/core/review';
+import { runReviewJob, FRESH_INVOCATION_YIELD_SECONDS } from '@server/core/review';
 import { type ReviewJobMessage } from '@shared/schema';
 import { setJobWorkflowInstance } from '@server/db/jobs';
 import { logger } from '@server/core/logger';
@@ -37,7 +37,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
         await runBestEffortJobMaintenance(env);
       });
     } catch (e) {
-      // Ignore maintenance errors
+    // Ignore maintenance errors
     }
 
     let phase = params.phase ?? 'prepare';
@@ -76,6 +76,11 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
             filesReviewed: 0,
             verdict: 'failed',
             severityDistribution: {},
+            // concurrencyLevel is not available in the workflow context (no DB access at this level)
+            concurrencyLevel: 'unknown',
+            prTotalLinesChanged: 0,
+            // attempt is 1-indexed; subtract 1 so the first run is retryCount=0
+            retryCount: Math.max(0, attempt - 1),
           });
         });
         throw error;
@@ -106,9 +111,13 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
           }
         }
         phase = result.phase;
-        // Force a 1-second sleep minimum to yield execution back to Cloudflare.
-        // This resets the 50 subrequest per-invocation limit between chunks/phases!
-        delaySeconds = result.delaySeconds ? Math.max(result.delaySeconds, 1) : 1;
+        // Floor at FRESH_INVOCATION_YIELD_SECONDS, not 1. A 1s sleep does NOT hibernate, so the next
+        // phase runs in the SAME invocation on an already-spent subrequest budget while its new
+        // TokenTracker starts at zero -- the tracker then reports headroom that does not exist and the
+        // chunk dies on "Too many subrequests". (The old comment here claimed 1s "resets the 50
+        // subrequest per-invocation limit"; phase-control.ts records that even 2s did not.)
+        // This is the backstop: a transition that forgets to pass a delay still hibernates.
+        delaySeconds = Math.max(result.delaySeconds ?? 0, FRESH_INVOCATION_YIELD_SECONDS);
       } else if (result.action === 'retry') {
         // Keep the same phase, just delay
         delaySeconds = result.delaySeconds ?? 60;
@@ -121,14 +130,14 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
     // Yield before maintenance so it runs in a fresh invocation with its own subrequest
     // budget, rather than immediately after the final phase step (which may have just
     // exhausted the current invocation's budget, guaranteeing this call would also fail).
-    await step.sleep('pre-post-maintenance-yield', '1 second');
+    await step.sleep('pre-post-maintenance-yield', `${FRESH_INVOCATION_YIELD_SECONDS} seconds`);
 
     try {
       await step.do('post-maintenance', async () => {
         await runBestEffortJobMaintenance(env);
       });
     } catch (e) {
-      // Ignore maintenance errors
+    // Ignore maintenance errors
     }
   }
 }

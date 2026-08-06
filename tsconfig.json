@@ -17,6 +17,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // Makes `import type` mandatory for type-only imports rather than a convention. Without it a
+    // refactor that moves a symbol between files can silently emit a runtime import of a type -- dead
+    // weight in a Worker bundle, and invisible: no error, and there is no lint rule covering it.
+    "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["vite/client", "node", "vitest/globals"]
@@ -25,7 +29,7 @@
     "worker-configuration.d.ts",
     "src/server/worker-env.d.ts",
     "vite.config.ts",
-    "vitest.config.mts",
+    "vitest.config.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",

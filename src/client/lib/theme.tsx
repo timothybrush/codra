@@ -41,16 +41,18 @@ function pauseThemeTransitions(root: HTMLElement) {
   }, 180);
 }
 
-export function applyTheme(theme: Theme, options: { pauseTransitions?: boolean } = {}) {
+function applyTheme(theme: Theme, options: { pauseTransitions?: boolean } = {}) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   if (options.pauseTransitions) pauseThemeTransitions(root);
   root.classList.toggle('dark', theme === 'dark');
   root.setAttribute('data-theme', theme);
+  // Mirror the theme onto `data-mode` too, for any CSS keyed off it.
+  root.setAttribute('data-mode', theme);
   try {
     localStorage.setItem('codra-theme', theme);
   } catch {
-    // ignore
+  // ignore
   }
 }
 

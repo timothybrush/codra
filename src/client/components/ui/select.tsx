@@ -18,12 +18,15 @@ import { EASE_OUT } from '@client/lib/ease';
 // content choreograph it. See the `animate`/`transition` props on the panel below.
 const CHEVRON_TRANSITION: Transition = { type: 'spring', duration: 0.4, bounce: 0.3 };
 
+// The stagger compounds per option, so it dominates on long lists (the LLM model
+// selects run to dozens of entries). 0.02 sits between the original 0.035 - which
+// left the last item appearing ~0.9s after opening - and a near-instant cascade.
 const LIST_VARIANTS: Variants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.035, delayChildren: 0.05 } },
+  show: { transition: { staggerChildren: 0.02, delayChildren: 0.03 } },
 };
 const ITEM_VARIANTS: Variants = {
-  hidden: { opacity: 0, y: -6, filter: 'blur(3px)' },
+  hidden: { opacity: 0, y: -5, filter: 'blur(2px)' },
   show: { opacity: 1, y: 0, filter: 'blur(0px)' },
 };
 
@@ -45,9 +48,9 @@ interface SelectProps {
   triggerStyle?: CSSProperties;
   leadingIcon?: ReactNode;
   /**
-   * 'page'  — trigger sits on the gray page background (e.g. "Last 30 days").
+   * 'page'  - trigger sits on the gray page background (e.g. "Last 30 days").
    *            Dropdown gets card bg so it lifts off the page.
-   * 'card'  — trigger sits inside a card.
+   * 'card'  - trigger sits inside a card.
    *            Dropdown gets muted bg so it's distinguishable from the card.
    * Defaults to 'page'.
    */
@@ -79,19 +82,30 @@ export function Select({
   const [rect, setRect] = useState<{ left: number; width: number; top: number; bottom: number } | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  /** What last moved the highlight - only keyboard moves should auto-scroll. */
+  const highlightSource = useRef<'keyboard' | 'pointer'>('keyboard');
 
   const selectedOption = options.find((opt) => opt.value === value);
 
   // Move the active-descendant highlight onto the current selection (or the first option)
   // each time the listbox opens, so arrow-key navigation always starts from a sane position.
+  // Only depends on `open`: keying off `options`/`value` re-ran this whenever a
+  // caller passed a freshly-built options array, yanking the highlight back to the
+  // selection mid-interaction.
   useEffect(() => {
     if (!open) return;
+    highlightSource.current = 'keyboard';
     const idx = options.findIndex((opt) => opt.value === value);
     setHighlightedIndex(idx >= 0 ? idx : 0);
-  }, [open, options, value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
+  // Only keyboard navigation scrolls the highlighted option into view. Doing it for
+  // pointer hover too created a feedback loop on long lists: hover → scrollIntoView →
+  // the scroll listener repositions the panel → the option moves under the cursor →
+  // another mouseenter, which read as the menu jittering.
   useEffect(() => {
-    if (!open) return;
+    if (!open || highlightSource.current !== 'keyboard') return;
     optionRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [open, highlightedIndex]);
 
@@ -141,7 +155,10 @@ export function Select({
       const above = r.top;
       setPlacement(below < h + 16 && above > below ? 'top' : 'bottom');
     };
-    const scheduleUpdate = () => {
+    const scheduleUpdate = (e?: Event) => {
+      // Scrolling the option list itself doesn't move the trigger, so recomputing
+      // (and re-rendering) on it only causes flicker on long lists.
+      if (e && e.target instanceof Node && panelRef.current?.contains(e.target)) return;
       if (frame !== null) return;
       frame = requestAnimationFrame(update);
     };
@@ -156,6 +173,7 @@ export function Select({
   }, [open]);
 
   const moveHighlight = (next: number) => {
+    highlightSource.current = 'keyboard';
     setHighlightedIndex(Math.min(Math.max(next, 0), options.length - 1));
   };
 
@@ -202,29 +220,29 @@ export function Select({
   const isTop = placement === 'top';
 
   // Gooey: the edge facing the panel snaps flat (panel attached) then rounds
-  // back once the panel pulls away — the two pinch apart.
-  const kf = open ? [0, 0, 12] : [12, 0, 12];
+  // back once the panel pulls away - the two pinch apart.
+  const kf = open ? [0, 0, 7] : [7, 0, 7];
   const kfT: Transition = reduce
     ? { duration: 0 }
     : open
-      ? { duration: 0.6, times: [0, 0.4, 1], ease: EASE_OUT }
-      : { duration: 0.42, times: [0, 0.5, 1], ease: EASE_OUT };
+      ? { duration: 0.46, times: [0, 0.4, 1], ease: EASE_OUT }
+      : { duration: 0.34, times: [0, 0.5, 1], ease: EASE_OUT };
   const flatT: Transition = { duration: 0 };
 
   const nearGap = open ? 8 : 0;
-  const nearRadius = open ? 12 : 0;
+  const nearRadius = open ? 7 : 0;
   const gapT: Transition = open
-    ? { type: 'spring', duration: 0.6, bounce: 0.5, delay: 0.12 }
-    : { type: 'spring', duration: 0.3, bounce: 0.1 };
+    ? { type: 'spring', duration: 0.44, bounce: 0.45, delay: 0.09 }
+    : { type: 'spring', duration: 0.26, bounce: 0.1 };
   const radiusT: Transition = open
-    ? { duration: 0.3, ease: EASE_OUT, delay: 0.14 }
-    : { duration: 0.16, ease: EASE_OUT };
+    ? { duration: 0.26, ease: EASE_OUT, delay: 0.1 }
+    : { duration: 0.15, ease: EASE_OUT };
   const instant: Transition = { duration: 0 };
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       {label && (
-        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
           {label}
         </label>
       )}
@@ -241,10 +259,10 @@ export function Select({
           onKeyDown={onTriggerKeyDown}
           initial={false}
           animate={{
-            borderTopLeftRadius: isTop ? kf : 12,
-            borderTopRightRadius: isTop ? kf : 12,
-            borderBottomLeftRadius: isTop ? 12 : kf,
-            borderBottomRightRadius: isTop ? 12 : kf,
+            borderTopLeftRadius: isTop ? kf : 7,
+            borderTopRightRadius: isTop ? kf : 7,
+            borderBottomLeftRadius: isTop ? 7 : kf,
+            borderBottomRightRadius: isTop ? 7 : kf,
           }}
           transition={{
             borderTopLeftRadius: isTop ? kfT : flatT,
@@ -254,10 +272,10 @@ export function Select({
           }}
           style={triggerStyle}
           className={cn(
-            'relative z-10 flex h-9 w-full items-center justify-between gap-2 border border-border px-3 py-2 text-sm font-normal text-foreground outline-none transition-colors',
-            variant === 'page' ? 'bg-card' : 'bg-muted/50',
-            'hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            !selectedOption && 'text-muted-foreground',
+            'relative z-10 flex h-9 w-full items-center justify-between gap-2 border border-ui-line px-3 py-2 text-sm font-normal text-ui-default outline-none transition-colors',
+            variant === 'page' ? 'bg-ui-base' : 'bg-ui-fill/50',
+            'hover:bg-ui-fill/70 focus-visible:ring-2 focus-visible:ring-ui-brand/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+            !selectedOption && 'text-ui-subtle',
             triggerClassName,
           )}
         >
@@ -271,7 +289,7 @@ export function Select({
             aria-hidden
             animate={{ rotate: open ? 180 : 0 }}
             transition={reduce ? { duration: 0 } : CHEVRON_TRANSITION}
-            className="shrink-0 text-muted-foreground"
+            className="shrink-0 text-ui-subtle"
           >
             <ChevronDown className="h-4 w-4" />
           </motion.span>
@@ -280,7 +298,7 @@ export function Select({
       </div>
 
       {/* Portaled to <body> so the panel always renders above cards, tables, and
-          other stacking contexts — it can't be clipped/hidden by an ancestor. */}
+          other stacking contexts - it can't be clipped/hidden by an ancestor. */}
       {createPortal(
         <motion.div
           ref={panelRef}
@@ -299,20 +317,20 @@ export function Select({
                   marginTop: isTop ? 0 : nearGap,
                   marginBottom: isTop ? nearGap : 0,
                   // near corners go flat->round; far corners stay rounded
-                  borderTopLeftRadius: isTop ? 12 : nearRadius,
-                  borderTopRightRadius: isTop ? 12 : nearRadius,
-                  borderBottomLeftRadius: isTop ? nearRadius : 12,
-                  borderBottomRightRadius: isTop ? nearRadius : 12,
+                  borderTopLeftRadius: isTop ? 7 : nearRadius,
+                  borderTopRightRadius: isTop ? 7 : nearRadius,
+                  borderBottomLeftRadius: isTop ? nearRadius : 7,
+                  borderBottomRightRadius: isTop ? nearRadius : 7,
                 }
           }
           transition={
             reduce
               ? { duration: 0.12 }
               : {
-                  opacity: open ? { duration: 0.18 } : { duration: 0.16, delay: 0.12 },
+                  opacity: open ? { duration: 0.18 } : { duration: 0.16, delay: 0.1 },
                   height: open
-                    ? { type: 'spring', duration: 0.42, bounce: 0.14 }
-                    : { duration: 0.26, ease: EASE_OUT, delay: 0.14 },
+                    ? { type: 'spring', duration: 0.4, bounce: 0.14 }
+                    : { duration: 0.24, ease: EASE_OUT, delay: 0.1 },
                   marginTop: isTop ? instant : gapT,
                   marginBottom: isTop ? gapT : instant,
                   borderTopLeftRadius: isTop ? instant : radiusT,
@@ -333,7 +351,7 @@ export function Select({
           }}
           // flush against the trigger, then separates into its own rounded pill;
           // sits above or below depending on available space
-          className="z-50 border border-border bg-popover shadow-lg shadow-black/[0.03] dark:shadow-black/40"
+          className="z-50 border border-ui-line bg-ui-base shadow-lg shadow-black/[0.04] dark:shadow-black/40"
         >
           <motion.ul
             ref={innerRef}
@@ -356,20 +374,26 @@ export function Select({
                     role="option"
                     aria-selected={selected}
                     tabIndex={-1}
-                    onMouseEnter={() => setHighlightedIndex(index)}
+                    onMouseEnter={() => {
+                      highlightSource.current = 'pointer';
+                      setHighlightedIndex(index);
+                    }}
                     onClick={() => {
                       onValueChange(option.value);
                       setOpen(false);
                     }}
                     className={cn(
-                      'flex w-full items-center justify-between gap-2 whitespace-normal break-words rounded-lg px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
+                      // `whitespace-nowrap`: a narrow trigger (e.g. the 72px "rows per
+                      // page" select) used to break mid-word - "10" rendered as "1"/"0"
+                      // stacked - because the check icon ate the remaining width.
+                      'flex w-full items-center justify-between gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
                       selected
-                        ? 'bg-primary/10 font-medium text-primary dark:bg-primary/[0.12] dark:text-primary'
-                        : 'text-foreground/90 hover:bg-muted hover:text-foreground focus-visible:bg-muted',
-                      highlighted && !selected && 'bg-muted text-foreground',
+                        ? 'bg-ui-brand/10 font-medium text-ui-brand'
+                        : 'text-ui-default hover:bg-ui-fill hover:text-ui-strong focus-visible:bg-ui-fill',
+                      highlighted && !selected && 'bg-ui-fill text-ui-strong',
                     )}
                   >
-                    <span className="min-w-0">{option.label}</span>
+                    <span className="min-w-0 truncate">{option.label}</span>
                     {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
                   </button>
                 </motion.li>

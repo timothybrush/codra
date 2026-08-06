@@ -1,13 +1,29 @@
-import { ExternalLink, Check, Minus, X, ArrowRight } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { AtSign, ExternalLink, Info, ListChecks, RotateCcw, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@client/components/ui/card';
-import { Badge, StatusBadge } from '@client/components/ui/badge';
+import { cn, formatPreciseDuration } from '@client/lib/utils';
 import type { JobDetail, JobStep } from '@shared/schema';
-import { formatDuration } from '@client/lib/utils';
+import {
+  DETAIL_LABEL,
+  DETAIL_ROW,
+  EmptyValue,
+  JobStatusLine,
+  MetaChip,
+  StatusDot,
+  VerdictPill,
+  formatAbsoluteDate,
+  formatRelativeDate,
+} from './job-chips';
 
 interface JobMetaCardsProps {
   job: JobDetail;
 }
+
+const TRIGGER_ICON = {
+  auto: Zap,
+  mention: AtSign,
+  retry: RotateCcw,
+} as const;
 
 function elapsedSec(step: JobStep): string | null {
   if (step.finishedAt && step.startedAt) {
@@ -16,78 +32,73 @@ function elapsedSec(step: JobStep): string | null {
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
     // Reuse the shared formatter so long phases roll up into minutes/hours (e.g. "6m 24s")
     // instead of an unwieldy "383.7s".
-    return formatDuration(end - start);
+    return formatPreciseDuration(end - start);
   }
   return null;
 }
 
-function StepRow({ step, index, total }: { step: JobStep; index: number; total: number }) {
-  const isRunning = step.status === 'running';
-  const isDone    = step.status === 'done';
-  const isFailed  = step.status === 'failed';
-  const isPending = step.status === 'pending';
-  const isLast    = index === total - 1;
+/** Panel chrome shared by both cards: icon + static title, then the row list. */
+function MetaPanel({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: typeof Info;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="ui-panel min-w-0 overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
+        <Icon size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+        <h2 className="text-[13px] font-medium text-ui-default">{title}</h2>
+      </div>
+      <div className="px-4 py-1.5 sm:px-5">{children}</div>
+    </div>
+  );
+}
 
+/** One `label → value` row, on the same rhythm as a jobs-table row. */
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className={DETAIL_ROW}>
+      <dt className={DETAIL_LABEL}>{label}</dt>
+      <dd className="flex min-w-0 items-center justify-end">{children}</dd>
+    </div>
+  );
+}
+
+/** A progress step, rendered as a single-line row: dot + name + duration. */
+function StepRow({ step }: { step: JobStep }) {
+  const isRunning = step.status === 'running';
+  const isPending = step.status === 'pending';
   const elapsed = elapsedSec(step);
 
-  // Left accent bar color
-  const accentColor = isDone
-    ? 'bg-success'
-    : isRunning
-    ? 'bg-info'
-    : isFailed
-    ? 'bg-danger'
-    : 'bg-border';
-
-  // Icon
-  const iconEl = isDone ? (
-    <Check size={11} strokeWidth={2.5} className="text-success" />
-  ) : isFailed ? (
-    <X size={11} strokeWidth={2.5} className="text-danger" />
-  ) : isRunning ? (
-    <ArrowRight size={11} strokeWidth={2.5} className="text-info" />
-  ) : (
-    <Minus size={11} strokeWidth={2} className="text-muted-foreground/30" />
-  );
-
   return (
-    <div className={`flex gap-3 ${!isLast ? 'pb-3' : ''} ${index > 0 ? 'pt-3' : ''} ${!isLast ? 'border-b border-border/30' : ''}`}>
-      {/* Left accent strip */}
-      <div className="flex flex-col items-center gap-1 pt-0.5">
-        <div className={`w-[3px] flex-1 rounded-full ${accentColor} opacity-40`} />
+    <div className={DETAIL_ROW}>
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusDot status={step.status} className={isPending ? 'opacity-50' : undefined} />
+        <span
+          className={cn(
+            'truncate text-[13px] leading-none',
+            isPending ? 'text-ui-subtle' : 'text-ui-default',
+            isRunning && 'font-medium',
+          )}
+        >
+          {step.name}
+        </span>
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-3">
-          {/* Step name + icon */}
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="shrink-0 flex h-4 w-4 items-center justify-center">{iconEl}</span>
-            <span
-              className={`text-sm truncate ${
-                isPending ? 'text-muted-foreground/40' : 'text-foreground'
-              } ${isRunning ? 'font-semibold' : 'font-medium'}`}
-            >
-              {step.name}
-            </span>
-          </div>
-
-          {/* Right side: status or time */}
-          <div className="shrink-0">
-            {isRunning && (
-              <span className="text-[10px] font-bold uppercase tracking-widest text-info">
-                In progress
-              </span>
-            )}
-            {elapsed && (
-              <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                {elapsed}
-              </span>
-            )}
-            {!elapsed && !isRunning && (
-              <span className="text-xs text-muted-foreground/25">—</span>
-            )}
-          </div>
-        </div>
+      <div className="shrink-0">
+        {isRunning ? (
+          <span className="text-[11px] leading-none text-info">Running</span>
+        ) : elapsed ? (
+          <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+            {elapsed}
+          </span>
+        ) : (
+          <EmptyValue />
+        )}
       </div>
     </div>
   );
@@ -96,132 +107,103 @@ function StepRow({ step, index, total }: { step: JobStep; index: number; total: 
 export function JobMetaCards({ job }: JobMetaCardsProps) {
   const isPartialReview = job.status === 'done' && job.errorMessage?.startsWith('Partial review:');
   const steps = job.steps ?? [];
-  const shortCommitSha = job.commitSha?.slice(0, 7) ?? 'unknown';
+  const TriggerIcon = TRIGGER_ICON[job.trigger] ?? Zap;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="ui-font-sans grid grid-cols-1 gap-4 md:grid-cols-2">
 
       {/* ── Job details ── */}
-      <Card className="surface-static surface-static-shadow">
-        <CardHeader><CardTitle>Job details</CardTitle></CardHeader>
-        <CardContent className="pt-0 space-y-0">
+      <MetaPanel icon={Info} title="Job details">
+        <dl>
+          <DetailRow label="Status">
+            <JobStatusLine job={job} />
+          </DetailRow>
 
-          {/* Metadata grid */}
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-5">
-            {[
-              { label: 'Status',  value: <StatusBadge label={job.status} job={job} /> },
-              { label: 'Verdict', value: job.verdict
-                  ? <StatusBadge label={job.verdict} />
-                  : <span className="text-muted-foreground/50 text-sm">—</span>
-              },
-              { label: 'Trigger', value: <Badge variant="neutral" className="capitalize">{job.trigger}</Badge> },
-              { label: 'Tokens',  value:
-                  <span className="font-mono text-sm tabular-nums">
-                    {(job.totalInputTokens + job.totalOutputTokens).toLocaleString()}
-                  </span>
-              },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
-                  {label}
-                </dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
+          <DetailRow label="Verdict">
+            {job.verdict ? <VerdictPill verdict={job.verdict} /> : <EmptyValue />}
+          </DetailRow>
 
-            <div>
-              <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Commit</dt>
-              <dd>
-                {job.commitSha ? (
-                  <a
-                    href={`https://github.com/${job.owner}/${job.repo}/commit/${job.commitSha}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-foreground hover:text-primary transition-colors"
-                  >
-                    {shortCommitSha}
-                    <ExternalLink size={10} className="text-muted-foreground/50" />
-                  </a>
-                ) : (
-                  <span className="font-mono text-xs text-muted-foreground">{shortCommitSha}</span>
-                )}
-              </dd>
-            </div>
+          <DetailRow label="Trigger">
+            <MetaChip icon={TriggerIcon}>
+              <span className="capitalize">{job.trigger}</span>
+            </MetaChip>
+          </DetailRow>
 
-            {job.reviewId && (
-              <div>
-                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Review</dt>
-                <dd>
-                  <a
-                    href={`https://github.com/${job.owner}/${job.repo}/pull/${job.prNumber}#pullrequestreview-${job.reviewId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground hover:text-primary transition-colors"
-                  >
-                    GitHub <ExternalLink size={10} className="text-muted-foreground/50" />
-                  </a>
-                </dd>
-              </div>
-            )}
+          <DetailRow label="Tokens">
+            <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+              {(job.totalInputTokens + job.totalOutputTokens).toLocaleString()}
+            </span>
+          </DetailRow>
 
-            {job.retryOfJobId && (
-              <div>
-                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Retry of</dt>
-                <dd>
-                  <Link
-                    to={`/jobs/${job.retryOfJobId}`}
-                    className="font-mono text-xs text-muted-foreground hover:text-foreground hover:underline transition-colors"
-                  >
-                    {job.retryOfJobId.slice(0, 8)}…
-                  </Link>
-                </dd>
-              </div>
-            )}
-
-            <div className="col-span-2 pt-1 border-t border-border/40">
-              <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Created</dt>
-              <dd className="text-sm text-muted-foreground tabular-nums">{new Date(job.createdAt).toLocaleString()}</dd>
-            </div>
-          </dl>
-
-          {/* Error / partial message */}
-          {job.errorMessage && (
-            <div
-              className="mt-5 rounded-lg border p-4"
-              style={{
-                background: isPartialReview ? 'var(--warning-bg)' : 'var(--danger-bg)',
-                borderColor: isPartialReview ? 'var(--warning-border)' : 'var(--danger-border)',
-              }}
+          <DetailRow label="Created">
+            <span
+              className="text-xs leading-none text-ui-default dark:text-ui-subtle"
+              title={formatAbsoluteDate(job.createdAt)}
             >
-              <p
-                className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em]"
-                style={{ color: isPartialReview ? 'var(--warning)' : 'var(--danger)' }}
+              {formatRelativeDate(job.createdAt)}
+            </span>
+          </DetailRow>
+
+          {job.reviewId && (
+            <DetailRow label="Review">
+              <a
+                href={`https://github.com/${job.owner}/${job.repo}/pull/${job.prNumber}#pullrequestreview-${job.reviewId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs leading-none text-ui-default transition-colors hover:text-primary dark:text-ui-subtle"
               >
-                {isPartialReview ? 'Partial review' : 'Error'}
-              </p>
-              <p className="text-sm leading-relaxed" style={{ color: isPartialReview ? 'var(--warning)' : 'var(--danger)' }}>
-                {job.errorMessage}
-              </p>
-            </div>
+                GitHub <ExternalLink size={11} className="shrink-0 text-ui-subtle" />
+              </a>
+            </DetailRow>
           )}
-        </CardContent>
-      </Card>
+
+          {job.retryOfJobId && (
+            <DetailRow label="Retry of">
+              <Link
+                to={`/jobs/${job.retryOfJobId}`}
+                className="ui-font-mono text-[11px] leading-none text-ui-default transition-colors hover:text-primary dark:text-ui-subtle"
+                title={job.retryOfJobId}
+              >
+                {job.retryOfJobId.slice(0, 8)}
+              </Link>
+            </DetailRow>
+          )}
+        </dl>
+
+        {/* Error / partial message */}
+        {job.errorMessage && (
+          <div
+            className={cn(
+              'mb-3 mt-1.5 rounded-md border px-3 py-2.5',
+              isPartialReview
+                ? 'border-warning-border bg-warning-bg'
+                : 'border-danger-border bg-danger-bg',
+            )}
+          >
+            <p
+              className={cn(
+                'mb-1 flex items-center gap-1.5 text-[11px] font-medium leading-none',
+                isPartialReview ? 'text-warning' : 'text-danger',
+              )}
+            >
+              <StatusDot status={isPartialReview ? 'queued' : 'failed'} />
+              {isPartialReview ? 'Partial review' : 'Error'}
+            </p>
+            <p className={cn('text-xs leading-relaxed', isPartialReview ? 'text-warning' : 'text-danger')}>
+              {job.errorMessage}
+            </p>
+          </div>
+        )}
+      </MetaPanel>
 
       {/* ── Progress steps ── */}
-      <Card className="surface-static surface-static-shadow">
-        <CardHeader><CardTitle>Progress steps</CardTitle></CardHeader>
-        <CardContent className="pt-0">
-          {steps.length === 0 ? (
-            <p className="text-sm text-muted-foreground/60 italic">No steps recorded yet.</p>
-          ) : (
-            <div>
-              {steps.map((step, idx) => (
-                <StepRow key={step.name || idx} step={step} index={idx} total={steps.length} />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <MetaPanel icon={ListChecks} title="Progress steps">
+        {steps.length === 0 ? (
+          <p className="py-3 text-xs text-ui-default dark:text-ui-subtle">No steps recorded yet.</p>
+        ) : (
+          steps.map((step, idx) => <StepRow key={step.name || idx} step={step} />)
+        )}
+      </MetaPanel>
     </div>
   );
 }

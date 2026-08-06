@@ -71,6 +71,7 @@ describe('Frontend UI Flows (JSDOM)', () => {
           status: 'done',
           trigger: 'auto',
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           commentCount: 2,
         }
       ] as any,
@@ -91,8 +92,8 @@ describe('Frontend UI Flows (JSDOM)', () => {
     expect(screen.getByText('10')).toBeDefined();
     expect(screen.getByText('500')).toBeDefined();
 
-    // Check for activity stream item
-    expect(screen.getByText('test-owner/test-repo')).toBeDefined();
+    // Check for activity stream item (rendered in both mobile and desktop layouts)
+    expect(screen.getAllByText('test-owner/test-repo').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Fixing bug' })).toBeDefined();
   });
 });

@@ -1,5 +1,6 @@
 import type { LlmApiFormat } from '@shared/schema';
 import { withTimeout } from '@server/core/timeout';
+import { assertPublicBaseUrl } from './url-guard';
 
 const MODEL_LIST_TIMEOUT_MS = 8_000;
 const ERROR_BODY_LIMIT = 500;
@@ -65,6 +66,12 @@ const CLOUDFLARE_TEXT_GENERATION_MODELS = [
   '@cf/meta/llama-3.1-8b-instruct-fast',
 ];
 
+const VERTEX_GEMINI_MODELS = [
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+];
+
 interface OpenAIModelsResponse {
   data?: Array<{ id?: unknown }>;
 }
@@ -125,6 +132,11 @@ export async function listProviderModels(input: {
   cloudflareAccountId?: string;
   cloudflareApiToken?: string;
 }) {
+  // Same guard the review adapters apply. This function is reached from the dashboard's provider
+  // sync with a base URL straight out of `llm_providers`, whose only other validation is a URL
+  // shape check -- so without this it is the one server-side fetcher left pointing anywhere.
+  assertPublicBaseUrl(input.baseUrl, input.apiFormat);
+
   const baseUrl = (input.baseUrl || defaultBaseUrl(input.apiFormat)).replace(/\/+$/, '');
 
   if (input.apiFormat === 'openai') {
@@ -156,6 +168,10 @@ export async function listProviderModels(input: {
     );
     if (!response.ok) throw new Error(`Anthropic model list failed with ${response.status}: ${await limitedErrorBody(response)}`);
     return extractAnthropicModels(await response.json() as AnthropicModelsResponse);
+  }
+
+  if (input.apiFormat === 'vertex') {
+    return VERTEX_GEMINI_MODELS;
   }
 
   if (input.apiFormat === 'gemini') {
@@ -234,6 +250,8 @@ async function limitedErrorBody(response: Response) {
 
 function defaultBaseUrl(apiFormat: LlmApiFormat) {
   if (apiFormat === 'cloudflare-workers-ai') return '';
+  // No universal default: a Vertex base URL embeds the caller's project ID and region.
+  if (apiFormat === 'vertex') return '';
   if (apiFormat === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta';
   if (apiFormat === 'anthropic') return 'https://api.anthropic.com/v1';
   return 'https://api.openai.com/v1';

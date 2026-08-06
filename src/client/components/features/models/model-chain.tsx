@@ -4,53 +4,34 @@ import { Select } from '@client/components/ui/select';
 import { Button } from '@client/components/ui/button';
 import { Trash2, ListPlus } from 'lucide-react';
 
-export type ProviderOption = {
-  value: string;
-  label: string;
+
+import type {
+  ModelDensity,
+  ModelOption,
+  ModelRouteConfig,
+  ModelRouteTier,
+  ProviderOption,
+} from './model-route';
+import {
+  EMPTY_MODEL_ROUTE,
+  describeModelRoute,
+  normalizeModelRoute,
+  routesEqual,
+} from './model-route';
+
+// Re-exported so repos.tsx and settings.tsx keep importing these names from here, which is where
+// they have always lived. The values themselves are in model-route.ts, free of the editor UI.
+export {
+  EMPTY_MODEL_ROUTE,
+  describeModelRoute,
+  normalizeModelRoute,
+  routesEqual,
+  type ModelDensity,
+  type ModelOption,
+  type ModelRouteConfig,
+  type ModelRouteTier,
+  type ProviderOption,
 };
-
-export type ModelOption = {
-  value: string;
-  label: string;
-  providerId: string;
-};
-
-export type ModelDensity = 'compact' | 'comfortable';
-
-export type ModelRouteTier = {
-  max_lines: number;
-  model: string;
-  fallbacks?: string[];
-};
-
-export type ModelRouteConfig = {
-  main: string | null;
-  fallbacks: string[];
-  size_overrides: ModelRouteTier[];
-};
-
-export function getProviderLabel(provider: string, providers: ProviderOption[] = []) {
-  return providers.find(p => p.value === provider)?.label ?? provider;
-}
-
-export function getModelLabel(model: string, models: ModelOption[] = []) {
-  return models.find(m => m.value === model)?.label ?? model;
-}
-
-export function describeModelRoute(config: ModelRouteConfig, models: ModelOption[] = []) {
-  if (!config.main && (config.fallbacks?.length ?? 0) === 0 && (config.size_overrides?.length ?? 0) === 0) {
-    return 'No model strategy configured';
-  }
-
-  const fallbacks = config.fallbacks?.length ?? 0;
-  const tiers = config.size_overrides?.length ?? 0;
-  return [
-    config.main ? getModelLabel(config.main, models) : 'No baseline model',
-    fallbacks > 0 ? `${fallbacks} fallback${fallbacks === 1 ? '' : 's'}` : 'no fallbacks',
-    tiers > 0 ? `${tiers} tier${tiers === 1 ? '' : 's'}` : 'baseline only',
-  ].join(' · ');
-}
-
 interface ModelSelectorProps {
   value: string | null;
   onValueChange: (value: string) => void;

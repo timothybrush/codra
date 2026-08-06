@@ -39,6 +39,13 @@ function createDbClient(env: DbEnv): DbClient {
   };
 }
 
+// WRITING JSONB: bind `JSON.stringify(value)` and cast the placeholder `$n::text::jsonb`.
+//
+// Not `$n::jsonb` -- postgres.js stores a jsonb STRING SCALAR there, so every SQL JSON operator
+// silently sees nothing. That reached five columns and 1,215 rows (migrations 007 and 008).
+//
+// And not "bind the raw value": that works for objects, but this function turns a JS ARRAY into a
+// Postgres array literal, which casts straight back to a string scalar.
 function normalizeParam(param: unknown): unknown {
   return Array.isArray(param) ? toPostgresArrayLiteral(param) : param;
 }

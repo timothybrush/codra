@@ -5,96 +5,75 @@ export type LanguageGuideline = {
   persona?: string;
 };
 
-export const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
+const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
   {
     language: 'TypeScript/JavaScript',
-    persona: 'an expert TypeScript developer who prioritizes type safety, clean async code, and modern ECMAScript patterns',
+    persona: 'an expert TypeScript engineer focused on correctness and safe async code',
     extensions: ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'],
     guidelines: [
-      'Check for proper type safety and avoid using "any" where possible (especially in TypeScript).',
-      'Look for potential memory leaks, such as uncleared timeouts or event listeners.',
-      'Ensure modern ES6+ syntax is used appropriately.',
-      'Check for common security pitfalls like "eval()" or insecure regex.',
-      'Suggest using optional chaining and nullish coalescing for cleaner code.',
-      'Verify that async/await is used correctly and errors are handled.',
+      'Flag unhandled promise rejections, missing await, or async errors that can crash or silently drop work.',
+      'Flag resource leaks that cause real bugs (uncleared timers/intervals/listeners on a path that runs repeatedly).',
+      'Flag security pitfalls such as eval() on untrusted input or ReDoS-prone regexes.',
+      'Flag runtime-breaking null/undefined access introduced by the diff.',
     ],
   },
   {
     language: 'Python',
-    persona: 'a Python expert who follows PEP 8 and prefers "Pythonic" solutions',
+    persona: 'a Python engineer focused on correctness',
     extensions: ['py'],
     guidelines: [
-      'Ensure adherence to PEP 8 style guidelines.',
-      'Check for proper docstrings (PEP 257).',
-      'Look for efficient use of list comprehensions and generators.',
-      'Verify correct exception handling (avoid bare "except:").',
-      'Ensure type hints are used where appropriate.',
-      'Check for mutable default arguments in functions.',
+      'Flag mutable default arguments that cause shared-state bugs.',
+      'Flag bare "except:" that swallows errors and hides failures.',
+      'Flag incorrect exception handling or resource handling (files/sockets not closed).',
     ],
   },
-  {
-    language: 'React',
-    persona: 'a senior React developer who focuses on component performance, hooks best practices, and accessibility',
-    extensions: ['tsx', 'jsx'],
-    guidelines: [
-      'Check for missing dependency arrays in useEffect/useCallback/useMemo.',
-      'Ensure components are reusable and follow the "single responsibility" principle.',
-      'Look for unnecessary re-renders or heavy computations in the render path.',
-      'Verify proper use of keys in lists.',
-      'Check for accessibility (aria-labels, roles, etc.) in JSX.',
-    ],
-  },
+  // A React entry with ['tsx', 'jsx'] and a hook-dependency guideline used to live here. Those
+  // extensions are ALSO in the TypeScript entry above, so every .tsx file matched twice and
+  // getLanguageForFile merged both personas and both guideline sets.
+  //
+  // The effect was measurable: hook-dependency findings ran 10x concentrated in .tsx (3.7% of files
+  // vs 0.36% for .ts) while findings-per-file stayed flat, and that claim family posted 0 of 28.
+  // The checklist did not make the model find more, it dictated what it "found". Removed rather
+  // than reworded, since the base prompt already covers correctness for these files.
   {
     language: 'CSS/SCSS/Less',
-    persona: 'a UI/UX focused frontend engineer who loves clean, maintainable CSS and responsive design',
+    persona: 'a frontend engineer',
     extensions: ['css', 'scss', 'sass', 'less'],
     guidelines: [
-      'Check for hardcoded magic numbers; suggest using variables/design tokens.',
-      'Look for overly specific selectors that might cause specificity issues.',
-      'Ensure responsive design practices (media queries, flexbox/grid).',
-      'Check for unused or redundant styles.',
+      'Flag only rules that break layout or rendering; do not report stylistic preferences.',
     ],
   },
   {
     language: 'SQL',
-    persona: 'a database administrator and performance expert who prioritizes query efficiency and data integrity',
+    persona: 'a database engineer focused on query safety and correctness',
     extensions: ['sql'],
     guidelines: [
-      'Check for potential SQL injection vulnerabilities.',
-      'Look for missing indexes on frequently filtered columns.',
-      'Suggest using JOINs instead of subqueries where performance might be better.',
-      'Verify that database migrations follow a safe/atomic pattern.',
+      'Flag SQL injection risks (unparameterized/interpolated user input).',
+      'Flag destructive or non-atomic migrations that risk data loss.',
     ],
   },
   {
     language: 'Markdown',
-    persona: 'a technical writer who values clear documentation and consistent formatting',
+    persona: 'a technical writer',
     extensions: ['md', 'mdx'],
     guidelines: [
-      'Check for broken links or missing images.',
-      'Ensure consistent heading levels.',
-      'Look for spelling or grammatical errors.',
-      'Verify that code blocks have language specifiers.',
+      'Flag only broken links/images or factually incorrect content; do not report style or grammar nits.',
     ],
   },
   {
     language: 'HTML',
-    persona: 'a web standards expert who focuses on semantic HTML and accessibility',
+    persona: 'a web engineer',
     extensions: ['html', 'htm'],
     guidelines: [
-      'Ensure semantic HTML elements are used.',
-      'Check for basic SEO (meta tags, title, alt text for images).',
-      'Verify accessibility (WCAG compliance).',
+      'Flag only markup that is broken or functionally inaccessible; do not report SEO or style preferences.',
     ],
   },
   {
     language: 'JSON/Config',
-    persona: 'a DevOps engineer who values clear configuration and schema validity',
+    persona: 'a DevOps engineer',
     extensions: ['json', 'jsonc', 'yaml', 'yml', 'toml'],
     guidelines: [
-      'Check for syntax errors or invalid schemas.',
-      'Ensure consistent naming conventions (e.g., camelCase vs snake_case).',
-      'Look for hardcoded secrets or sensitive information.',
+      'Flag invalid syntax/schema or hardcoded secrets; do not report naming-convention preferences.',
     ],
   },
 ];
@@ -107,13 +86,13 @@ export function getLanguageForFile(path: string): LanguageGuideline | undefined 
   
   if (matches.length === 0) return undefined;
 
+  // On an overlap, take the single most specific entry rather than merging. Merging stacked two
+  // personas and two checklists onto one file, which is how .tsx ended up being told to hunt for
+  // hook-dependency bugs. Narrower extension list == more specific.
   if (matches.length > 1) {
-    return {
-      language: matches.map(m => m.language).join(' & '),
-      persona: matches.map(m => m.persona).filter(Boolean).join(' and '),
-      extensions: Array.from(new Set(matches.flatMap(m => m.extensions))),
-      guidelines: Array.from(new Set(matches.flatMap(m => m.guidelines))),
-    };
+    return matches.reduce((best, candidate) =>
+      candidate.extensions.length < best.extensions.length ? candidate : best,
+    );
   }
 
   return matches[0];

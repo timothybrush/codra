@@ -1,95 +1,27 @@
 import type { ParsedReviewComment } from '@shared/schema';
 import type { AppBindings } from '@server/env';
 import { parseJsonColumn, queryRows, queryTransaction } from './client';
+import {
+  REVIEW_COMMENT_INSERT_CASTS,
+  REVIEW_COMMENT_INSERT_COLUMNS,
+  reviewCommentInsertValues,
+  reviewCommentsAggregate,
+} from './review-comment-sql';
+import {
+  type SuppressedFinding,
+  getSuppressedFindings,
+  getFindingLabelTarget,
+  markCommentsPosted,
+  markCommentDispositions,
+} from './file-reviews-findings';
 
-export async function insertFileReview(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  input: {
-    jobId: string;
-    filePath: string;
-    fileStatus: 'pending' | 'done' | 'skipped' | 'failed';
-    modelUsed: string;
-    modelProvider?: string | null;
-    diffLineCount: number;
-    diffInput: string | null;
-    rawAiOutput: string | null;
-    parsedComments: ParsedReviewComment[];
-    inputTokens: number | null;
-    outputTokens: number | null;
-    durationMs: number | null;
-    verdict: 'approve' | 'comment' | null;
-    fileSummary: string | null;
-    overallCorrectness?: string | null;
-    confidenceScore?: number | null;
-    errorMessage: string | null;
-  },
-) {
-  await queryTransaction(env, async (tx) => {
-    const [review] = await tx.query<{ id: string }>(
-      `
-        INSERT INTO file_reviews (
-          job_id,
-          file_path,
-          file_status,
-          model_used,
-          diff_line_count,
-          diff_input,
-          raw_ai_output,
-          input_tokens,
-          output_tokens,
-          duration_ms,
-          verdict,
-          file_summary,
-          overall_correctness,
-          confidence_score,
-          error_msg,
-          model_provider
-        )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-        RETURNING id
-      `,
-      [
-        input.jobId,
-        input.filePath,
-        input.fileStatus,
-        input.modelUsed,
-        input.diffLineCount,
-        input.diffInput,
-        input.rawAiOutput,
-        input.inputTokens,
-        input.outputTokens,
-        input.durationMs,
-        input.verdict,
-        input.fileSummary,
-        input.overallCorrectness ?? null,
-        input.confidenceScore ?? null,
-        input.errorMessage,
-        input.modelProvider ?? null,
-      ],
-    );
-
-    if (input.parsedComments.length > 0) {
-      const paths = input.parsedComments.map(c => c.path);
-      const lines = input.parsedComments.map(c => c.line ?? null);
-      const positions = input.parsedComments.map(c => c.position ?? null);
-      const severities = input.parsedComments.map(c => c.severity);
-      const categories = input.parsedComments.map(c => c.category);
-      const titles = input.parsedComments.map(c => c.title);
-      const bodies = input.parsedComments.map(c => c.body);
-      const codeSuggestions = input.parsedComments.map(c => c.codeSuggestion ?? null);
-
-      await tx.query(
-        `
-          INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion
-          )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[])
-        `,
-        [review.id, paths, lines, positions, severities, categories, titles, bodies, codeSuggestions]
-      );
-    }
-  });
-}
+export {
+  type SuppressedFinding,
+  getSuppressedFindings,
+  getFindingLabelTarget,
+  markCommentsPosted,
+  markCommentDispositions,
+};
 
 export async function upsertFileReview(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
@@ -111,6 +43,9 @@ export async function upsertFileReview(
     overallCorrectness?: string | null;
     confidenceScore?: number | null;
     errorMessage: string | null;
+    // Findings dropped in the PARSER, which have no review_comments row to carry a disposition.
+    // Without this, "everything was withheld" is indistinguishable from clean, and both get approved.
+    withheldCounts?: { evidence: number; claimDenied: number } | null;
     // Async batch bookkeeping: set when a review is submitted to the Workers AI queue (status
     // 'pending'), cleared (null) once the batch completes and a terminal review is persisted.
     asyncRequestId?: string | null;
@@ -138,9 +73,10 @@ export async function upsertFileReview(
           error_msg,
           model_provider,
           async_request_id,
-          async_model
+          async_model,
+          withheld_counts
         )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text::jsonb)
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = EXCLUDED.file_status,
           model_used = EXCLUDED.model_used,
@@ -158,6 +94,7 @@ export async function upsertFileReview(
           model_provider = EXCLUDED.model_provider,
           async_request_id = EXCLUDED.async_request_id,
           async_model = EXCLUDED.async_model,
+          withheld_counts = EXCLUDED.withheld_counts,
           transient_error_count = 0
         RETURNING id
       `,
@@ -180,6 +117,11 @@ export async function upsertFileReview(
         input.modelProvider ?? null,
         input.asyncRequestId ?? null,
         input.asyncModel ?? null,
+        // JSON text into a `::text::jsonb` placeholder: the one jsonb-writing idiom, documented at
+        // normalizeParam in db/client.ts. Binding the raw object also works, but only for objects, and
+        // two idioms is how the string-scalar bug spread to five columns. Caught here, where
+        // `withheld_counts->>'evidence'` read NULL for a review that had withheld five findings.
+        input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
       ],
     );
 
@@ -188,22 +130,10 @@ export async function upsertFileReview(
     if (input.parsedComments.length > 0) {
       await tx.query(
         `
-          INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion
-          )
-          SELECT $1::uuid, * FROM UNNEST($2::text[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[])
+          INSERT INTO review_comments (file_review_id, ${REVIEW_COMMENT_INSERT_COLUMNS.join(', ')})
+          SELECT $1::uuid, * FROM UNNEST(${REVIEW_COMMENT_INSERT_CASTS})
         `,
-        [
-          review.id,
-          input.parsedComments.map(c => c.path),
-          input.parsedComments.map(c => c.line ?? null),
-          input.parsedComments.map(c => c.position ?? null),
-          input.parsedComments.map(c => c.severity),
-          input.parsedComments.map(c => c.category),
-          input.parsedComments.map(c => c.title),
-          input.parsedComments.map(c => c.body),
-          input.parsedComments.map(c => c.codeSuggestion ?? null),
-        ],
+        [review.id, ...reviewCommentInsertValues(input.parsedComments)],
       );
     }
   });
@@ -280,16 +210,10 @@ export async function recordRetryableFileReviewFailure(
   });
 }
 
-/**
- * Copy every still-needed, inheritable parent review (and its comments) into `jobId` in a single
- * cheap DB pass. A retry that can reuse the parent's completed reviews would otherwise re-persist
- * them one file at a time through the budget-limited review loop (~5 files/chunk, hibernating a
- * fresh invocation between chunks), turning a fully-inheritable retry into a many-minute crawl.
- * This collapses all of them into one transaction (a couple of subrequests total, regardless of
- * file count) so the review phase finishes in a single invocation. `filePaths` must already be
- * filtered to files that are inheritable under the current model strategy and have no row yet in
- * the target job. Returns the file paths that were actually inserted.
- */
+// Copies every still-needed inheritable parent review and its comments into `jobId` in one DB pass.
+// One transaction regardless of file count, so a fully-inheritable retry finishes the review phase
+// in a single invocation instead of crawling one file per budget slot across hibernated chunks.
+// `filePaths` must already be filtered to inheritable files with no row yet in the target job.
 export async function bulkInheritFileReviews(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: { jobId: string; parentJobId: string; filePaths: string[] },
@@ -302,11 +226,15 @@ export async function bulkInheritFileReviews(
         INSERT INTO file_reviews (
           job_id, file_path, file_status, model_used, diff_line_count, diff_input,
           raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
-          file_summary, overall_correctness, confidence_score, error_msg, model_provider
+          file_summary, overall_correctness, confidence_score, error_msg, model_provider,
+          -- Carried, not defaulted. finalize sums this to tell "the model found nothing" apart from
+          -- "everything it found was withheld"; an inheriting job reading 0 approves the PR silently.
+          withheld_counts
         )
         SELECT $1::uuid, file_path, file_status, model_used, diff_line_count, diff_input,
           raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
-          file_summary, overall_correctness, confidence_score, error_msg, model_provider
+          file_summary, overall_correctness, confidence_score, error_msg, model_provider,
+          withheld_counts
         FROM file_reviews
         WHERE job_id = $2::uuid AND file_status = 'done' AND file_path = ANY($3::text[])
         ON CONFLICT (job_id, file_path) DO NOTHING
@@ -317,12 +245,20 @@ export async function bulkInheritFileReviews(
 
     if (inserted.length > 0) {
       // Re-attach each inherited review's comments, mapping the parent's rows to the new ids by path.
+      // Identity (fingerprint/anchor_hash/evidence) carries over, but `posted` is explicitly reset:
+      // it means "THIS job showed this comment on GitHub", which an inheriting job has not done.
       await tx.query(
         `
           INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion
+            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
+            evidence, fingerprint, anchor_hash, posted, claim_type, context_snippet, disposition, fingerprint_v2,
+            source, rule_id
           )
-          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion
+          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score,
+                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE, rc.claim_type, rc.context_snippet, NULL, rc.fingerprint_v2,
+                 -- Carried, not defaulted: omitting these would turn every retried job's rule
+                 -- findings into LLM findings, and fail-closed would stop applying to them.
+                 rc.source, rc.rule_id
           FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
           JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
           JOIN review_comments rc ON rc.file_review_id = pf.id
@@ -335,14 +271,10 @@ export async function bulkInheritFileReviews(
   });
 }
 
-/**
- * Mark many files 'failed' in a single INSERT. Finalize backfills reviews for files that never got
- * one (e.g. files that appeared mid-review, or unrecoverable ones); doing that one-by-one through
- * upsertFileReview runs a transaction per file (several Hyperdrive round-trips each), which for a
- * large/growing PR can blow the per-invocation subrequest budget right before the review is posted.
- * This collapses the whole backfill into one statement (one subrequest). Skips files that already
- * have a row (ON CONFLICT DO NOTHING) so it never clobbers a real review.
- */
+// Marks many files 'failed' in one INSERT. Finalize backfills reviews for files that never got one,
+// and doing that through upsertFileReview is a transaction per file, which on a large PR can blow
+// the subrequest budget right before the review is posted. `ON CONFLICT DO NOTHING`, so it never
+// clobbers a real review.
 export async function bulkMarkFilesFailed(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -354,7 +286,7 @@ export async function bulkMarkFilesFailed(
     env,
     `
       INSERT INTO file_reviews (job_id, file_path, file_status, model_used, diff_line_count, diff_input, error_msg, duration_ms)
-      SELECT $1::uuid, u.file_path, 'failed', $2, u.diff_line_count, '', $3, 0
+      SELECT $1::uuid, u.file_path, 'failed', $2, u.diff_line_count, NULL, $3, 0
       FROM UNNEST($4::text[], $5::int[]) AS u(file_path, diff_line_count)
       ON CONFLICT (job_id, file_path) DO NOTHING
     `,
@@ -362,7 +294,7 @@ export async function bulkMarkFilesFailed(
   );
 }
 
-export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>) {
+export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days: number) {
   return queryRows<{
     model_used: string;
     model_provider: string | null;
@@ -379,9 +311,11 @@ export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>) {
         COALESCE(SUM(input_tokens), 0)::int AS input_tokens,
         COALESCE(SUM(output_tokens), 0)::int AS output_tokens
       FROM file_reviews
+      WHERE created_at >= now() - ($1::int * interval '1 day')
       GROUP BY model_used
       ORDER BY calls DESC, model_used ASC
     `,
+    [days],
   );
 }
 
@@ -410,29 +344,13 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
     transient_error_count: number;
     async_request_id: string | null;
     async_model: string | null;
+    withheld_counts: { evidence?: number; claimDenied?: number } | string | null;
   }>(
     env,
     `
       SELECT
         fr.*,
-        COALESCE(
-          (
-            SELECT JSON_AGG(
-              JSON_BUILD_OBJECT(
-                'path', rc.path,
-                'line', rc.line,
-                'position', rc.position,
-                'severity', rc.severity,
-                'category', rc.category,
-                'title', rc.title,
-                'body', rc.body,
-                'codeSuggestion', rc.code_suggestion
-              )
-            ORDER BY rc.id ASC
-            ) FROM review_comments rc WHERE rc.file_review_id = fr.id
-          ),
-          '[]'::json
-        ) AS parsed_comments
+        ${reviewCommentsAggregate()} AS parsed_comments
       FROM file_reviews fr
       WHERE fr.job_id = ANY($1::uuid[])
       ORDER BY fr.created_at ASC
@@ -443,5 +361,7 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
   return rows.map((row) => ({
     ...row,
     parsed_comments: parseJsonColumn(row.parsed_comments, []),
+    withheld_counts: parseJsonColumn(row.withheld_counts, {} as { evidence?: number; claimDenied?: number }),
   }));
 }
+

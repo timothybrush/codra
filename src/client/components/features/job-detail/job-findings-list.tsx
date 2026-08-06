@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { FileText } from 'lucide-react';
 import type { JobDetail } from '@shared/schema';
-import { reviewSeverities } from '@shared/schema';
+import { reviewSeverities } from '@shared/review-limits';
 import { Tabs, TabsList, TabsTrigger } from '@client/components/motion/tabs';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';
@@ -11,19 +11,78 @@ interface JobFindingsListProps {
   job: JobDetail;
 }
 
+/** Group panel header: icon + name on the left, mono count on the right. */
+function GroupHeader({
+  children,
+  count,
+  icon,
+}: {
+  children: ReactNode;
+  count: number;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="flex h-12 items-center justify-between gap-3 border-b border-ui-line px-4 sm:px-5">
+      <div className="flex min-w-0 items-center gap-2">
+        {icon}
+        <span className="truncate text-[13px] font-medium text-ui-default">{children}</span>
+      </div>
+      <span className="ui-font-mono shrink-0 text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+        {count}
+      </span>
+    </div>
+  );
+}
+
 export function JobFindingsList({ job }: JobFindingsListProps) {
   const [viewBy, setViewBy] = useState<'files' | 'severity'>('files');
 
+  // Only surface files that actually have something to report - findings or a
+  // failed review. Clean files are omitted.
+  const filesWithIssues = job.files.filter(
+    (f) => f.parsedComments.length > 0 || f.fileStatus === 'failed',
+  );
+
+  const failedFiles = job.files.filter((f) => f.fileStatus === 'failed');
+
+  // The badge counts FINDINGS, not files - it sat next to a "Findings" label while
+  // showing `filesWithIssues.length`, so a job with 9 findings spread over 7 files
+  // read "Findings 7" and disagreed with the priority triage totals right above it.
+  const findingCount = job.files.reduce((total, file) => total + file.parsedComments.length, 0);
+
+  // This list shows everything the model produced. Most of it never reaches the pull request --
+  // the confidence/severity gates, cross-run dedupe and the verification pass all run afterwards.
+  // Showing 11 findings for a review that posted 1 reads as "Codra reported 11 things", so state
+  // the posted count explicitly whenever the two differ.
+  const postedCount = job.files.reduce(
+    (total, file) => total + file.parsedComments.filter((c) => c.posted).length,
+    0,
+  );
+  const filteredCount = findingCount - postedCount;
+
   return (
-    <div>
+    <div className="ui-font-sans">
       {/* Section header */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <FileText size={14} strokeWidth={1.75} className="text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">Findings</h2>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <FileText size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
+          <h2 className="text-[13px] font-medium text-ui-default">Findings</h2>
+          {findingCount > 0 && (
+            <span className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-default dark:text-ui-subtle">
+              {findingCount}
+            </span>
+          )}
+          {filteredCount > 0 && (
+            <span
+              className="ui-font-mono text-[11px] leading-none tabular-nums text-ui-subtle"
+              title={`${postedCount} posted to the pull request; ${filteredCount} filtered out before posting (low confidence, below the severity threshold, already reported, or dropped by the verification pass).`}
+            >
+              · {postedCount} posted
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">View by</span>
+          <span className="text-xs leading-none text-ui-default dark:text-ui-subtle">View by</span>
           <Tabs value={viewBy} onValueChange={(v) => setViewBy(v as 'files' | 'severity')} variant="segment">
             <TabsList className="bg-secondary">
               <TabsTrigger value="files" className="text-xs">
@@ -39,38 +98,31 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
 
       {viewBy === 'files' ? (
         <div className="flex flex-col gap-3">
-          {job.files.length === 0 ? (
-            <div className="surface surface-static-shadow flex flex-col items-center justify-center py-16 text-center">
-              <FileText size={32} className="text-muted-foreground/20 mb-3" />
-              <p className="text-sm font-medium text-muted-foreground">No files reviewed yet.</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Results will appear here as the review progresses.</p>
+          {filesWithIssues.length === 0 ? (
+            <div className="ui-panel flex flex-col items-center justify-center py-16 text-center">
+              <FileText size={32} className="mb-3 text-ui-subtle/30" />
+              <p className="text-sm font-medium text-ui-default">No findings</p>
+              <p className="mt-1 text-xs text-ui-default dark:text-ui-subtle">
+                Codra didn't flag any issues in the reviewed files.
+              </p>
             </div>
           ) : (
-            job.files.map((file) => (
-              <FileFinding key={file.id} file={file} />
-            ))
+            filesWithIssues.map((file) => <FileFinding key={file.id} file={file} />)
           )}
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {job.files.some((f) => f.fileStatus === 'failed') && (
-            <div className="surface surface-static-shadow overflow-hidden">
-              {/* Group header */}
-              <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border">
-                <FileText size={14} strokeWidth={1.75} className="text-danger" />
-                <span className="text-sm font-semibold text-foreground uppercase tracking-wide font-mono">
-                  Failed Files
-                </span>
-                <span
-                  className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                  style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}
-                >
-                  {job.files.filter((f) => f.fileStatus === 'failed').length}
-                </span>
-              </div>
+          {failedFiles.length > 0 && (
+            <div className="ui-panel min-w-0 overflow-hidden">
+              <GroupHeader
+                count={failedFiles.length}
+                icon={<FileText size={14} strokeWidth={2} className="shrink-0 text-danger" />}
+              >
+                Failed files
+              </GroupHeader>
               {/* Failed files list */}
-              <div className="flex flex-col gap-3 p-5">
-                {job.files.filter((f) => f.fileStatus === 'failed').map((file) => (
+              <div className="flex flex-col gap-3 p-4 sm:p-5">
+                {failedFiles.map((file) => (
                   <FileFinding key={file.id} file={file} />
                 ))}
               </div>
@@ -89,31 +141,27 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
             const GroupIcon = sev?.icon ?? FileText;
 
             return (
-              <div key={groupName} className="surface surface-static-shadow overflow-hidden">
-                {/* Group header */}
-                <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border">
-                  {sev?.svg ? (
-                    <img src={sev.svg} alt={groupName} className="w-[15px] h-[15px]" />
-                  ) : (
-                    <GroupIcon size={14} strokeWidth={1.75} className={sev?.iconColor ?? 'text-muted-foreground'} />
-                  )}
-                  <span className="text-sm font-semibold text-foreground uppercase tracking-wide font-mono">
-                    {groupName}
-                  </span>
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-                  >
-                    {comments.length}
-                  </span>
-                </div>
+              <div key={groupName} className="ui-panel min-w-0 overflow-hidden">
+                <GroupHeader
+                  count={comments.length}
+                  icon={
+                    sev?.svg ? (
+                      <img src={sev.svg} alt="" className="h-[15px] w-[15px] shrink-0" />
+                    ) : (
+                      <GroupIcon size={14} strokeWidth={2} className={sev?.iconColor ?? 'text-ui-subtle'} />
+                    )
+                  }
+                >
+                  {groupName}
+                </GroupHeader>
                 {/* Comment list */}
-                <div className="flex flex-col gap-3 p-5">
+                <div className="flex flex-col gap-3 p-4 sm:p-5">
                   {comments.map((comment, index) => (
                     <CommentCard
                       key={`${groupName}-${index}`}
                       comment={comment}
                       filePath={comment.filePath}
+                      jobId={job.id}
                     />
                   ))}
                 </div>
