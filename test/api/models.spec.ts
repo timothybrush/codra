@@ -221,7 +221,9 @@ describe('Dashboard API: model and provider configuration', () => {
       },
     }, { status: 429 }));
 
-    const response = await app.request('/api/models/gemma-4-31b-it/test', {
+    // Must be an id saveTestProviderApiKey actually seeds (GOOGLE_TEST_MODEL_IDS): /test resolves the
+    // model config before calling the provider, so an unseeded id returns 404 and never reaches it.
+    const response = await app.request('/api/models/gemini-3.1-pro-preview/test', {
       method: 'POST',
       headers: {
         Cookie: `codra_session=${token}`,
@@ -270,7 +272,7 @@ describe('Dashboard API: model and provider configuration', () => {
     }, { status: 500 }));
     fetchMock.mockClear();
 
-    const response = await app.request('/api/models/gemma-4-31b-it/test', {
+    const response = await app.request('/api/models/gemini-3.1-pro-preview/test', {
       method: 'POST',
       headers: {
         Cookie: `codra_session=${token}`,
