@@ -10,7 +10,12 @@ const { runReviewJobMock, maintenanceMock, setInstanceMock } = vi.hoisted(() => 
   setInstanceMock: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@server/core/review', () => ({ runReviewJob: runReviewJobMock }));
+// Partial, via importOriginal: workflows/review.ts imports FRESH_INVOCATION_YIELD_SECONDS from this
+// same barrel to floor its inter-phase sleep, and a wholesale replacement makes that `undefined`.
+vi.mock('@server/core/review', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  runReviewJob: runReviewJobMock,
+}));
 vi.mock('@server/core/job-recovery', () => ({ runBestEffortJobMaintenance: maintenanceMock }));
 vi.mock('@server/db/jobs', async (importOriginal) => ({
   ...(await importOriginal<any>()),

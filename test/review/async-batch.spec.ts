@@ -107,6 +107,10 @@ dbDescribe('Async batch review flow', () => {
       const jobId = job!.id;
 
       // Phase 2: first review invocation -> submits the async batch, persists a 'pending' row.
+      // Prepare now enqueues review with FRESH_INVOCATION_YIELD_SECONDS so the phases land in
+      // separate invocations with separate subrequest budgets, so this transition is delay-gated
+      // exactly like the polls below and needs the same simulated elapse.
+      await simulateScheduledDelayElapsed(jobId);
       const submitResult = await runReviewJob(env, { jobId, phase: 'review' } as any);
       expect(submitResult).toMatchObject({ action: 'next_phase', phase: 'review' });
       let reviews = await getFileReviewsForJobs(env, [jobId]);

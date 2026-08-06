@@ -30,6 +30,11 @@ export { verifyFindings, type VerifyDrop, type VerifyOutcome } from '../finding-
 // Re-exported so `routes/webhook.ts` and the specs keep importing it from '@server/core/review'.
 export { extractReviewRequest, type ReviewRequest } from './request';
 
+// Re-exported so workflows/review.ts can floor its inter-phase sleep at the same constant the phases
+// use. It must not import phase-control directly (eslint barrel guard), and a smaller floor there
+// silently un-hibernates every transition.
+export { FRESH_INVOCATION_YIELD_SECONDS } from './phase-control';
+
 import { GitHubService } from '../../services/github';
 import { GitHubClient } from '../github';
 import { isRetryableModelError, ModelService } from '../../services/model';

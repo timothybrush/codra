@@ -13,7 +13,7 @@ import { getRejectedExemplars, getRepositoryIdForJob } from '@server/db/learning
 import type { RejectedExemplar } from '@server/prompts/file-review';
 import { GitHubService } from '../../services/github';
 import { getReviewSettings } from '@server/db/app-settings';
-import { type PersistedReviewJob, JOB_LEASE_SECONDS, enqueueJobPhase } from './phase-control';
+import { type PersistedReviewJob, JOB_LEASE_SECONDS, FRESH_INVOCATION_YIELD_SECONDS, enqueueJobPhase } from './phase-control';
 // Sibling of core/review.ts -- import from that barrel, not from here. Several specs mock that
 // specifier, and workflows/review.ts imports only runReviewJob from it.
 //
@@ -58,7 +58,7 @@ export async function runPreparePhase(
 
   if (files.length === 0) {
     await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
-    await enqueueJobPhase(env, job.id, 'finalize');
+    await enqueueJobPhase(env, job.id, 'finalize', FRESH_INVOCATION_YIELD_SECONDS);
     return;
   }
 
@@ -74,7 +74,12 @@ export async function runPreparePhase(
       logger.warn(`Failed to update initial progress check run for job ${job.id}; continuing to the review phase anyway`, error instanceof Error ? error : new Error(String(error)));
     }
   }
-  await enqueueJobPhase(env, job.id, 'review');
+  // Yield like every other phase transition. Prepare has already spent this invocation's budget on
+  // getPullRequest, createCheckRun, the KV diff read/write and the check-run update, but the review
+  // phase builds a FRESH TokenTracker that starts at zero. Without a hibernating delay the two share
+  // one invocation, the tracker reports 25 free subrequests that do not exist, and the chunk fans out
+  // into "Too many subrequests".
+  await enqueueJobPhase(env, job.id, 'review', FRESH_INVOCATION_YIELD_SECONDS);
 }
 
 // Negative few-shot exemplars for this repository. Best-effort, and per chunk so it costs one query
