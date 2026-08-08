@@ -65,8 +65,18 @@ export function SidebarNavItem({
         </span>
       )}
 
-      {/* Icon */}
-      <span className="relative z-10 flex shrink-0 items-center justify-center">
+      {/* Icon — muted a step below the label when inactive, matching the icon
+          chips used in the jobs table and job detail rows. The active row lets it
+          inherit `ui-strong` so the selection reads as a single solid unit.
+          Dark has no mid tone between `ui-subtle` and `ui-default` (0.708 -> 0.97),
+          so the step down comes from alpha; otherwise icon and label render at
+          the identical grey and the rail reads flat. */}
+      <span
+        className={cn(
+          'relative z-10 flex shrink-0 items-center justify-center transition-colors duration-200',
+          !isActive && 'text-ui-subtle group-hover:text-ui-default dark:text-ui-subtle/65 dark:group-hover:text-ui-subtle',
+        )}
+      >
         <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
       </span>
 

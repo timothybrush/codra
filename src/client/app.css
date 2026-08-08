@@ -736,13 +736,15 @@
 }
 
 .dark .app-shell-content {
-  --background: oklch(18% 0.018 115);
-  --card: oklch(18% 0.018 115);
-  --muted: oklch(22% 0.02 115);
-  --popover: oklch(18% 0.018 115);
-  --secondary: oklch(26% 0.02 115);
-  --border: oklch(22% 0.02 115);
-  --input: oklch(22% 0.02 115);
+  /* Zinc, matching the light block's hue: a cool neutral (hue 286.3, low
+     chroma) rather than the warm olive cast that hue 115 gave the card. */
+  --background: oklch(18% 0.006 286.3);
+  --card: oklch(18% 0.006 286.3);
+  --muted: oklch(22% 0.006 286.3);
+  --popover: oklch(18% 0.006 286.3);
+  --secondary: oklch(26% 0.007 286.3);
+  --border: oklch(22% 0.006 286.3);
+  --input: oklch(22% 0.006 286.3);
 }
 
 /* Sidebar rows: the SharedLayoutBg pill is the sole hover affordance - the

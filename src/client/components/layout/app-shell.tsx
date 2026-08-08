@@ -2,7 +2,7 @@ import { Outlet, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { SharedLayoutBg } from '@client/components/motion/shared-layout-bg';
 import { api } from '@client/lib/api';
-import { LayoutDashboard, AlignLeft, GitBranch, BarChart2, Sun, Moon, Activity, Settings, Star, X } from 'lucide-react';
+import { LayoutDashboard, AlignLeft, GitBranch, BarChart2, Sun, Moon, Activity, Settings, Star, X, ArrowUpRight } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import { useTheme } from '@client/lib/theme';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
@@ -87,13 +87,18 @@ export function AppShell() {
         )}
       >
 
-        {/* ── Header ──────────────────────────────── */}
-        <div className="relative flex shrink-0 items-center justify-between px-3 pb-3 pt-4">
+        {/* ── Header ──────────────────────────────────
+            `pl-4` puts the logo on the same optical left edge as the nav rows,
+            the section label and the account block below — the rail reads as one
+            column instead of a logo floating off-axis. */}
+        <div className="relative flex shrink-0 items-center justify-between px-2 py-4">
 
-          {/* Logo */}
+          {/* Logo — `pl-4` inside the shared `px-2` container reproduces the exact
+              inset of a nav row's label, so the wordmark and the menu share one
+              optical left edge (they were 8px apart). */}
           <Link
             to="/dashboard"
-            className="flex min-w-0 items-center gap-2.5 rounded-md p-1 -m-1 transition-opacity duration-150 hover:opacity-75 lg:ml-1.5"
+            className="flex min-w-0 items-center rounded-md pl-4 transition-opacity duration-150 hover:opacity-75"
             aria-label="Codra dashboard"
             onClick={() => setMobileMenuOpen(false)}
           >
@@ -104,18 +109,20 @@ export function AppShell() {
             />
           </Link>
 
-          {/* Controls: theme toggle (all sizes) + close (mobile) */}
-          <div className="ml-auto flex items-center gap-1.5">
+          {/* Controls: theme toggle (all sizes) + close (mobile). Ghost, not boxed
+              — a bordered control here reads as a heavy chip on a flat rail, while
+              the rest of the app uses quiet ghost buttons for this weight. */}
+          <div className="ml-auto flex items-center gap-0.5">
             <button
               onClick={toggleTheme}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-ui-line bg-ui-base text-ui-default transition-colors hover:bg-ui-fill"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill/60 hover:text-ui-strong"
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
             </button>
             <button
               onClick={() => setMobileMenuOpen(false)}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-ui-line bg-ui-base text-ui-default transition-colors hover:bg-ui-fill lg:hidden"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill/60 hover:text-ui-strong lg:hidden"
               aria-label="Close menu"
             >
               <X size={16} />
@@ -123,12 +130,9 @@ export function AppShell() {
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="mx-3 h-px bg-ui-line" />
-
         {/* ── Nav ─────────────────────────────────── */}
-        <nav className="flex-1 overflow-visible px-2 py-3">
-          <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+        <nav className="flex-1 overflow-visible px-2 pb-3">
+          <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle dark:text-ui-subtle/65">
             Menu
           </p>
 
@@ -155,34 +159,41 @@ export function AppShell() {
           </SharedLayoutBg>
         </nav>
 
-        {/* Divider */}
-        <div className="mx-3 h-px bg-ui-line" />
+        {/* ── Footer ──────────────────────────────────
+            One inset rule separates navigation from account/meta. The header
+            divider is gone: spacing already groups it, and free-floating hairlines
+            on a transparent rail read as stray marks next to the card-bordered
+            surfaces everywhere else. */}
+        <div className="mx-4 h-px shrink-0 bg-ui-line" />
 
-        {/* ── Footer ──────────────────────────────── */}
-        <div className="shrink-0 space-y-1 p-2 pt-3">
+        <div className="shrink-0 space-y-0.5 p-2 pt-2">
 
-          {/* GitHub star - quiet row, same treatment as nav items */}
+          {/* GitHub star — tertiary, so it sits a step quieter than navigation and
+              gains an external-link cue on hover. */}
           <a
             href="https://github.com/devarshishimpi/codra"
             target="_blank"
             rel="noopener noreferrer"
             className={cn(
               'dashboard-sidebar-action',
-              'group relative flex h-10 w-full items-center gap-3 rounded-md pl-4 pr-3.5',
-              'text-[13px] font-medium text-ui-default hover:text-ui-strong dark:text-ui-subtle dark:hover:text-ui-default',
+              'group relative flex h-9 w-full items-center gap-3 rounded-md pl-4 pr-3.5',
+              'text-[13px] text-ui-subtle hover:text-ui-strong',
+              'dark:text-ui-subtle/65 dark:hover:text-ui-default',
               'transition-colors duration-200 ease-[var(--ease-out-quart)]',
               'hover:bg-ui-fill/50',
             )}
           >
             <Star size={15} strokeWidth={2} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Star on GitHub</span>
+            <ArrowUpRight
+              size={13}
+              className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            />
           </a>
 
           {/* Account */}
           {sessionUser && <AccountMenu user={sessionUser} />}
         </div>
-
-        <div className="h-1 shrink-0" />
       </aside>
 
       {/* ── MAIN - the content card. The shell is fixed-height and never scrolls;
