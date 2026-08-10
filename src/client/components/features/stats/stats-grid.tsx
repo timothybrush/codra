@@ -54,13 +54,11 @@ function StatCard({ label, value, unit, icon: Icon, color, noun, trend, delta }:
 
   return (
     <div className="flex flex-col rounded-lg border border-ui-line bg-white p-3.5 dark:border-[oklch(0.27_0_0)] dark:bg-black">
-      {/* Header: bright icon + label. */}
       <div className="flex items-center gap-2 px-0.5">
         <Icon size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
         <span className="truncate text-[13px] font-medium text-ui-default">{label}</span>
       </div>
 
-      {/* Inner elevated panel: mono number + unit left, bar sparkline right. */}
       <div className="ui-well mt-3 flex items-center justify-between gap-4 rounded-md px-4 py-3.5">
         {loading ? (
           <Skeleton height={40} width={100} />

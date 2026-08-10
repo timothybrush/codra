@@ -4,8 +4,7 @@ import { cn } from '@client/lib/utils';
 import type { JobSummary } from '@shared/schema';
 import { LiveReviewStepper } from '@client/components/features/reviews/live-review-stepper';
 
-// Borderless tinted pills (Cloudflare-dashboard style): translucent colored
-// fill + saturated text of the same hue.
+// Borderless tinted pills (Cloudflare-dashboard style): translucent fill + saturated text of the same hue.
 const badgeVariants = cva(
   'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
   {

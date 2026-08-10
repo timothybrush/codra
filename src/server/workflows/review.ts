@@ -9,10 +9,7 @@ import { runWithDb } from '@server/db/client';
 
 export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMessage> {
   async run(event: WorkflowEvent<ReviewJobMessage>, step: WorkflowStep) {
-    // Share one DB client/connection for this entire invocation instead of opening a
-    // new Hyperdrive connection per query (the default behavior of getDb() outside any
-    // runWithDb() context). On workflow replay after a step.sleep or a resumed retry,
-    // this simply runs again and creates a fresh client for that new invocation.
+    // One DB client for the whole invocation, instead of a Hyperdrive connection per query; a replay after step.sleep just runs this again for the new invocation.
     return runWithDb(this.env, () => this.execute(event, step));
   }
 
@@ -87,14 +84,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
       }
 
       if (result.action === 'next_phase') {
-        // Hand the next phase to a BRAND-NEW workflow instance when this one can no longer get a
-        // clean subrequest budget. A long-lived instance (large PR -> many continuations over
-        // ~30-60 min) stops hibernating between steps, so its per-invocation budget never resets and
-        // every subsequent step immediately hits Cloudflare's 50-subrequest cap -- stalling the review
-        // and preventing finalize from posting. runReviewJob sets freshInstance when it hit that wall
-        // (a subrequest-limit deferral) or when entering finalize (which needs ~20 subrequests at once).
-        // A fresh instance's first step gets a clean budget, so the job keeps making progress.
-        // (Same-phase retries in the fresh instance are bounded by the continuation ceilings.)
+        // Hand the next phase to a BRAND-NEW instance when this one can no longer get a clean subrequest budget: a long-lived instance stops hibernating between steps, so its budget never resets.
         if (result.freshInstance) {
           const nextJobId = result.jobId ?? jobId;
           if (nextJobId) {
@@ -111,15 +101,9 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
           }
         }
         phase = result.phase;
-        // Floor at FRESH_INVOCATION_YIELD_SECONDS, not 1. A 1s sleep does NOT hibernate, so the next
-        // phase runs in the SAME invocation on an already-spent subrequest budget while its new
-        // TokenTracker starts at zero -- the tracker then reports headroom that does not exist and the
-        // chunk dies on "Too many subrequests". (The old comment here claimed 1s "resets the 50
-        // subrequest per-invocation limit"; phase-control.ts records that even 2s did not.)
-        // This is the backstop: a transition that forgets to pass a delay still hibernates.
+        // Floor at FRESH_INVOCATION_YIELD_SECONDS, not 1: a short sleep does NOT hibernate, so the next phase would run on a spent budget while its TokenTracker starts at zero.
         delaySeconds = Math.max(result.delaySeconds ?? 0, FRESH_INVOCATION_YIELD_SECONDS);
       } else if (result.action === 'retry') {
-        // Keep the same phase, just delay
         delaySeconds = result.delaySeconds ?? 60;
       } else {
         // 'ack' or completion
@@ -127,9 +111,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMes
       }
     }
 
-    // Yield before maintenance so it runs in a fresh invocation with its own subrequest
-    // budget, rather than immediately after the final phase step (which may have just
-    // exhausted the current invocation's budget, guaranteeing this call would also fail).
+    // Yield first, so maintenance gets its own subrequest budget rather than the remains of the one the final phase step may have just exhausted.
     await step.sleep('pre-post-maintenance-yield', `${FRESH_INVOCATION_YIELD_SECONDS} seconds`);
 
     try {

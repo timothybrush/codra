@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react';
 
 /**
- * Tiny per-line syntax highlighter for the diff viewer. Regex-based, no
- * dependencies: comments, strings, numbers, keywords, function calls, and
- * capitalized type names. Tokenizes one line at a time (block comments that
- * span lines fall back to plain text), which is the standard trade-off for
- * cheap diff highlighting.
+ * Tiny regex-based per-line syntax highlighter for the diff viewer. Tokenizes one line at a
+ * time; multi-line block comments fall back to plain text - the standard trade-off for cheap
+ * diff highlighting.
  */
 
 export type Lang = 'js' | 'py' | 'sh' | 'css' | 'html' | 'json' | 'sql' | 'clike' | 'md' | 'plain';
@@ -98,10 +96,8 @@ function tokenRegexFor(lang: Lang): RegExp {
   return TOKEN_RE.slash;
 }
 
-/* ── Markdown ─────────────────────────────────────────────────── */
-
-// Inline spans: code, bold, italic, links, strikethrough. Raw markdown syntax
-// is kept (this renders diff source) and just colored.
+// Inline spans: code, bold, italic, links, strikethrough. Raw markdown syntax is kept (this
+// renders diff source) and just colored.
 const MD_INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(\*(?!\s)[^*]+\*|_(?!\s)[^_]+_)|(!?\[[^\]]*\]\([^)]*\))|(~~[^~]+~~)/g;
 
@@ -133,11 +129,9 @@ function highlightMarkdownInline(text: string, keyStart = 0): ReactNode[] {
 }
 
 function highlightMarkdownLine(text: string): ReactNode {
-  // Heading: whole line reads as the heading tone.
   if (/^\s{0,3}#{1,6}\s/.test(text)) {
     return <span className="tok-md-head">{text}</span>;
   }
-  // Blockquote: marker dimmed, remainder inline-parsed.
   const quote = /^(\s*>\s?)(.*)$/.exec(text);
   if (quote) {
     return [
@@ -145,7 +139,6 @@ function highlightMarkdownLine(text: string): ReactNode {
       ...highlightMarkdownInline(quote[2], 1),
     ];
   }
-  // List / ordered-list / task marker.
   const list = /^(\s*(?:[-*+]|\d+\.)\s+)(\[[ xX]\]\s+)?(.*)$/.exec(text);
   if (list && list[1]) {
     const parts: ReactNode[] = [<span key="m" className="tok-kw">{list[1]}</span>];
@@ -153,7 +146,6 @@ function highlightMarkdownLine(text: string): ReactNode {
     parts.push(...highlightMarkdownInline(list[3] ?? '', 2));
     return parts;
   }
-  // Horizontal rule.
   if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(text)) {
     return <span className="tok-com">{text}</span>;
   }

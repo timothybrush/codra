@@ -130,14 +130,10 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
   };
 }
 
-// The Gemini test fixtures reviewers reach for (`gemini-3.1-pro-preview`, `gemini-2.5-pro`) are NOT real
-// catalog entries, so migrations/ensureModelCatalog never seed them -- only Cloudflare models are
-// seeded. Tests must therefore create these Google model_configs themselves; relying on them being
-// left over in a dev DB makes the suite pass locally but fail on a fresh CI database ("Model ... is
-// not configured"). Seeding them alongside enabling the Google provider keeps the setup in one place.
-// gemini-3.1-flash-lite is here so a test can assert fall-through to a model that actually ANSWERS,
-// not just that the metered models were skipped -- an unresolvable fallback ends the chain and looks
-// identical to every model failing.
+// These Gemini fixtures are NOT real catalog entries -- only Cloudflare models are seeded by
+// ensureModelCatalog -- so tests must create them here, or they'd pass locally and fail on a fresh
+// CI database. gemini-3.1-flash-lite lets a test assert fall-through to a model that actually
+// ANSWERS, not just that the metered models were skipped.
 const GOOGLE_TEST_MODEL_IDS = ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-3.1-flash-lite'];
 
 export async function saveTestProviderApiKey(env: AppBindings, providerName = 'Google', apiKey = 'test-key') {
@@ -173,7 +169,6 @@ export async function saveTestProviderApiKey(env: AppBindings, providerName = 'G
   }
 }
 
-// Generates a mock Unified Diff string for testing.
 export function generateMockDiff(files: { path: string; content: string }[]): string {
   return files
     .map((f) => {
@@ -188,7 +183,6 @@ ${lines.map((l) => `+${l}`).join('\n')}`;
     .join('\n');
 }
 
-// Creates a mock GitHub Webhook payload for a PR opened event.
 export function createMockPRWebhook(overrides: any = {}) {
   return {
     action: 'opened',
@@ -210,23 +204,16 @@ export function createMockPRWebhook(overrides: any = {}) {
   };
 }
 
-// A deterministic 40-hex-character commit sha from a short seed.
-//
-// The `.slice(0, 40)` is load-bearing: four specs carried `seed.repeat(40)` instead, which produces
-// an EIGHTY-character string for any two-character seed (`sha('a1')`). Nothing validates the length,
-// so those rows stored a 40-byte value in a column meant to hold 20 and no test ever failed.
+// The `.slice(0, 40)` is load-bearing: without it, `seed.repeat(40)` produces an 80-character string
+// for any two-character seed, and nothing validates the length so the bug never surfaces as a failure.
 export const sha = (seed: string) => seed.repeat(40).slice(0, 40);
 
 // `describe` that skips when TEST_DATABASE_URL is unset, so the suite still runs without Postgres.
-// Was defined identically in several spec files.
 export const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 
-// A repository name no other test will use.
-//
-// DB-backed suites isolate themselves by repo name rather than by truncating tables, which is what
-// lets these files run in parallel. `Date.now()` alone is not enough for that: two workers starting
-// in the same millisecond collide, and the failure looks like a flaky assertion rather than a name
-// clash. The counter and the random block make a collision impossible within and across workers.
+// DB-backed suites isolate themselves by repo name rather than truncating tables, which is what lets
+// them run in parallel. `Date.now()` alone collides when two workers start in the same millisecond,
+// so the counter and random block are both needed to make a collision impossible.
 let nameSeq = 0;
 export function uniqueName(prefix: string) {
   nameSeq += 1;

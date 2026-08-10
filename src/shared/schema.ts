@@ -39,8 +39,8 @@ import {
   defaultRepoConfig,
 } from './schema-repo-config';
 
-// Re-exported for server-side consumers that import these from @shared/schema; the client should
-// import from @shared/review-limits directly to avoid pulling zod into the browser bundle.
+// Re-exported for server use; the client imports @shared/review-limits directly, to keep zod out
+// of the browser bundle.
 export {
   reviewSeverities,
   reviewConcurrencyLevels,
@@ -102,70 +102,81 @@ export const parsedReviewCommentSchema = z.object({
   body: z.string().min(1),
   codeSuggestion: z.string().min(1).nullable().optional(),
   confidenceScore: z.number().min(0).max(1).nullable().optional(),
-  // The verbatim line of code the finding claims to be about, used to anchor the comment and to
-  // verify the claim is grounded in code that actually exists in the diff.
+  // The verbatim line the finding claims to be about: anchors the comment and proves the claim
+  // is grounded in code that exists in the diff.
   evidence: z.string().min(1).nullable().optional(),
-  // Stable identity of the finding (path + title), so the same issue can be recognized across
-  // re-reviews of the same PR.
+  // Stable identity (path + title), recognising the same issue across re-reviews.
   fingerprint: z.string().min(1).nullable().optional(),
-  // Hash of the anchored line's content. When this changes the underlying code changed, so a
-  // previously-posted finding is legitimately raised again.
+  // Hash of the anchored line's content: a change means the code changed, so a previously-posted
+  // finding is legitimately raised again.
   anchorHash: z.string().min(1).nullable().optional(),
-  // Whether this finding reached the pull request. Without it, 11 generated and 1 posted looks
-  // identical to 11 posted.
+  // Whether this finding reached the PR: without it, 11 generated / 1 posted looks like 11 posted.
   posted: z.boolean().nullable().optional(),
-  // Never folded into the title: buildFindingFingerprint hashes the title, so a format change would
-  // reset cross-run suppression and unmatch every human dismissal in comment_feedback.
+  // Never fold into the title: buildFindingFingerprint hashes it, so a format change resets
+  // cross-run suppression and unmatches every human dismissal in comment_feedback.
   claimType: z.enum(claimTypes).nullable().optional(),
-  // Captured at parse time: diff_input is nulled by migration 003 and the KV diff cache expires
-  // after 6 hours, so historical findings have no other retrievable context.
+  // Captured at parse time: 003 nulls diff_input and the KV diff cache expires after 6h, so
+  // historical findings have no other retrievable context.
   contextSnippet: z.string().nullable().optional(),
-  // Which pipeline stage ended this finding's life.
   disposition: z.enum(findingDispositions).nullable().optional(),
-  // The verifier's own justification, for kept findings as well as dropped ones. The tuning surface:
-  // a subtraction stage nobody can inspect is a subtraction stage nobody can improve.
+  // The verifier's justification, for kept findings as well as dropped: the tuning surface.
   verifyReason: z.string().nullable().optional(),
-  // A human's verdict from the dashboard, if any. `null` means UNLABELLED, which is not a verdict --
-  // precision may only be computed over the labelled subset.
+  // A human's dashboard verdict. `null` means UNLABELLED, not "wrong": compute precision over the
+  // labelled subset only.
   humanLabel: z.enum(['marked_right', 'marked_wrong']).nullable().optional(),
   // Title-independent identity, OR-matched with `fingerprint` for cross-run suppression.
   fingerprintV2: z.string().min(1).nullable().optional(),
-  // Absent means 'llm', so every pre-existing row reads correctly with no backfill. Always test
-  // `=== 'rule'` positively, or anything COUNTING findings silently includes deterministic hits.
+  // Absent means 'llm', so pre-existing rows read correctly with no backfill. Always test
+  // `=== 'rule'` positively, or counts silently include deterministic hits.
   source: z.enum(['llm', 'rule']).nullable().optional(),
-  // Which rule fired, when source is 'rule'. The retirement signal: a rule with many generated and
-  // no posted findings is one the filter always rejects, and should be deleted or fixed.
+  // The retirement signal, when source is 'rule': many generated and none posted means the
+  // filter always rejects it.
   ruleId: z.string().min(1).nullable().optional(),
 });
 
 export const findingLabelSchema = z.object({ label: z.enum(['right', 'wrong']) });
 
+// Shared with the batched schema: divergence would mean a finding that parses on only one path.
+const reviewFindingSchema = z.object({
+  title: z.string().max(100),
+  body: z.string().min(1),
+  confidence_score: z.number().min(0).max(1).optional(),
+  // In lockstep with normalizeFinding's clamp and the grammar: tighter here fails the whole file.
+  priority: z.number().int().min(0).max(4).optional(),
+  evidence: z.string().optional(),
+  // `unknown`, not `string`: one bad label would discard the whole file. toClaimType coerces it.
+  claim_type: z.unknown().optional(),
+  code_location: z.object({
+    absolute_file_path: z.string(),
+    line_range: z.object({
+      start: z.number().int().positive(),
+      end: z.number().int().positive(),
+    }).optional(),
+    line: z.number().int().positive().optional(),
+  }),
+  code_suggestion: z.string().optional(),
+});
+
 export const fileReviewModelOutputSchema = z.object({
-  findings: z.array(
-    z.object({
-      title: z.string().max(100),
-      body: z.string().min(1),
-      confidence_score: z.number().min(0).max(1).optional(),
-      // Kept in lockstep with the clamp in normalizeFinding and the JSON grammar: tighter here than
-      // there fails the parse for the ENTIRE file, not just one finding.
-      priority: z.number().int().min(0).max(4).optional(),
-      evidence: z.string().optional(),
-      // `unknown`, not `string`: a Zod rejection here discards every finding in the file over one
-      // bad label. Validated in toClaimType instead, which coerces to 'other'.
-      claim_type: z.unknown().optional(),
-      code_location: z.object({
-        absolute_file_path: z.string(),
-        line_range: z.object({
-          start: z.number().int().positive(),
-          end: z.number().int().positive(),
-        }).optional(),
-        line: z.number().int().positive().optional(),
-      }),
-      code_suggestion: z.string().optional(),
-    }),
-  ),
+  findings: z.array(reviewFindingSchema),
   overall_correctness: z.string().optional().default('patch is correct'),
   overall_explanation: z.string().optional().default('Review completed (partial output).'),
+  overall_confidence_score: z.number().min(0).max(1).optional(),
+});
+
+// One entry per packed file, so the nesting carries file identity. `.min(1)` throws on an empty
+// response, so the chain falls through instead of marking the bin clean.
+export const batchReviewModelOutputSchema = z.object({
+  files: z.array(
+    z.object({
+      absolute_file_path: z.string(),
+      // Required, not defaulted: an absent array would report a file the model skipped as clean.
+      findings: z.array(reviewFindingSchema),
+      overall_correctness: z.string().optional().default('patch is correct'),
+      overall_explanation: z.string().optional().default('Review completed (partial output).'),
+      overall_confidence_score: z.number().min(0).max(1).optional(),
+    }),
+  ).min(1),
   overall_confidence_score: z.number().min(0).max(1).optional(),
 });
 
@@ -182,11 +193,11 @@ export const reviewJobMessageSchema = z.object({
   commitSha: z.string().min(1).optional(),
   trigger: z.enum(reviewTriggers).optional(),
   requestId: z.string().optional(),
-  // The actual Cloudflare Workflow instance id, injected by the workflow so runReviewJob can bind
-  // it to the resolved job row (webhook jobs can't be bound at instance-create time).
+  // Injected by the workflow so runReviewJob can bind it to the resolved job row; webhook jobs
+  // can't be bound at instance-create time.
   workflowInstanceId: z.string().optional(),
-  // Set by lease recovery so the queue consumer creates a FRESH instance (keyed on deliveryId)
-  // instead of colliding with the dead instance that is still keyed on jobId.
+  // Set by lease recovery so the consumer creates a FRESH instance keyed on deliveryId, instead
+  // of colliding with the dead one still keyed on jobId.
   forceFreshInstance: z.boolean().optional(),
 }).superRefine((message, ctx) => {
   if (message.jobId || message.eventName) {
@@ -253,7 +264,11 @@ const fileReviewRecordSchema = z.object({
   filePath: z.string(),
   fileStatus: z.enum(fileStatuses),
   modelUsed: z.string(),
-  modelProvider: z.string().optional(),
+  // Nullable, not just optional: the column has no default, so every path that inserts without
+  // resolving a provider (bulkRecordRetryableFileReviewFailures, bulkMarkFilesFailed) stores NULL,
+  // and JSON_BUILD_OBJECT emits it as null. `.optional()` alone rejected that and made getJobDetail
+  // throw for the whole job -- one deferred bin took the entire dashboard page down.
+  modelProvider: z.string().nullable().optional(),
   diffLineCount: z.number().int().nullable(),
   diffInput: z.string().nullable(),
   rawAiOutput: z.string().nullable(),
@@ -265,6 +280,16 @@ const fileReviewRecordSchema = z.object({
   fileSummary: z.string().nullable(),
   overallCorrectness: z.string().nullable().optional(),
   confidenceScore: z.number().nullable().optional(),
+  // How many files shared this file's model call: 1 alone, N batched, null for pre-batching rows.
+  // The token columns are a proportional share of that one call, so the two must be read together.
+  batchSize: z.number().int().nullable().optional(),
+  // Findings the gates dropped before they could be posted. Nullable: only review paths write it,
+  // and the deferral paths deliberately clear it.
+  withheldCounts: z
+    .object({ evidence: z.number().int(), claimDenied: z.number().int() })
+    .partial()
+    .nullable()
+    .optional(),
   errorMessage: z.string().nullable(),
   createdAt: dateStringSchema,
 });
@@ -399,8 +424,7 @@ export type StatsPayload = z.infer<typeof statsSchema>;
 export const reviewSettingsSchema = z.object({
   concurrencyLevel: z.enum(reviewConcurrencyLevels).default('medium'),
   maxComments: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20)]).default(10),
-  // Instance-wide, not per-repo: bounds the Workers subrequest budget and provider rate limit,
-  // both shared across every repository.
+  // Instance-wide, not per-repo: the subrequest budget and provider rate limit are both shared.
   maxFiles: z
     .number()
     .int()

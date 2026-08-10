@@ -1,9 +1,6 @@
 import type { FileReviewRecord } from '@shared/schema';
 
-/**
- * Builds the collapsed directory tree the diff viewer's file list renders. Pure: single-child
- * directory chains are compressed into one "a/b/c" node, and directories sort before files.
- */
+/** Builds the collapsed directory tree the diff viewer's file list renders. */
 
 export type TreeNode =
   | { type: 'dir'; name: string; path: string; children: TreeNode[] }

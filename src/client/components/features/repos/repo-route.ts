@@ -1,9 +1,7 @@
 import { formatDateTime } from '@client/lib/timezone';
 import type { RepoConfig, RepoConfigRecord } from '@shared/schema';
 import { EMPTY_MODEL_ROUTE, normalizeModelRoute, routesEqual, type ModelRouteConfig } from '@client/components/features/models/model-chain';
-// How a repository resolves its model strategy: inherit the global route, or use a stored
-// per-repo one. Shared by the repos page, its rows and the strategy dialog, so it cannot live in
-// any of them.
+// Shared by the repos page, its rows and the strategy dialog, so it can't live in any single one.
 
 export type GlobalModelConfig = RepoConfig['model'];
 

@@ -10,13 +10,9 @@ import {
   MAX_COMMENTS_CEILING,
 } from '@client/components/features/settings/settings-support';
 
-// The instance-wide review settings (concurrency, comment cap, file cap) and the confirm-dialog
-// state guarding the two ceilings that can trip a provider's rate limit.
-//
-// Does NOT fetch: SettingsPage loads all three settings payloads in one Promise.all and calls
-// `hydrate` with the result, so splitting this out did not turn one batched load into two.
-// `setSaving` / `setError` are passed in because the page shows a single shared saving/error state
-// across both halves of the page.
+// Does NOT fetch: SettingsPage loads all settings payloads in one Promise.all and calls `hydrate`
+// with the result, so splitting this out did not turn one batched load into two. `setSaving` /
+// `setError` are passed in because the page shares one saving/error state across both halves.
 export function useReviewSettings({
   setSaving,
   setError,
@@ -73,8 +69,7 @@ export function useReviewSettings({
     if (!reviewSettings) return;
     const parsed = Number.parseInt(maxFilesDraft, 10);
 
-    // Snap junk or out-of-range input back to something valid rather than rejecting it, so the
-    // field can never be left showing a number that isn't what the server will use.
+    // Snap junk or out-of-range input back to something valid instead of rejecting it.
     const next = Number.isFinite(parsed)
       ? Math.min(reviewMaxFilesRange.max, Math.max(reviewMaxFilesRange.min, parsed))
       : reviewSettings.maxFiles;

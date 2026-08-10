@@ -221,8 +221,7 @@ describe('Dashboard API: model and provider configuration', () => {
       },
     }, { status: 429 }));
 
-    // Must be an id saveTestProviderApiKey actually seeds (GOOGLE_TEST_MODEL_IDS): /test resolves the
-    // model config before calling the provider, so an unseeded id returns 404 and never reaches it.
+    // Must be an id saveTestProviderApiKey seeds (GOOGLE_TEST_MODEL_IDS), or /test 404s before reaching the provider.
     const response = await app.request('/api/models/gemini-3.1-pro-preview/test', {
       method: 'POST',
       headers: {
@@ -329,13 +328,9 @@ describe('Dashboard API: model and provider configuration', () => {
     expect(response.status).toBe(400);
   });
 
-  // Hono matches POST routes in registration order, and `/providers`, `/:id/test` and `/:id` are
-  // all single- or double-segment POST routes under the same router. If `/:id` were ever registered
-  // before `/providers`, this request would match it with id === 'providers': `modelIdSchema` is a
-  // bare non-empty string so it would pass, and the request would reach `updateModelConfig` instead
-  // of provider creation. `modelConfigUpdateSchema` is `.strict()` and expects `{providerId,
-  // modelName}`, so a provider-creation body fails it -- the two code paths are distinguishable by
-  // response shape, which is what this test pins.
+  // Guards route registration order: if `/:id` were ever registered before `/providers`, this
+  // request would match it with id === 'providers' (modelIdSchema accepts any non-empty string)
+  // and hit updateModelConfig instead of provider creation.
   it('routes POST /providers to provider creation, not the /:id model-config handler', async () => {
     const env = createTestEnv();
     const token = await getAuthCookie(env);

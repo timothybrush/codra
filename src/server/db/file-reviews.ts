@@ -14,6 +14,13 @@ import {
   markCommentsPosted,
   markCommentDispositions,
 } from './file-reviews-findings';
+import {
+  type BulkFileReviewInput,
+  bulkInheritFileReviews,
+  bulkMarkFilesFailed,
+  bulkRecordRetryableFileReviewFailures,
+  bulkUpsertFileReviews,
+} from './file-reviews-bulk';
 
 export {
   type SuppressedFinding,
@@ -21,6 +28,15 @@ export {
   getFindingLabelTarget,
   markCommentsPosted,
   markCommentDispositions,
+};
+
+// Multi-file writers live in their own module (max-lines); callers still import them from here.
+export {
+  type BulkFileReviewInput,
+  bulkInheritFileReviews,
+  bulkMarkFilesFailed,
+  bulkRecordRetryableFileReviewFailures,
+  bulkUpsertFileReviews,
 };
 
 export async function upsertFileReview(
@@ -43,11 +59,9 @@ export async function upsertFileReview(
     overallCorrectness?: string | null;
     confidenceScore?: number | null;
     errorMessage: string | null;
-    // Findings dropped in the PARSER, which have no review_comments row to carry a disposition.
-    // Without this, "everything was withheld" is indistinguishable from clean, and both get approved.
+    // Findings dropped in the PARSER have no review_comments row to carry a disposition; without this, "everything was withheld" is indistinguishable from clean.
     withheldCounts?: { evidence: number; claimDenied: number } | null;
-    // Async batch bookkeeping: set when a review is submitted to the Workers AI queue (status
-    // 'pending'), cleared (null) once the batch completes and a terminal review is persisted.
+    // Async batch bookkeeping: set on submit to the Workers AI queue, cleared once the batch completes.
     asyncRequestId?: string | null;
     asyncModel?: string | null;
   },
@@ -74,9 +88,10 @@ export async function upsertFileReview(
           model_provider,
           async_request_id,
           async_model,
-          withheld_counts
+          withheld_counts,
+          batch_size
         )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text::jsonb)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text::jsonb, 1)
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = EXCLUDED.file_status,
           model_used = EXCLUDED.model_used,
@@ -95,6 +110,7 @@ export async function upsertFileReview(
           async_request_id = EXCLUDED.async_request_id,
           async_model = EXCLUDED.async_model,
           withheld_counts = EXCLUDED.withheld_counts,
+          batch_size = EXCLUDED.batch_size,
           transient_error_count = 0
         RETURNING id
       `,
@@ -117,10 +133,7 @@ export async function upsertFileReview(
         input.modelProvider ?? null,
         input.asyncRequestId ?? null,
         input.asyncModel ?? null,
-        // JSON text into a `::text::jsonb` placeholder: the one jsonb-writing idiom, documented at
-        // normalizeParam in db/client.ts. Binding the raw object also works, but only for objects, and
-        // two idioms is how the string-scalar bug spread to five columns. Caught here, where
-        // `withheld_counts->>'evidence'` read NULL for a review that had withheld five findings.
+        // JSON text into a `::text::jsonb` placeholder: the one jsonb-writing idiom (see normalizeParam in db/client.ts); mixing idioms is how the string-scalar bug spread to five columns.
         input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
       ],
     );
@@ -150,6 +163,10 @@ export async function recordRetryableFileReviewFailure(
     diffInput: string | null;
     durationMs: number | null;
     errorMessage: string;
+    // False while the model chain still has untried entries: the deferral made progress (the next
+    // attempt resumes further down the chain), so it is not evidence of a repeated outage and must
+    // not spend one of MAX_RETRYABLE_FILE_REVIEW_FAILURES.
+    countsAsAttempt?: boolean;
   },
 ) {
   return await queryTransaction(env, async (tx) => {
@@ -174,7 +191,7 @@ export async function recordRetryableFileReviewFailure(
           error_msg,
           transient_error_count
         )
-        VALUES ($1::uuid, $2, 'failed', $3, $4, $5, $6, NULL, NULL, NULL, $7, NULL, NULL, NULL, NULL, $8, 1)
+        VALUES ($1::uuid, $2, 'failed', $3, $4, $5, $6, NULL, NULL, NULL, $7, NULL, NULL, NULL, NULL, $8, $9::int)
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = 'failed',
           model_used = EXCLUDED.model_used,
@@ -190,7 +207,7 @@ export async function recordRetryableFileReviewFailure(
           overall_correctness = NULL,
           confidence_score = NULL,
           error_msg = EXCLUDED.error_msg,
-          transient_error_count = file_reviews.transient_error_count + 1
+          transient_error_count = file_reviews.transient_error_count + $9::int
         RETURNING id, transient_error_count
       `,
       [
@@ -202,6 +219,7 @@ export async function recordRetryableFileReviewFailure(
         input.diffInput,
         input.durationMs,
         input.errorMessage,
+        input.countsAsAttempt === false ? 0 : 1,
       ],
     );
 
@@ -210,89 +228,6 @@ export async function recordRetryableFileReviewFailure(
   });
 }
 
-// Copies every still-needed inheritable parent review and its comments into `jobId` in one DB pass.
-// One transaction regardless of file count, so a fully-inheritable retry finishes the review phase
-// in a single invocation instead of crawling one file per budget slot across hibernated chunks.
-// `filePaths` must already be filtered to inheritable files with no row yet in the target job.
-export async function bulkInheritFileReviews(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  input: { jobId: string; parentJobId: string; filePaths: string[] },
-): Promise<string[]> {
-  if (input.filePaths.length === 0) return [];
-
-  return await queryTransaction(env, async (tx) => {
-    const inserted = await tx.query<{ id: string; file_path: string }>(
-      `
-        INSERT INTO file_reviews (
-          job_id, file_path, file_status, model_used, diff_line_count, diff_input,
-          raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
-          file_summary, overall_correctness, confidence_score, error_msg, model_provider,
-          -- Carried, not defaulted. finalize sums this to tell "the model found nothing" apart from
-          -- "everything it found was withheld"; an inheriting job reading 0 approves the PR silently.
-          withheld_counts
-        )
-        SELECT $1::uuid, file_path, file_status, model_used, diff_line_count, diff_input,
-          raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
-          file_summary, overall_correctness, confidence_score, error_msg, model_provider,
-          withheld_counts
-        FROM file_reviews
-        WHERE job_id = $2::uuid AND file_status = 'done' AND file_path = ANY($3::text[])
-        ON CONFLICT (job_id, file_path) DO NOTHING
-        RETURNING id, file_path
-      `,
-      [input.jobId, input.parentJobId, input.filePaths],
-    );
-
-    if (inserted.length > 0) {
-      // Re-attach each inherited review's comments, mapping the parent's rows to the new ids by path.
-      // Identity (fingerprint/anchor_hash/evidence) carries over, but `posted` is explicitly reset:
-      // it means "THIS job showed this comment on GitHub", which an inheriting job has not done.
-      await tx.query(
-        `
-          INSERT INTO review_comments (
-            file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
-            evidence, fingerprint, anchor_hash, posted, claim_type, context_snippet, disposition, fingerprint_v2,
-            source, rule_id
-          )
-          SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score,
-                 rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE, rc.claim_type, rc.context_snippet, NULL, rc.fingerprint_v2,
-                 -- Carried, not defaulted: omitting these would turn every retried job's rule
-                 -- findings into LLM findings, and fail-closed would stop applying to them.
-                 rc.source, rc.rule_id
-          FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
-          JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
-          JOIN review_comments rc ON rc.file_review_id = pf.id
-        `,
-        [inserted.map((r) => r.id), inserted.map((r) => r.file_path), input.parentJobId],
-      );
-    }
-
-    return inserted.map((r) => r.file_path);
-  });
-}
-
-// Marks many files 'failed' in one INSERT. Finalize backfills reviews for files that never got one,
-// and doing that through upsertFileReview is a transaction per file, which on a large PR can blow
-// the subrequest budget right before the review is posted. `ON CONFLICT DO NOTHING`, so it never
-// clobbers a real review.
-export async function bulkMarkFilesFailed(
-  env: Pick<AppBindings, 'HYPERDRIVE'>,
-  jobId: string,
-  files: Array<{ filePath: string; diffLineCount: number }>,
-  opts: { modelUsed: string; errorMessage: string },
-): Promise<void> {
-  if (files.length === 0) return;
-  await queryRows(
-    env,
-    `
-      INSERT INTO file_reviews (job_id, file_path, file_status, model_used, diff_line_count, diff_input, error_msg, duration_ms)
-      SELECT $1::uuid, u.file_path, 'failed', $2, u.diff_line_count, NULL, $3, 0
-      FROM UNNEST($4::text[], $5::int[]) AS u(file_path, diff_line_count)
-      ON CONFLICT (job_id, file_path) DO NOTHING
-    `,
-    [jobId, opts.modelUsed, opts.errorMessage, files.map((f) => f.filePath), files.map((f) => f.diffLineCount)],
-  );
-}
 
 export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days: number) {
   return queryRows<{
@@ -345,6 +280,8 @@ export async function getFileReviewsForJobs(env: Pick<AppBindings, 'HYPERDRIVE'>
     async_request_id: string | null;
     async_model: string | null;
     withheld_counts: { evidence?: number; claimDenied?: number } | string | null;
+    // NULL pre-batching; 1 reviewed alone, N for a packed bin.
+    batch_size: number | null;
   }>(
     env,
     `

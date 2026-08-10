@@ -3,17 +3,13 @@ import { withTimeout } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
 import { assertPublicBaseUrl } from './url-guard';
 
-// Vertex AI is a distinct provider from Google AI Studio ('gemini' elsewhere in this codebase):
-// its REST API rejects plain API keys outright and requires an OAuth2 access token asserting a
-// service-account principal (RFC 7523 JWT-bearer grant). The `apiKey` field on this provider
-// therefore holds the full service-account JSON key, not a short API key string.
+// Vertex's REST API rejects plain API keys and requires an OAuth2 token via RFC 7523 JWT-bearer grant, so `apiKey` here holds the full service-account JSON key, not a short API key string.
 const VERTEX_TIMEOUT_MS = 45_000;
 const VERTEX_MAX_OUTPUT_TOKENS = 8192;
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const ACCESS_TOKEN_LIFETIME_S = 3600;
-// Refresh a bit before the token's real expiry so an in-flight review never starts a call with a
-// token that expires mid-request.
+// Refresh before real expiry so an in-flight review never starts a call with a token that expires mid-request.
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
 
 interface ServiceAccountKey {
@@ -26,9 +22,7 @@ interface CachedToken {
   expiresAt: number;
 }
 
-// Per-isolate cache, not per-request: Workers reuse a warm isolate across many invocations, so
-// caching here saves a token mint (and a subrequest) on every file review after the first one to
-// hit this isolate. It is not shared across isolates -- a cold start just mints its own token.
+// Per-isolate cache, not per-request: saves a token mint (and a subrequest) on every file review after the first to hit a warm isolate.
 const tokenCache = new Map<string, CachedToken>();
 
 function parseServiceAccountKey(raw: string): ServiceAccountKey {
@@ -166,6 +160,7 @@ export async function reviewWithVertex(
         ],
         generationConfig: {
           responseMimeType: 'application/json',
+          // No `responseJsonSchema`: this adapter makes one attempt and cannot drop the schema, so a rejection would fail the file outright.
           maxOutputTokens: VERTEX_MAX_OUTPUT_TOKENS,
           // Same models as the Google adapter, so the same value keeps the two paths comparable.
           temperature: 0.9,

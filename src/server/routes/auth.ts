@@ -54,8 +54,7 @@ export function createAuthRouter() {
       await destroySession(c);
       await createSession(c, toDashboardSessionUser(profile));
 
-      // Persist a durable account record. Best-effort: a DB hiccup must not
-      // block sign-in (the account page self-heals the row on next load).
+      // Best-effort: a DB hiccup must not block sign-in (the account page self-heals on next load).
       try {
         await upsertAccountSettings(c.env, {
           githubUserId: profile.id,

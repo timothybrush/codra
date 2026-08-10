@@ -7,15 +7,12 @@ import { syncRepoConfig, upsertRepoConfig } from '@server/db/repo-configs';
 import { recordWebhookDelivery } from '@server/db/webhook-deliveries';
 import { createTestEnv } from './helpers';
 
-// The guard that did not exist.
-//
 // `JSON.stringify(x)` bound to `$n::jsonb` stores a jsonb STRING SCALAR, so every SQL JSON operator
-// silently reads nothing, while the TypeScript path keeps working because `parseJsonColumn` tolerates
-// both shapes. That is how the bug reached five columns and 1,215 production rows.
-//
-// So these tests assert on the STORED SHAPE, in SQL, which is the only place the difference shows.
-// The fix idiom is `$n::text::jsonb`. Do not "simplify" it by binding the raw value: that works for
-// objects and silently breaks arrays, which normalizeParam turns into a Postgres array literal.
+// silently reads nothing while the TypeScript path keeps working (`parseJsonColumn` tolerates both
+// shapes) -- that's how the bug reached five columns and 1,215 production rows. These tests assert
+// on the STORED SHAPE, in SQL, the only place the difference shows. Fix idiom: `$n::text::jsonb`.
+// Do not "simplify" to binding the raw value -- that breaks arrays, which normalizeParam turns into
+// a Postgres array literal.
 describe('jsonb columns are stored as jsonb, not as string scalars', () => {
   const env = createTestEnv();
   const unique = () => `jsonb-enc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

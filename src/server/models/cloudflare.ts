@@ -3,8 +3,7 @@ import type { AppBindings } from '@server/env';
 import { TimeoutError } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, jsonOnlyPrompts, type ModelInput, type ModelResponse } from './types';
 
-// Fallback wall-clock cap, well under the 15-min step timeout. Reasoning models under strict-JSON
-// burn the token budget thinking and never emit, so fail fast and defer the file.
+// Reasoning models under strict-JSON can burn the token budget thinking and never emit; fail fast and defer.
 const CLOUDFLARE_TIMEOUT_MS = 45_000;
 const CLOUDFLARE_MAX_OUTPUT_TOKENS = 8192;
 
@@ -59,8 +58,7 @@ function extractMessageContent(content: unknown): string | null {
   return null;
 }
 
-// `response` is a string on most models, a parsed object/array on structured-output ones. Accept
-// both, or a good review is discarded as empty.
+// `response` is a string on most models, a parsed object/array on structured-output ones; accept both or a good review is discarded as empty.
 function extractResponseField(container: unknown): string | null {
   if (!isRecord(container)) return null;
   const value = container.response;
@@ -111,10 +109,7 @@ function extractCloudflareUsage(result: unknown) {
   };
 }
 
-// Inference payload, shared by the sync and async-batch paths so both send identical config.
-// Grammar comes from the CALLER: hardcoding the file-review schema here forced the verifier (which
-// asks for `{"results":[...]}`) to emit a file-review object, so `results` defaulted to `[]`, the
-// parse "succeeded", and the log reported "dropped: 0". Verification was structurally dead.
+// Grammar comes from the CALLER: hardcoding the file-review schema here once forced the verifier to emit a file-review object, silently defaulting `results` to `[]`.
 function buildCloudflareInferenceRequest(input: ModelInput) {
   const prompts = jsonOnlyPrompts(input);
   return {
@@ -135,14 +130,13 @@ function buildCloudflareInferenceRequest(input: ModelInput) {
           },
         }
       : {}),
-    // 0.6 on Workers AI's 0-5 scale (its default). `top_p` moves with it: pinned at 0.1 it truncates to
-    // a few tokens and cancels the temperature raise.
+    // 0.6 on Workers AI's 0-5 scale; top_p moves with it, else pinning it low would cancel the raise.
     temperature: 0.6,
     top_p: 0.9,
   };
 }
 
-// Async poll result: `pending` = still queued/running, `done` carries the review.
+// `pending` covers both queued and running.
 export type CloudflareBatchPollResult =
   | { status: 'pending' }
   | { status: 'done'; response: ModelResponse };
@@ -153,8 +147,7 @@ function extractBatchStatus(result: unknown): string | null {
   return typeof status === 'string' ? status.toLowerCase() : null;
 }
 
-// Workers AI has returned several shapes here (`responses`, `result.responses`, or a bare result),
-// so probe defensively and fall back to the whole payload.
+// Workers AI has returned several shapes here (`responses`, `result.responses`, or a bare result); probe defensively and fall back to the whole payload.
 function extractBatchInnerResult(result: unknown): unknown {
   const containers = [result, isRecord(result) ? result.result : undefined];
   for (const container of containers) {
@@ -170,8 +163,7 @@ function extractBatchInnerResult(result: unknown): unknown {
   return result;
 }
 
-// Submit as an async batch, returning the `request_id`. Throws if unsupported; the caller falls back
-// to the synchronous path.
+// Throws if unsupported; the caller falls back to the synchronous path.
 export async function submitCloudflareBatch(
   env: Pick<AppBindings, 'AI'>,
   model: string,
@@ -195,7 +187,6 @@ export async function submitCloudflareBatch(
   return requestId;
 }
 
-// Poll by `request_id`: `pending` while queued/running, `done` with the review.
 export async function pollCloudflareBatch(
   env: Pick<AppBindings, 'AI'>,
   model: string,
@@ -234,13 +225,11 @@ export async function reviewWithCloudflare(
   providerName = 'Cloudflare',
   options?: { timeoutMs?: number },
 ): Promise<ModelResponse> {
-  // Single attempt: a retry spends another of the 50 subrequests on a model that just failed, when the
-  // fallback chain is about to try another. (Was a retry loop bounded by 0, so ~25 lines were dead.)
+  // Single attempt: a retry would spend another subrequest on a model that just failed, when the fallback chain is about to try another.
   const timeoutMs = options?.timeoutMs ?? CLOUDFLARE_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  // Abort on timeout. Promise.race only stops us awaiting; the subrequest keeps running, holding
-  // wall-clock against the 15-min step cap. The binding's signal actually cancels it.
+  // Promise.race only stops us awaiting; the binding's abort signal is what actually cancels the still-running subrequest.
   const controller = new AbortController();
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {

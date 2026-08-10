@@ -353,7 +353,6 @@ describe('Dashboard API: auth, session and account', () => {
     expect(data.account.accountName).toBe('Renamed Codra User');
     expect(data.account.githubUserId).toBe(4303);
 
-    // The change persists on subsequent reads.
     const followUp = await app.request('/api/auth/account', {
       headers: { Cookie: `codra_session=${token}` },
     }, env);
@@ -377,7 +376,6 @@ describe('Dashboard API: auth, session and account', () => {
     expect(set.status).toBe(200);
     expect(((await set.json()) as AccountResponse).account.timezone).toBe('Asia/Kolkata');
 
-    // Persisted, not just echoed back.
     const read = await app.request('/api/auth/account', { headers }, env);
     expect(((await read.json()) as AccountResponse).account.timezone).toBe('Asia/Kolkata');
 
@@ -493,9 +491,7 @@ describe('Dashboard API: auth, session and account', () => {
   });
 });
 
-// Colocated with the review-settings tests above rather than left in review-max-files.spec.ts:
-// both read-modify-write the same singleton `global_settings` row set, and in separate files they
-// race once `fileParallelism` is on. No unique row name can isolate a single-row key/value table.
+// Colocated here rather than in review-max-files.spec.ts: same singleton `global_settings` row race.
 dbDescribe('review max files persistence', () => {
   const env = createTestEnv();
 
@@ -511,8 +507,7 @@ dbDescribe('review max files persistence', () => {
     });
   });
 
-  // A free numeric field is clamped rather than discarded: a stored value outside the range
-  // should be pulled into it, not silently replaced by the default.
+  // Out-of-range values are clamped into range, not replaced with the default.
   it('clamps an out-of-range stored value instead of falling back to the default', async () => {
     await runWithDb(env, async () => {
       const original = await getReviewSettings(env);

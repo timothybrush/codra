@@ -1,13 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GitHubClient, type GitHubReviewComment } from '@server/core/github';
 
-// Guards the review-posting payload itself.
-//
-// Inline comments silently stopped reaching GitHub because `createReview` kept only
-// comments carrying a legacy diff `position` - a value nothing in the pipeline ever
-// computes (the model reports a file `line`). Every review posted with just the
-// summary body while the summary still claimed N findings were shown. The existing
-// suite stubbed `createReview` wholesale, so nothing inspected the request body.
+// Regression: inline comments silently stopped reaching GitHub because `createReview` kept only
+// comments carrying a legacy diff `position` -- a value nothing in the pipeline computes anymore
+// (the model reports a file `line`). Every review posted with just the summary body while the
+// summary still claimed N findings were shown. The old suite stubbed `createReview` wholesale, so
+// nothing inspected the request body.
 function clientWithCapturedRequest() {
   const client = new GitHubClient({} as never, '123');
   const sent: { url: string; body: any }[] = [];

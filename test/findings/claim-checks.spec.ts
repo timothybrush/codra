@@ -34,7 +34,6 @@ describe('absence claim refutation', () => {
     expect(check(file, 'Unbound parameter', 'The `clampedDays` value is never used.').status).toBe('refuted');
   });
 
-  // Each of the following must NOT refute. They are the false-refutation routes.
   it('does not refute when the identifier only appears in a comment', () => {
     const file = fileWith([
       { content: 'const rows = await queryRows(sql);' },

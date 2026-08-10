@@ -4,15 +4,11 @@ import type { ModelService } from '../services/model';
 import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from '../prompts/verify';
 import { logger } from './logger';
 
-// Post-parse gates: the Gatekeeper pass plus shadow scoring of unapplied filters. Keep the
-// ModelService import type-only, or it closes a cycle through core/model-output.
+// Keep the ModelService import type-only, or it closes a cycle through core/model-output.
 
 type VerifiableJob = { id: string };
 
-// Scores candidate filters WITHOUT applying them. Score anywhere else and you measure sort order:
-// "P3 never posted" (0 of 173) was really `max_comments` slicing a severity sort from the end.
-// A/B testing is impossible at one operator and one PR at a time; scoring both on the SAME findings
-// gives paired data valid at n=1.
+// Scores candidate filters WITHOUT applying them. Score anywhere else and you measure sort order: "P3 never posted" (0 of 173) was really `max_comments` slicing a severity sort from the end.
 const LOW_YIELD_TITLE = /missing|redundant|repetitive|inconsisten|documentation|\btype\b|\bany\b|potential/i;
 
 export function shadowEvaluate(candidates: ParsedReviewComment[], posted: ParsedReviewComment[]) {
@@ -38,9 +34,7 @@ function verifyCandidateLimit(effectiveMaxComments: number) {
   return Math.min(40, Math.max(10, effectiveMaxComments * 3));
 }
 
-// Below this share of answered indices everything is kept: 3 verdicts for 20 findings is not
-// judgement, and failing the other 17 closed is mass deletion. 0.6 is a guess pending data; to tune
-// it, first re-add a counter for non-answered responses (the old `droppedUnanswered`).
+// Below this share of answered indices everything is kept: 3 verdicts for 20 findings is not judgement, and failing the other 17 closed is mass deletion. 0.6 is a guess pending data.
 const VERIFY_MIN_ANSWER_RATIO = 0.6;
 
 export type VerifyDrop = {
@@ -57,10 +51,7 @@ export type VerifyOutcome = {
   reasons: Map<ParsedReviewComment, string>;
 };
 
-// One model call re-checks the top candidates against their diff context. Two load-bearing
-// properties: it SUBTRACTS ONLY (`comments.filter`), so the caller's severity sort survives and
-// `max_comments` still cuts from a sorted list; and verdicts come from a SPARSE MAP keyed on the
-// model's own `index`, never position, so a renumbered list cannot delete the wrong finding.
+// Two load-bearing properties: it SUBTRACTS ONLY (`comments.filter`), so the caller's severity sort survives `max_comments`; and verdicts come from a SPARSE MAP keyed on the model's own `index`, never position, so a renumbered list cannot delete the wrong finding.
 export async function verifyFindings(params: {
   job: VerifiableJob;
   config: RepoConfig;
@@ -71,8 +62,7 @@ export async function verifyFindings(params: {
 }): Promise<VerifyOutcome> {
   const { comments, files, model, config, job } = params;
 
-  // Every fail-open path. A finding nobody judged is not a finding anybody disproved, so keeping it
-  // costs a reader a moment while deleting it silently loses a real defect.
+  // A finding nobody judged is not a finding anybody disproved, so keeping it costs a reader a moment while deleting it silently loses a real defect.
   const keepAll = (): VerifyOutcome => ({ comments, dropped: [], reasons: new Map() });
 
   if (comments.length === 0) return keepAll();
@@ -86,8 +76,7 @@ export async function verifyFindings(params: {
     snippet: renderDiffSnippet(fileByPath.get(comment.path), comment.line ?? undefined),
   }));
 
-  // A candidate with no renderable diff context is passed through UNJUDGED rather than dropped.
-  // Failing it closed would let one path-normalization mismatch delete every finding in a file.
+  // A candidate with no renderable diff context is passed through UNJUDGED rather than dropped: failing it closed would let one path-normalization mismatch delete every finding in a file.
   const verifiable = prepared.filter((entry) => entry.snippet !== '' || entry.comment.evidence);
   if (verifiable.length === 0) return keepAll();
 
@@ -105,8 +94,7 @@ export async function verifyFindings(params: {
     const response = await model.verifyFindings({ candidates, config });
     const results = parseVerifyResponse(response.rawText);
 
-    // Tolerant of junk: an out-of-range index is ignored, and two conflicting verdicts for one index
-    // cancel to "unanswered" rather than letting arrival order decide.
+    // Tolerant of junk: an out-of-range index is ignored, and two conflicting verdicts for one index cancel to "unanswered" rather than letting arrival order decide.
     const byIndex = new Map<number, { verdict: 'keep' | 'drop'; reason?: string }>();
     const conflicting = new Set<number>();
     for (const result of results) {
@@ -140,8 +128,7 @@ export async function verifyFindings(params: {
         return;
       }
       if (!result) {
-        // Fail closed: the prompt demands one result per index, so an unaddressed one is unendorsed.
-        // Labelled apart from a real 'verify' drop because this one is OUR defect.
+        // Fail closed: unaddressed one is unendorsed. Labelled apart from a real 'verify' drop because this one is OUR defect.
         dropped.push({
           comment: entry.comment,
           disposition: 'verify_unanswered',

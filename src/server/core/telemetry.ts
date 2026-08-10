@@ -4,8 +4,6 @@ import { logger } from './logger';
 const TELEMETRY_SECRET = 'codra-telemetry-v1-secret-8f9a2b5c';
 const INSTANCE_ID_KEY = 'codra:instance_id';
 
-// Returns a stable, anonymous instance ID.
-// Generates and stores one in KV if it doesn't exist yet.
 import { queryRows } from '@server/db/client';
 // Static import: version string is inlined at build time by Vite - no runtime cost.
 import pkg from '../../../package.json';
@@ -33,13 +31,11 @@ async function getInstanceId(env: AppBindings): Promise<string> {
     logger.warn('Failed to retrieve or generate instance ID for telemetry', {
       error: error instanceof Error ? error.message : String(error),
     });
-    // Fallback to a random UUID so telemetry can still send, though it will
-    // count as a new "install" if the DB is failing.
+    // Fallback so telemetry can still send, though it will count as a new "install" if the DB is failing.
     return crypto.randomUUID();
   }
 }
 
-// Sends an anonymous telemetry event to Codra Core backend.
 // Swallows all errors so the caller is never interrupted.
 export async function sendTelemetryEvent(
   env: AppBindings,
@@ -67,7 +63,6 @@ export async function sendTelemetryEvent(
       return;
     }
 
-    // Suppress telemetry from test environments (vitest/node test) or local runs.
     const isTestEnv =
       process.env.NODE_ENV === 'test' ||
       Boolean(process.env.VITEST) ||
@@ -89,13 +84,10 @@ export async function sendTelemetryEvent(
     }
 
     const instanceId = await getInstanceId(env);
-    // Use an environment variable if available, otherwise default to the hosted backend
     const telemetryUrl = (env as any).TELEMETRY_API_URL ?? 'https://codra.run/api/telemetry';
-    // Allow the ingestion secret to be overridden via env so it isn't pinned to the value committed
-    // in this (public) source tree.
+    // Overridable via env so the ingestion secret isn't pinned to the value committed in this (public) source tree.
     const telemetrySecret = (env as any).TELEMETRY_SECRET ?? TELEMETRY_SECRET;
 
-    // Fire and forget using standard fetch with a timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 

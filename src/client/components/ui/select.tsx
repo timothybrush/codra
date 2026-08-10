@@ -14,13 +14,10 @@ import { createPortal } from 'react-dom';
 import { cn } from '@client/lib/utils';
 import { EASE_OUT } from '@client/lib/ease';
 
-// Spring with bounce powers the unfold/separation; per-property timings in the
-// content choreograph it. See the `animate`/`transition` props on the panel below.
+// Spring with bounce powers the unfold; per-property timings on the panel choreograph it.
 const CHEVRON_TRANSITION: Transition = { type: 'spring', duration: 0.4, bounce: 0.3 };
 
-// The stagger compounds per option, so it dominates on long lists (the LLM model
-// selects run to dozens of entries). 0.02 sits between the original 0.035 - which
-// left the last item appearing ~0.9s after opening - and a near-instant cascade.
+// Compounds per option; 0.035 delayed the last item ~0.9s on long lists, so 0.02 is the compromise.
 const LIST_VARIANTS: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.02, delayChildren: 0.03 } },
@@ -47,13 +44,7 @@ interface SelectProps {
   triggerClassName?: string;
   triggerStyle?: CSSProperties;
   leadingIcon?: ReactNode;
-  /**
-   * 'page'  - trigger sits on the gray page background (e.g. "Last 30 days").
-   *            Dropdown gets card bg so it lifts off the page.
-   * 'card'  - trigger sits inside a card.
-   *            Dropdown gets muted bg so it's distinguishable from the card.
-   * Defaults to 'page'.
-   */
+  /** Decides the dropdown's background so it stays distinguishable from where the trigger sits. */
   variant?: 'page' | 'card';
 }
 
@@ -87,11 +78,7 @@ export function Select({
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Move the active-descendant highlight onto the current selection (or the first option)
-  // each time the listbox opens, so arrow-key navigation always starts from a sane position.
-  // Only depends on `open`: keying off `options`/`value` re-ran this whenever a
-  // caller passed a freshly-built options array, yanking the highlight back to the
-  // selection mid-interaction.
+  // Depends on `open` only: keying off `options`/`value` yanked the highlight back when a caller passed a freshly-built array mid-interaction.
   useEffect(() => {
     if (!open) return;
     highlightSource.current = 'keyboard';
@@ -100,16 +87,12 @@ export function Select({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Only keyboard navigation scrolls the highlighted option into view. Doing it for
-  // pointer hover too created a feedback loop on long lists: hover → scrollIntoView →
-  // the scroll listener repositions the panel → the option moves under the cursor →
-  // another mouseenter, which read as the menu jittering.
+  // Keyboard only: on hover this looped (hover → scrollIntoView → reposition → mouseenter again), causing jitter.
   useEffect(() => {
     if (!open || highlightSource.current !== 'keyboard') return;
     optionRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [open, highlightedIndex]);
 
-  // close on outside pointer / escape
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
@@ -137,10 +120,7 @@ export function Select({
     return () => observer.disconnect();
   }, []);
 
-  // Track the trigger's viewport position so the portaled panel can follow it,
-  // and flip upward when there isn't room below and there's more above. Scroll/resize
-  // fire far more often than the display repaints, so batch updates to at most once per
-  // animation frame instead of re-rendering on every raw event.
+  // Flips upward when there's no room below; batched to one animation frame since scroll/resize fire faster than repaints.
   useLayoutEffect(() => {
     if (!open) return;
     const trigger = triggerRef.current;
@@ -156,8 +136,7 @@ export function Select({
       setPlacement(below < h + 16 && above > below ? 'top' : 'bottom');
     };
     const scheduleUpdate = (e?: Event) => {
-      // Scrolling the option list itself doesn't move the trigger, so recomputing
-      // (and re-rendering) on it only causes flicker on long lists.
+      // Scrolling the list doesn't move the trigger; recomputing only causes flicker.
       if (e && e.target instanceof Node && panelRef.current?.contains(e.target)) return;
       if (frame !== null) return;
       frame = requestAnimationFrame(update);
@@ -219,8 +198,7 @@ export function Select({
 
   const isTop = placement === 'top';
 
-  // Gooey: the edge facing the panel snaps flat (panel attached) then rounds
-  // back once the panel pulls away - the two pinch apart.
+  // Gooey: the edge facing the panel snaps flat while attached, then rounds as the two pinch apart.
   const kf = open ? [0, 0, 7] : [7, 0, 7];
   const kfT: Transition = reduce
     ? { duration: 0 }
@@ -297,8 +275,7 @@ export function Select({
 
       </div>
 
-      {/* Portaled to <body> so the panel always renders above cards, tables, and
-          other stacking contexts - it can't be clipped/hidden by an ancestor. */}
+      {/* Portaled to <body> so it can't be clipped by an ancestor's stacking context. */}
       {createPortal(
         <motion.div
           ref={panelRef}
@@ -349,8 +326,7 @@ export function Select({
             overflow: 'hidden',
             pointerEvents: open ? 'auto' : 'none',
           }}
-          // flush against the trigger, then separates into its own rounded pill;
-          // sits above or below depending on available space
+          // Flush against the trigger, then separates into its own rounded pill.
           className="z-50 border border-ui-line bg-ui-base shadow-lg shadow-black/[0.04] dark:shadow-black/40"
         >
           <motion.ul
@@ -383,9 +359,7 @@ export function Select({
                       setOpen(false);
                     }}
                     className={cn(
-                      // `whitespace-nowrap`: a narrow trigger (e.g. the 72px "rows per
-                      // page" select) used to break mid-word - "10" rendered as "1"/"0"
-                      // stacked - because the check icon ate the remaining width.
+                      // `whitespace-nowrap`: on the 72px "rows per page" select, the check icon ate the width and "10" wrapped to stacked digits.
                       'flex w-full items-center justify-between gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
                       selected
                         ? 'bg-ui-brand/10 font-medium text-ui-brand'

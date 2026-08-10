@@ -6,13 +6,9 @@ import { render } from '@testing-library/react';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
 
 /**
- * Accordion headers used to carry `select-none`, so the file path -- the one thing in the row worth
- * copying -- could not be selected at all. Verified in a browser against the built CSS: a programmatic
- * selection of the path returned an empty string.
- *
- * Removing `select-none` is only half the fix. `<summary>` is a button: releasing the mouse after a
- * drag-select toggles the panel, so the selection appears to "not work" even though it happened. These
- * pin both halves.
+ * Accordion headers used to carry `select-none`, making the file path uncopyable. Removing it is
+ * only half the fix: `<summary>` is a button, so releasing a drag-select also toggles the panel.
+ * These pin both halves.
  */
 describe('accordion header text selection', () => {
   function renderAccordion() {

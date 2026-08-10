@@ -93,8 +93,8 @@ describe('claim type denylist', () => {
     ...over,
   });
 
-  // The denylist is about what the model CANNOT DECIDE from a diff, which is independent of whether
-  // this particular quote happened to resolve. A denied claim with flawless evidence still drops.
+  // The denylist reflects what the model cannot decide from a diff, regardless of whether this
+  // particular evidence happens to resolve -- so a denied claim with flawless evidence still drops.
   it('drops a denied claim type even when its evidence matches perfectly', () => {
     const result = parseFileReviewResponse(denied(), file, { deniedClaimTypes: ['redos_regex'] });
 
@@ -103,8 +103,7 @@ describe('claim type denylist', () => {
     expect(result.deniedClaimCounts.redos_regex).toBe(1);
   });
 
-  // Load-bearing ordering. Counting after the drop would erase denied types from the tally, leaving
-  // no way to distinguish a denylist that is working from one that never matches anything.
+  // Ordering matters: counting after the drop would erase denied types from the tally.
   it('counts a denied claim in claimTypeCounts before dropping it', () => {
     const result = parseFileReviewResponse(denied(), file, { deniedClaimTypes: ['redos_regex'] });
     expect(result.claimTypeCounts.redos_regex).toBe(1);
@@ -146,9 +145,8 @@ describe('claim type denylist', () => {
     expect(result.comments[0].claimType).toBe('other');
   });
 
-  // Anti-laundering guard. If the model is ever SHOWN a narrowed enum, it will relabel denied claims
-  // as 'other' and walk them straight through the allowed bucket -- while also destroying the
-  // per-type measurement. The grammar must keep advertising all of them.
+  // Anti-laundering guard: a narrowed enum would let the model relabel denied claims as 'other' and
+  // walk them through the allowed bucket while destroying the per-type measurement.
   it('still advertises every claim type to the model', () => {
     const schema = buildReviewResponseSchema(10) as unknown as {
       schema: { properties: { findings: { items: { properties: { claim_type: { enum: string[] } } } } } };
@@ -264,10 +262,8 @@ describe('external version claims', () => {
 });
 
 describe('fingerprint stability', () => {
-  // buildFindingFingerprint hashes path + normalized title. If a title-format change ever shifts
-  // these values, cross-run suppression resets AND every human dismissal in comment_feedback stops
-  // matching -- so the next review re-posts findings someone already deleted. Adding claim_type as
-  // its own field (never in the title) must leave these untouched.
+  // buildFindingFingerprint hashes path + normalized title. If that shifts, cross-run suppression and
+  // every human dismissal in comment_feedback stop matching, and deleted findings get re-posted.
   it('is unchanged by the claim_type work', () => {
     expect(buildFindingFingerprint('src/app.ts', 'Unvalidated input')).toBe('7b6aa76f');
     expect(buildFindingFingerprint('src/client/pages/repos.tsx', 'Missing Dependency in useMemo')).toBe('8fbe1174');

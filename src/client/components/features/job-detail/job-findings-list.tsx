@@ -11,7 +11,6 @@ interface JobFindingsListProps {
   job: JobDetail;
 }
 
-/** Group panel header: icon + name on the left, mono count on the right. */
 function GroupHeader({
   children,
   count,
@@ -37,23 +36,18 @@ function GroupHeader({
 export function JobFindingsList({ job }: JobFindingsListProps) {
   const [viewBy, setViewBy] = useState<'files' | 'severity'>('files');
 
-  // Only surface files that actually have something to report - findings or a
-  // failed review. Clean files are omitted.
+  // Only surface files with something to report - findings or a failed review.
   const filesWithIssues = job.files.filter(
     (f) => f.parsedComments.length > 0 || f.fileStatus === 'failed',
   );
 
   const failedFiles = job.files.filter((f) => f.fileStatus === 'failed');
 
-  // The badge counts FINDINGS, not files - it sat next to a "Findings" label while
-  // showing `filesWithIssues.length`, so a job with 9 findings spread over 7 files
-  // read "Findings 7" and disagreed with the priority triage totals right above it.
+  // Counts FINDINGS, not files, so it agrees with the priority triage totals above it.
   const findingCount = job.files.reduce((total, file) => total + file.parsedComments.length, 0);
 
-  // This list shows everything the model produced. Most of it never reaches the pull request --
-  // the confidence/severity gates, cross-run dedupe and the verification pass all run afterwards.
-  // Showing 11 findings for a review that posted 1 reads as "Codra reported 11 things", so state
-  // the posted count explicitly whenever the two differ.
+  // State the posted count explicitly whenever it differs, since most findings never reach the PR
+  // (severity/confidence gates, dedupe, verification).
   const postedCount = job.files.reduce(
     (total, file) => total + file.parsedComments.filter((c) => c.posted).length,
     0,
@@ -62,7 +56,6 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
 
   return (
     <div className="ui-font-sans">
-      {/* Section header */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <FileText size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
@@ -120,7 +113,6 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
               >
                 Failed files
               </GroupHeader>
-              {/* Failed files list */}
               <div className="flex flex-col gap-3 p-4 sm:p-5">
                 {failedFiles.map((file) => (
                   <FileFinding key={file.id} file={file} />
@@ -154,7 +146,6 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
                 >
                   {groupName}
                 </GroupHeader>
-                {/* Comment list */}
                 <div className="flex flex-col gap-3 p-4 sm:p-5">
                   {comments.map((comment, index) => (
                     <CommentCard

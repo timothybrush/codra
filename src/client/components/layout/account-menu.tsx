@@ -5,13 +5,11 @@ import { LogOut, ChevronsUpDown, UserRound } from 'lucide-react';
 import { GithubMark } from '@client/components/shared/github-mark';
 import { cn } from '@client/lib/utils';
 import type { AuthSessionUser } from '@shared/api';
-// The signed-in user menu in the sidebar footer: avatar, theme toggle, timezone, sign out.
 
 /**
- * Account menu, built from scratch (no shared dropdown primitives): a local
- * popover anchored to the account row via plain CSS (`absolute bottom-full`),
- * so it always opens directly above the row and moves with the sidebar.
- * Outside-click and Escape close it; focus returns to the trigger.
+ * Built from scratch (no shared dropdown primitive): a local popover anchored
+ * to the account row via `absolute bottom-full`, so it opens directly above
+ * the row and moves with the sidebar.
  */
 export function AccountMenu({ user }: { user: AuthSessionUser }) {
   const [open, setOpen] = useState(false);
@@ -43,11 +41,7 @@ export function AccountMenu({ user }: { user: AuthSessionUser }) {
   return (
     <div ref={rootRef} className="relative">
 
-      {/* Panel - a clean action menu anchored above the row. Identity lives in
-          the trigger below, so the panel is purely actions (no duplication).
-          It stays mounted and animates via CSS; when closed it is `invisible`
-          + `pointer-events-none` so the transparent panel can never sit on top
-          of the rows behind it and swallow their hover/clicks. */}
+      {/* Identity lives in the trigger below, so the panel is purely actions; it stays mounted and animates via CSS, and is `invisible` + `pointer-events-none` when closed so it can't sit on top of rows behind it and swallow clicks. */}
       <div
         role="menu"
         aria-hidden={!open}
@@ -117,7 +111,6 @@ export function AccountMenu({ user }: { user: AuthSessionUser }) {
         </button>
       </div>
 
-      {/* Trigger - the account row */}
       <button
         ref={triggerRef}
         type="button"

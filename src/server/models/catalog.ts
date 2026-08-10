@@ -132,9 +132,7 @@ export async function listProviderModels(input: {
   cloudflareAccountId?: string;
   cloudflareApiToken?: string;
 }) {
-  // Same guard the review adapters apply. This function is reached from the dashboard's provider
-  // sync with a base URL straight out of `llm_providers`, whose only other validation is a URL
-  // shape check -- so without this it is the one server-side fetcher left pointing anywhere.
+  // Same guard the review adapters apply, so provider sync can't be pointed at a private URL.
   assertPublicBaseUrl(input.baseUrl, input.apiFormat);
 
   const baseUrl = (input.baseUrl || defaultBaseUrl(input.apiFormat)).replace(/\/+$/, '');

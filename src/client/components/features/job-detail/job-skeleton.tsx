@@ -8,8 +8,7 @@ interface JobDetailSkeletonProps {
   error: string | null;
 }
 
-/* Static labels, in the same order the loaded page renders them, so nothing
-   moves when the payload lands. */
+/* Same order the loaded page renders them, so nothing moves when the payload lands. */
 const DETAIL_LABELS = ['Status', 'Verdict', 'Trigger', 'Tokens', 'Created'];
 
 export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
@@ -17,8 +16,7 @@ export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
     <section className="ui-font-sans flex flex-col gap-5">
       {error && <LoadError title="Something went wrong" detail={error} />}
 
-      {/* Header - the breadcrumb, panel chrome and static labels are real; only
-          the job's own values are skeletons. */}
+      {/* Breadcrumb, panel chrome and static labels are real; only the job's own values are skeletons. */}
       <header className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="min-w-0 w-full">
           <div className="flex items-center gap-1 text-[11px] text-ui-default dark:text-ui-subtle">
@@ -29,13 +27,11 @@ export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
             <Skeleton width={62} height={11} />
           </div>
 
-          {/* 34px is the loaded h1's measured line box (text-xl plus the inline
-              external-link icon), so the title never shifts when data lands. */}
+          {/* 34px is the loaded h1's measured line box, so the title never shifts when data lands. */}
           <div className="mt-1.5 flex h-[34px] items-center">
             <Skeleton width="min(28rem, 70%)" height={20} />
           </div>
 
-          {/* Identity chip line: status dot + word + duration, verdict pill, chips. */}
           <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
             <span className="flex items-center gap-2">
               <Skeleton width={7} height={7} borderRadius={999} />
@@ -72,7 +68,6 @@ export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Job details */}
         <div className="ui-panel min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
             <Info size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
@@ -88,7 +83,6 @@ export function JobDetailSkeleton({ error }: JobDetailSkeletonProps) {
           </div>
         </div>
 
-        {/* Progress steps */}
         <div className="ui-panel min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
             <ListChecks size={15} strokeWidth={2} className="shrink-0 text-ui-default" />

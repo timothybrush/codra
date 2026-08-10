@@ -39,7 +39,6 @@ export function LandingPage() {
   return (
     <div className="flex min-h-svh flex-col bg-ui-canvas text-ui-default">
 
-      {/* ── Header ── */}
       <header className="sticky top-0 z-40 border-b border-ui-line bg-ui-base">
         <div className="flex h-14 w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <img
@@ -79,10 +78,8 @@ export function LandingPage() {
         </div>
       </header>
 
-      {/* ── Body ── */}
       <main className="grid flex-1 grid-cols-1 lg:grid-cols-[1fr_440px]">
 
-        {/* Left - Hero */}
         <div className="relative flex flex-col justify-between overflow-hidden border-b border-ui-line bg-ui-base px-8 py-14 sm:px-14 sm:py-20 lg:border-b-0 lg:border-r">
           <DotGrid />
 
@@ -119,7 +116,6 @@ export function LandingPage() {
             </div>
           </div>
 
-          {/* Footer links */}
           <div className="relative mt-16 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-ui-line pt-8 font-mono text-[0.7rem] uppercase tracking-[0.12em] text-ui-subtle">
             <a
               href="https://codra.run"
@@ -143,11 +139,9 @@ export function LandingPage() {
           </div>
         </div>
 
-        {/* Right - Features */}
         <div className="relative flex flex-col justify-center gap-5 overflow-hidden border-t border-ui-line bg-ui-canvas px-8 py-14 sm:px-12 sm:py-20 lg:border-t-0">
           <DotGrid />
 
-          {/* Section label with rule */}
           <div className="relative flex items-center gap-3">
             <span className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-ui-subtle">
               What it does
@@ -161,7 +155,6 @@ export function LandingPage() {
                 key={item.title}
                 className="group relative overflow-hidden rounded-xl border border-ui-line bg-ui-base p-4 transition-colors duration-200 hover:border-ui-brand/40"
               >
-                {/* Left accent bar on hover */}
                 <span className="absolute inset-y-0 left-0 w-[2px] scale-y-0 bg-ui-brand transition-transform duration-200 group-hover:scale-y-100" />
 
                 <div className="flex items-center gap-3">

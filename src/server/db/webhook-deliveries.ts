@@ -35,8 +35,7 @@ export async function recordWebhookDelivery(
     [input.deliveryId, input.eventName, repositoryId, JSON.stringify(input.payload)],
   );
 
-  // `repositoryId` is returned rather than discarded so callers that need it (the feedback handler)
-  // don't pay for a second identical lookup.
+  // Returned rather than discarded so callers that need it (the feedback handler) don't pay for a second identical lookup.
   return { inserted: rows.length > 0, repositoryId };
 }
 

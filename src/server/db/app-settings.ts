@@ -32,8 +32,7 @@ export async function getReviewSettings(env: Pick<AppBindings, 'HYPERDRIVE'>): P
       maxComments: MAX_COMMENTS_OPTIONS.has(parsedMaxComments)
         ? parsedMaxComments
         : DEFAULT_REVIEW_SETTINGS.maxComments,
-      // Unlike the other two this is a free numeric field, so clamp rather than fall back to
-      // the default: a stored value outside the range should be pulled into it, not discarded.
+      // Unlike the other two this is a free numeric field, so clamp rather than fall back to the default.
       maxFiles: Number.isFinite(parsedMaxFiles)
         ? Math.min(reviewMaxFilesRange.max, Math.max(reviewMaxFilesRange.min, Math.trunc(parsedMaxFiles)))
         : DEFAULT_REVIEW_SETTINGS.maxFiles,

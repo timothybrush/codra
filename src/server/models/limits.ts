@@ -1,25 +1,13 @@
-// Shared throttling/timeout policy for outbound model calls.
-//
-// Two Workers Free-plan constraints shape all of it:
-//  1. At most SIX connections per invocation may await response headers at once. Beyond that the
-//     runtime silently QUEUES - it does not error. A queued model call burns its own client-side
-//     timeout without ever being dispatched, which reads in the logs as a provider timing out at
-//     exactly the configured value on every attempt.
-//  2. 50 subrequests per invocation, so every queued-then-timed-out call is a wasted one.
+// Two Workers Free-plan constraints shape all of it: (1) at most 6 connections per invocation may await headers at once, or the runtime silently queues and burns the call's own timeout undispatched; (2) 50 subrequests per invocation, so a queued-then-timed-out call is a wasted one.
 
 // Base budget for a small diff. A suitable model answers in ~1-5s; slower means stuck or queued.
 export const MODEL_TIMEOUT_BASE_MS = 20_000;
 const MODEL_TIMEOUT_PER_LINE_MS = 100;
 const MODEL_TIMEOUT_FREE_LINES = 100;
-// Hard ceiling for one call, and it must stay well under the ~120s invocation wall clock. At the
-// old 120s ceiling a hung call took the whole workflow invocation down as `exceededCpu` - losing
-// all progress and looping - instead of timing out and failing over. 40s leaves room for a couple
-// of sequential fallback attempts inside one invocation.
+// Hard ceiling for one call, well under the ~120s invocation wall clock: at the old 120s ceiling a hung call took the whole invocation down as `exceededCpu` instead of failing over.
 export const MODEL_TIMEOUT_MAX_MS = 40_000;
 
-// Budget for one file's entire fallback chain. Even with a short per-call ceiling, a file failing
-// over through many models can run enough calls back-to-back to pass the invocation limit. Past
-// this, defer the file: it resumes from the fast primary model in a fresh invocation.
+// Budget for one file's entire fallback chain; past this, defer the file to resume from the primary model in a fresh invocation.
 export const MODEL_FALLBACK_CHAIN_BUDGET_MS = 55_000;
 
 // Per-call timeout, scaled by the size of the (already truncated) diff being reviewed.
@@ -29,20 +17,17 @@ export function adaptiveModelTimeoutMs(diffLineCount: number | null | undefined)
   return Math.min(MODEL_TIMEOUT_MAX_MS, scaled);
 }
 
-// Kept below the runtime's 6-connection cap so the KV/Hyperdrive/GitHub requests that concurrent
-// file reviews issue still find a free slot, and model calls are never queued behind each other.
+// Kept below the runtime's 6-connection cap so KV/Hyperdrive/GitHub requests from concurrent file reviews still find a free slot.
 export const MAX_CONCURRENT_MODEL_CALLS = 3;
 
-// Tiny FIFO semaphore. Callers wait *before* their provider timeout starts, so queueing for a slot
-// never eats into a call's own time budget.
+// Tiny FIFO semaphore; callers wait *before* their provider timeout starts, so queueing never eats into a call's own time budget.
 export class ModelCallGate {
   private active = 0;
   private readonly waiters: Array<() => void> = [];
 
   constructor(private readonly limit = MAX_CONCURRENT_MODEL_CALLS) {}
 
-  // `onAcquired` reports how long this caller queued. Callers that budget wall clock need it -
-  // charging queue time to a per-file budget makes a busy gate look like a slow model.
+  // `onAcquired` reports queue wait; charging it to a per-file budget would make a busy gate look like a slow model.
   async run<T>(fn: () => Promise<T>, onAcquired?: (waitedMs: number) => void): Promise<T> {
     const startedWaiting = Date.now();
     await this.acquire();
@@ -54,7 +39,6 @@ export class ModelCallGate {
     }
   }
 
-  // How many callers are queued behind the active ones.
   get queueDepth() {
     return this.waiters.length;
   }
@@ -68,8 +52,7 @@ export class ModelCallGate {
   }
 
   private release() {
-    // Hand the slot straight to the next waiter (active count unchanged) so a newly arriving caller
-    // cannot sneak in between the release and the waiter resuming.
+    // Hand the slot straight to the next waiter so a newly arriving caller can't sneak in ahead of it.
     const next = this.waiters.shift();
     if (next) {
       next();

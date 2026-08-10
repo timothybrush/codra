@@ -1,8 +1,7 @@
 import { GitHubError, type GitHubRequestContext, repoApiPath, withRetry } from './http';
 import type { GitHubIssueLabel } from './types';
 
-// Sibling of core/github.ts -- import from that barrel, not from here. Free functions over a
-// GitHubRequestContext rather than methods, so the class stays the mockable seam.
+// Sibling of core/github.ts -- import from that barrel, not from here. Free functions over a GitHubRequestContext, so the class stays the mockable seam.
 
 export async function ensureLabel(
   ctx: GitHubRequestContext,

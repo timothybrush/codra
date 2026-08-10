@@ -18,14 +18,7 @@ import { findExistingJobForHead, insertJob, supersedeOlderJobs } from '@server/d
 import { clearResolvedFeedback, recordCommentFeedback, type CommentFeedbackInput, type CommentOutcome } from '@server/db/comment-feedback';
 import { recordWebhookDelivery } from '@server/db/webhook-deliveries';
 
-// Records what a human did with findings we posted.
-//
-// Matching is done through the invisible `codra-fp` marker embedded in each comment body, which
-// GitHub echoes back verbatim. Comments without a marker were not written by us (or predate the
-// marker) and are ignored.
-//
-// Best-effort throughout: feedback is an enhancement, and a failure here must never turn into a
-// webhook error that GitHub retries.
+// Matches via the invisible `codra-fp` marker GitHub echoes back verbatim; comments without one are ignored. Best-effort: failures here must never surface as a webhook error GitHub retries.
 async function handleFeedbackEvent(
   env: AppBindings,
   input: {
@@ -39,8 +32,7 @@ async function handleFeedbackEvent(
   if (repositoryId === null) return 0;
 
   const botLogin = (env.BOT_USERNAME ?? '').toLowerCase();
-  // GitHub fires these events for human threads too. Without this filter we would record humans
-  // deleting each other's comments and then suppress our own findings on that basis.
+  // GitHub fires these events for human threads too; without this filter we'd suppress our own findings based on humans deleting each other's comments.
   const isOurs = (comment: GitHubReviewCommentPayload) =>
     Boolean(botLogin) && (comment.user?.login ?? '').toLowerCase().startsWith(botLogin);
 
@@ -57,8 +49,7 @@ async function handleFeedbackEvent(
       prNumber,
       fingerprint: marker.fingerprint,
       anchorHash: marker.anchorHash,
-      // Null on comments posted before the marker gained a third field; suppression then falls back to
-      // the v1 fingerprint alone, exactly as it did before.
+      // Null on comments posted before the marker gained a third field; suppression falls back to the v1 fingerprint alone.
       fingerprintV2: marker.fingerprintV2,
       githubCommentId: comment.id,
       outcome,
@@ -67,8 +58,7 @@ async function handleFeedbackEvent(
 
   if (eventName === 'pull_request_review_comment') {
     const { action, comment } = payload as Extract<FeedbackWebhookPayload, { comment: unknown }>;
-    // 'created' is how we learn the real GitHub comment id, for free -- no extra request in the
-    // already tight finalize invocation. 'deleted' is the only negative signal we act on.
+    // 'created' is how we learn the real GitHub comment id for free, with no extra request; 'deleted' is the only negative signal we act on.
     if (action === 'created') add(comment, 'posted');
     else if (action === 'deleted') add(comment, 'deleted');
   } else if (eventName === 'pull_request_review_thread') {
@@ -86,8 +76,7 @@ async function handleFeedbackEvent(
   if (entries.length === 0) return 0;
 
   try {
-    // Reopening a thread must retract the earlier 'resolved' row, or the finding stays recorded as
-    // accepted forever.
+    // Reopening a thread must retract the earlier 'resolved' row, or the finding stays recorded as accepted forever.
     if (reopened.length > 0) await clearResolvedFeedback(env, repositoryId, reopened);
     return await recordCommentFeedback(env, entries);
   } catch (error) {
@@ -122,10 +111,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return jsonError('Invalid webhook JSON payload.', 400);
     }
 
-    // Posting a review with N inline comments generates N feedback deliveries, each carrying the
-    // whole pull_request object plus diff hunks. Storing those payloads would multiply
-    // webhook_deliveries by an order of magnitude for data that is never replayed -- the row is
-    // still written, so at-least-once delivery is still deduplicated.
+    // Feedback deliveries carry the whole PR object plus diff hunks per comment; skip storing the payload (row is still written, so dedup still works).
     const isFeedbackEvent = isFeedbackGitHubWebhookEvent(eventName);
 
     const delivery = await recordWebhookDelivery(c.env, {
@@ -145,9 +131,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return c.json({ ok: true, ignored: true }, 202);
     }
 
-    // Handled inline and answered immediately: recording feedback needs no repo config, no queue
-    // message, and no Workflow. Placed before loadRepoConfig, which costs a KV read, possibly a DB
-    // read, a KV write and a repo sync we have no use for here.
+    // Handled inline before loadRepoConfig: recording feedback needs no repo config, queue message, or Workflow, so skip that KV/DB cost entirely.
     if (isFeedbackEvent) {
       const recorded = await handleFeedbackEvent(c.env, {
         eventName,
@@ -229,8 +213,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return c.json({ ok: true, message: 'queued', job }, 202);
     }
 
-    // Events that do not produce a concrete job, such as PR close cleanup or
-    // mention events that need PR lookup, are still handled by the worker.
+    // Events without a concrete job (e.g. PR close cleanup, mention lookups) still get handled by the worker.
     await c.env.REVIEW_QUEUE.send({
       deliveryId,
       eventName,

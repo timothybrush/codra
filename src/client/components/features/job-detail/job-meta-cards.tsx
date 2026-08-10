@@ -30,14 +30,11 @@ function elapsedSec(step: JobStep): string | null {
     const start = new Date(step.startedAt).getTime();
     const end = new Date(step.finishedAt).getTime();
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-    // Reuse the shared formatter so long phases roll up into minutes/hours (e.g. "6m 24s")
-    // instead of an unwieldy "383.7s".
     return formatPreciseDuration(end - start);
   }
   return null;
 }
 
-/** Panel chrome shared by both cards: icon + static title, then the row list. */
 function MetaPanel({
   icon: Icon,
   title,
@@ -58,7 +55,6 @@ function MetaPanel({
   );
 }
 
-/** One `label → value` row, on the same rhythm as a jobs-table row. */
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className={DETAIL_ROW}>
@@ -68,7 +64,6 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-/** A progress step, rendered as a single-line row: dot + name + duration. */
 function StepRow({ step }: { step: JobStep }) {
   const isRunning = step.status === 'running';
   const isPending = step.status === 'pending';
@@ -111,8 +106,6 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
 
   return (
     <div className="ui-font-sans grid grid-cols-1 gap-4 md:grid-cols-2">
-
-      {/* ── Job details ── */}
       <MetaPanel icon={Info} title="Job details">
         <dl>
           <DetailRow label="Status">
@@ -170,7 +163,6 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
           )}
         </dl>
 
-        {/* Error / partial message */}
         {job.errorMessage && (
           <div
             className={cn(
@@ -196,7 +188,6 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
         )}
       </MetaPanel>
 
-      {/* ── Progress steps ── */}
       <MetaPanel icon={ListChecks} title="Progress steps">
         {steps.length === 0 ? (
           <p className="py-3 text-xs text-ui-default dark:text-ui-subtle">No steps recorded yet.</p>

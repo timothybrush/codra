@@ -16,10 +16,9 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
 
-// `global_settings` is a singleton, so a suite that READS it races the suites that write it
-// (api-auth and review-max-files) once files run in parallel. Unique row names cannot isolate a
-// single-row key/value table. This suite only needs some fixed concurrency, not the stored one, so
-// pin it to the schema default. The two suites that genuinely test the table take an advisory lock.
+// `global_settings` is a singleton, so reading it races the suites that write it once files run
+// in parallel, and unique row names can't isolate a single-row table. This suite only needs some
+// fixed concurrency, so pin the schema default; the suites that test the table take a lock.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
@@ -35,17 +34,14 @@ vi.mock('@server/services/github', async () => {
 });
 
 vi.mock('@server/services/model', async () => {
-  const { makeModelServiceMock, isRetryableModelErrorMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock };
+  const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
+  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
-// Whether the maintenance sweep would pick THIS job up.
-//
-// Asserted against the job's own row rather than by scanning
-// `getTerminalJobsNeedingCheckRunCompletion`: that query is `ORDER BY ... ASC LIMIT n`, so once a
-// shared test database accumulates older unfinished candidates a freshly created job falls outside
-// the window and the assertion fails for a reason that has nothing to do with the behaviour.
-// This mirrors the sweep's predicate exactly.
+// Whether the maintenance sweep would pick THIS job up, mirroring its predicate exactly. Asserted
+// against the job's own row rather than by scanning `getTerminalJobsNeedingCheckRunCompletion`:
+// that query is `ORDER BY ... ASC LIMIT n`, so on a shared database a fresh job falls outside the
+// window and fails for a reason unrelated to the behaviour.
 async function needsCheckRunCompletion(env: Parameters<typeof queryRows>[0], jobId: string) {
   const rows = await queryRows<{ id: string }>(
     env,
@@ -60,10 +56,9 @@ async function needsCheckRunCompletion(env: Parameters<typeof queryRows>[0], job
 }
 
 dbDescribe('Review flow: lifecycle and finalize', () => {
-  // Tripwire: proves the mock above is actually reached by this suite's consumer.
-  // If a future refactor rewires runReviewJob to import getOtherRunningJobsCount from a
-  // sibling module instead of the @server/db/jobs barrel, this mock silently stops applying
-  // and every test here would still pass while asserting nothing about concurrency admission.
+  // Tripwire: if a refactor rewires runReviewJob to import getOtherRunningJobsCount from a
+  // sibling rather than the @server/db/jobs barrel, the mock stops applying and every test here
+  // still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();
@@ -111,7 +106,6 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
       const headSha = sha('c');
       const baseSha = sha('d');
 
-      // Spy on the prototype of our mocked class
       const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff');
       
       getDiffSpy.mockImplementationOnce(async () => {
@@ -173,8 +167,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
 
     const queued = await insertJob(env, { ...base, prNumber: 30, prTitle: 'Admission Queued', commitSha: sha('c') });
     const running = await insertJob(env, { ...base, prNumber: 31, prTitle: 'Admission Running', commitSha: sha('d') });
-    // Report far over any concurrency limit for the whole test. (The running case never calls this --
-    // the gate is skipped by status -- so restore the module-mock default afterwards to avoid leaking.)
+    // Far over any concurrency limit. Restored afterwards so the module mock doesn't leak.
     vi.mocked(jobsMod.getOtherRunningJobsCount).mockResolvedValue(99);
     try {
       // A brand-new (queued) job IS gated at the limit -> retry (admission control).
@@ -183,8 +176,8 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
         expect(res.action).toBe('retry');
       });
 
-      // A job already 'running' must NOT be re-gated on its continuations, even far over the limit --
-      // that is the starvation bug (every in-flight job retries forever and gets lease-recovery-failed).
+      // A 'running' job must NOT be re-gated on its continuations: that is the starvation bug,
+      // where every in-flight job retries forever and gets lease-recovery-failed.
       await runWithDb(env, async () => {
         await queryRows(env, `UPDATE jobs SET status = 'running' WHERE id = $1`, [running.id]);
         const res = await runReviewJob(env, { jobId: running.id, deliveryId: 'delivery-adm-running', phase: 'review' });
@@ -208,7 +201,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
       { filePath: 'src/b.ts', diffLineCount: 20 },
     ], { modelUsed: 'gemini-3.1-flash-lite', errorMessage: 'infra limit' });
 
-    // Second call including an existing path must not duplicate or overwrite it (ON CONFLICT DO NOTHING).
+    // A second call including an existing path must not duplicate or overwrite it.
     await bulkMarkFilesFailed(env, job.id, [
       { filePath: 'src/a.ts', diffLineCount: 10 },
       { filePath: 'src/c.ts', diffLineCount: 5 },
@@ -223,10 +216,8 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   });
 
   it('completes the job with the review recorded even if post-review check-run/label updates fail', async () => {
-    // Regression: the GitHub review is posted mid-finalize; if the subsequent (cosmetic) check-run
-    // or label calls throw -- e.g. a large PR exhausting the invocation's subrequest budget -- the
-    // job must still finish 'done' with review_id set, not be stranded 'failed' with the review
-    // already live on the PR.
+    // Regression: the review is posted mid-finalize, so if the cosmetic check-run or label calls
+    // throw, the job must still finish 'done' with review_id set rather than stranded 'failed'.
     const { GitHubService } = await import('@server/services/github');
     const checkRunSpy = vi.spyOn(GitHubService.prototype, 'updateCheckRun' as any)
       .mockRejectedValue(new Error('Too many subrequests by single Worker invocation'));
@@ -242,8 +233,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
     const final = await getJobForProcessing(env, job.id);
     expect(final?.status).toBe('done');
     expect(final?.review_id).not.toBeNull();
-    // The check-run update failed, so it must NOT be marked completed -- it stays pending so the
-    // maintenance sweep can finish it (the check run always ends up 'completed', never stuck).
+    // The update failed, so it stays pending for the maintenance sweep to finish.
     expect(final?.check_run_completed_at).toBeNull();
     expect(await needsCheckRunCompletion(env, job.id)).toBe(true);
     checkRunSpy.mockRestore();
@@ -260,15 +250,14 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
 
     const final = await getJobForProcessing(env, job.id);
     expect(final?.status).toBe('done');
-    // The inline check-run update succeeded, so it's marked complete and won't be re-done by maintenance.
+    // The inline update succeeded, so maintenance won't re-do it.
     expect(final?.check_run_completed_at).not.toBeNull();
     expect(await needsCheckRunCompletion(env, job.id)).toBe(false);
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('marks "Reviewing Files" done at finalize even when a degrade path left it running', async () => {
-    // Regression: continueOrFailWedgedJob's review->finalize degrade doesn't mark "Reviewing Files"
-    // done, so a job that reached finalize that way stayed 'done' overall but showed the step stuck
-    // "In progress". Finalize now defensively marks it done.
+    // Regression: the review->finalize degrade doesn't mark "Reviewing Files" done, leaving the
+    // step stuck "In progress" on an otherwise-done job. Finalize now marks it defensively.
     const job = await insertJob(env, {
       installationId: '123', owner: 'test-owner', repo: uniqueRepo('revstuck'),
       prNumber: 43, prTitle: 'Reviewing stuck', prAuthor: 'author', commitSha: sha('b'), baseSha: sha('0'),

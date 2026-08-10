@@ -10,8 +10,7 @@ import type { StatsPayload } from '@shared/schema';
 
 import { MetricsGridSkeleton } from '@client/components/features/stats/chart-primitives';
 import { MetricsGrid } from '@client/components/features/stats/metrics-grid';
-/* Skeletons reuse GraphShell so the card chrome - border, title, and icon -
-   stays put; only the chart body (the part that actually loads) is skeletoned. */
+// Skeletons reuse GraphShell so the card chrome (border, title, icon) stays put; only the chart body is skeletoned.
 
 
 export function StatsPage() {
@@ -21,8 +20,7 @@ export function StatsPage() {
   const [days, setDays] = useState(14);
   const isDark = useIsDarkMode();
 
-  // Switching the range reloads every metric, so clear the current data to show
-  // skeletons while the new range loads (same as the initial page load).
+  // Switching the range reloads every metric; clear current data first so skeletons show while it loads.
   const changeDays = (next: number) => {
     setStats(null);
     setDays(next);

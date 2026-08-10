@@ -85,9 +85,8 @@ describe('verifyFindings orchestrator', () => {
     expect(called).toBe(false);
   });
 
-  // THE mis-attribution test. Verdicts are read from a sparse map keyed on the model's own `index`
-  // field, so a scrambled result order must still land on the finding the model actually judged. If
-  // this is ever read positionally again, the wrong findings get deleted and nothing looks wrong.
+  // Verdicts are read from a sparse map keyed on the model's own `index` field, so a scrambled
+  // result order must still land on the finding actually judged, not read positionally.
   it('applies verdicts by index, not by arrival order', async () => {
     const comments = [comment({ title: 'A' }), comment({ title: 'B' }), comment({ title: 'C' })];
     const model = fakeModel('{"results":[{"index":2,"verdict":"drop"},{"index":0,"verdict":"keep"},{"index":1,"verdict":"keep"}]}');
@@ -177,9 +176,8 @@ describe('verifyFindings orchestrator', () => {
     expect(called).toBe(true);
   });
 
-  // The invariant that makes the severity sort survive into the max_comments cap. This pass used to
-  // return [...kept, ...unverifiable, ...passthrough], which reordered the array before it was
-  // sliced -- so the cap was cutting from a list that was no longer sorted by severity.
+  // Regression: this pass used to return [...kept, ...unverifiable, ...passthrough], reordering the
+  // array before max_comments sliced it, so the cap cut from a list no longer sorted by severity.
   it('returns a strict subsequence of its input', async () => {
     const comments = ['A', 'B', 'C', 'D', 'E'].map((title) => comment({ title }));
     const model = fakeModel(

@@ -1,22 +1,14 @@
 /**
  * Parsing for the rendered review prompt shown in the diff viewer.
  *
- * NOTE the name: `parsePromptDiff` here is NOT `parseUnifiedDiff` from `@server/core/diff`. That one
- * parses real git output into hunks for the review pipeline; this one reads the padded, gutter-prefixed
- * form the prompt renders for the model. They were both called `parseUnifiedDiff` until this split.
+ * NOT `parseUnifiedDiff` from `@server/core/diff`: that parses real git output for the review
+ * pipeline; this reads the padded, gutter-prefixed form the prompt renders for the model.
  */
 
-/* ── Diff parsing ─────────────────────────────────────────────────
-
-   Codra stores each file's diff as part of the review PROMPT, not as a raw git
-   diff. Its body lines are rendered as 4-wide padded number columns:
-
-       "<oldNo> <newNo> <prefix><content>"   e.g. " 615  615  const x = 1"
-
-   So we read those embedded line numbers directly (rather than re-deriving them
-   and stacking a second gutter on top), and fall back to standard git-diff lines
-   for anything else. Only content inside a hunk is parsed, so the prompt preamble
-   (instructions, JSON schema, guidelines) is ignored. */
+// Codra renders each file's diff body as 4-wide padded number columns:
+//   "<oldNo> <newNo> <prefix><content>"   e.g. " 615  615  const x = 1"
+// We read those embedded line numbers directly and fall back to standard git-diff lines for
+// anything else. Only content inside a hunk is parsed, so the prompt preamble is ignored.
 
 export interface DiffRow {
   kind: 'add' | 'del' | 'ctx' | 'hunk';
@@ -85,8 +77,7 @@ export function parsePromptDiff(diff: string): DiffRow[] {
   return rows;
 }
 
-/** Cheap line scan (no row objects): add/del counts plus a total-rows estimate,
-    so collapsed panels never pay for a full parse. */
+/** Cheap line scan (no row objects) so collapsed panels never pay for a full parse. */
 export function diffStats(diff: string | null) {
   if (!diff) return { adds: 0, dels: 0, total: 0 };
   let adds = 0;

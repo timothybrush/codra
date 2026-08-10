@@ -9,7 +9,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { api } from '@client/lib/api';
 import { ThemeProvider } from '@client/lib/theme';
 
-// Mock the API client
 vi.mock('@client/lib/api', () => ({
   api: {
     getSession: vi.fn(),
@@ -84,15 +83,12 @@ describe('Frontend UI Flows (JSDOM)', () => {
       </MemoryRouter>
     );
 
-    // Check for dashboard title (from PageHeader)
     expect(await screen.findByText('Dashboard')).toBeDefined();
-    
-    // Check for stats totals (using data from getStats mock)
-    // Note: fmtNumber might format 500 as "500" or similar
+
     expect(screen.getByText('10')).toBeDefined();
     expect(screen.getByText('500')).toBeDefined();
 
-    // Check for activity stream item (rendered in both mobile and desktop layouts)
+    // Rendered in both mobile and desktop layouts, hence getAllByText.
     expect(screen.getAllByText('test-owner/test-repo').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Fixing bug' })).toBeDefined();
   });

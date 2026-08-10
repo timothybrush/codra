@@ -65,7 +65,7 @@ export async function reviewWithAnthropic(
     throw new Error('Anthropic provider returned an empty response.');
   }
 
-  // Prepend the '{' that we pre-filled in the assistant message
+  // Restore the '{' used to prime JSON output; Anthropic doesn't echo the prefill back.
   rawText = '{' + rawText;
 
   return {

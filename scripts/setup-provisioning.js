@@ -7,8 +7,8 @@ import { extractId, spawnAsync } from './setup-helpers.js';
 
 const execAsync = util.promisify(exec);
 
-// The two resource-provisioning steps, each idempotent: reuse the binding already in wrangler.jsonc
-// if it resolves, otherwise create it and write the id back. Called in order by main().
+// Idempotent provisioning: reuse the binding already in wrangler.jsonc if it resolves,
+// otherwise create it and write the id back.
 
 export async function handleKVNamespace(baseBinding, isPreview) {
   let currentBinding = baseBinding;

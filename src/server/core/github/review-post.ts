@@ -18,9 +18,7 @@ export async function postReview(
   },
 ) {
   return withRetry(`createReview ${owner}/${repo}#${pullNumber}`, async () => {
-    // Address by `line` + `side`, falling back to a legacy diff `position` if a caller supplied
-    // one. Comments used to be kept ONLY when they had `position`, which nothing computed, so every
-    // inline comment was silently dropped and reviews posted with just the summary.
+    // Address by `line` + `side`, falling back to a legacy diff `position` if supplied; comments used to require `position`, which nothing computed, so inline comments were silently dropped.
     const mapped = input.comments.map((comment) => {
       if (typeof comment.line === 'number' && comment.line > 0) {
         return {
@@ -36,9 +34,7 @@ export async function postReview(
       return null;
     });
 
-    // Which of the caller's comments survived mapping. Only the caller knows what a comment means,
-    // and marking one "posted" when it was dropped here would suppress it on every future commit
-    // without anyone having seen it.
+    // Which of the caller's comments survived mapping; marking a dropped one "posted" would suppress it on every future commit unseen.
     let postedIndices = mapped.flatMap((c, index) => (c === null ? [] : [index]));
 
     const comments = mapped.filter((c): c is NonNullable<typeof c> => c !== null);
@@ -70,9 +66,7 @@ export async function postReview(
     });
 
     if (response.status === 422 && body.comments.length > 0) {
-      // Log GitHub's reason: a 422 here almost always means a comment pointed at a
-      // line that isn't part of the diff. Without the response text this failure
-      // is invisible and the review silently loses every inline comment.
+      // A 422 here almost always means a comment pointed at a line outside the diff; log the response text or this failure is invisible.
       const reason = await response.clone().text().catch(() => '<unreadable>');
       logger.warn(`GitHub review creation failed with 422, retrying without inline comments`, {
         owner,
@@ -112,9 +106,7 @@ export async function postReview(
   });
 }
 
-// A review this app already posted on the given commit. Used by finalize ONLY when re-running past
-// the posting stage, to avoid double-posting when an earlier invocation died between createReview()
-// and completeJob(). One GET, first page of 100.
+// Used by finalize only when re-running past the posting stage, to avoid double-posting when an earlier invocation died between createReview() and completeJob().
 export async function findBotReviewForCommit(
   ctx: GitHubRequestContext,
   owner: string,

@@ -121,7 +121,7 @@ async function requestWithMeta<T>(input: string, init?: RequestInit) {
 
 let updatesEmailPromise: Promise<UpdatesEmailResponse> | null = null;
 let updatesEmailFetchTime = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000;
 
 export const api = {
   getSession() {
@@ -229,8 +229,7 @@ export const api = {
     return request<RepoConfigResponse>(`/api/repos/${pathSegment(owner)}/${pathSegment(repo)}/config`);
   },
   getStats(days?: number) {
-    // Send the display zone so day buckets are grouped the same way timestamps are
-    // rendered (UTC unless changed in account settings).
+    // Send the display zone so day buckets group the same way timestamps render.
     const params = new URLSearchParams({ tz: resolvedTimeZone() });
     if (days) params.set('days', String(days));
     return request<StatsResponse>(`/api/stats?${params.toString()}`);

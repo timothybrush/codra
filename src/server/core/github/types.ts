@@ -1,7 +1,5 @@
 // Response shapes from the GitHub REST API, narrowed to the fields this app reads.
-//
-// Sibling of core/github.ts. Import these from @server/core/github, not from here: two specs mock
-// that barrel by replacing the whole GitHubClient class, and a direct sibling import bypasses them.
+// Import these from @server/core/github, not from here: specs mock that barrel by replacing the whole GitHubClient class.
 
 export type GitHubInstallation = {
   id: number;
@@ -16,8 +14,7 @@ export type GitHubRepository = {
 
 export type GitHubReviewComment = {
   path: string;
-  // File line to attach the comment to, paired with `side`. The model reports file lines, never
-  // diff offsets, so this is the addressing scheme the pipeline uses.
+  // File line to attach the comment to, paired with `side`. The model reports file lines, never diff offsets.
   line?: number;
   // 'RIGHT' = the head (post-change) file, which is where findings live.
   side?: 'LEFT' | 'RIGHT';

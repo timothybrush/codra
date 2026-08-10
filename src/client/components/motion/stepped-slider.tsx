@@ -1,8 +1,5 @@
-// Discrete-step slider with a spring-smoothed thumb and a live value readout
-// that sits statically above the track (no floating/portal-positioned
-// tooltip involved). Adapted from a min/max/step numeric range slider so
-// labeled steps (e.g. Low/Medium/High/Max) line up exactly on evenly spaced
-// stops.
+// Adapted from a min/max/step range slider so labeled steps (e.g. Low/Medium/High/Max) line up on
+// evenly spaced stops; the value readout sits statically above the track (no floating/portal tooltip).
 import {
   motion,
   useMotionTemplate,
@@ -27,9 +24,8 @@ import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
 const SPRING_GLIDE = { stiffness: 700, damping: 50, mass: 0.5 } as const;
 const SPRING_BOUNCY = { type: 'spring', stiffness: 500, damping: 14, mass: 0.7 } as const;
 
-// Deterministic 0..1 seed derived from the slider's id, so two sliders maxed
-// out at the same time get slightly different hues and animation timing
-// instead of pulsing in perfect, obviously-copy-pasted unison.
+// Deterministic 0..1 seed from the slider's id, so two sliders maxed out at once get slightly
+// different hues/timing instead of pulsing in perfect unison.
 function seedFromId(id: string | undefined) {
   if (!id) return 0;
   let hash = 0;
@@ -85,10 +81,8 @@ export function SteppedSlider({
   const trackRef = useRef<HTMLDivElement>(null);
   const [internal, setInternal] = useState(defaultValue);
   const [active, setActive] = useState(false);
-  // Live position while dragging, decoupled from the committed value so that
-  // onValueChange fires exactly once per gesture (on release) instead of on
-  // every pointer-move tick - callers may react to a commit by opening a
-  // confirmation dialog, which must not re-fire while the pointer is still down.
+  // Decoupled from the committed value so onValueChange fires once per gesture (on release),
+  // not on every pointer-move tick.
   const [dragValue, setDragValue] = useState<number | null>(null);
   const controlled = value !== undefined;
   const committedValue = clamp(controlled ? (value as number) : internal, min, max);
@@ -96,9 +90,7 @@ export function SteppedSlider({
   const percent = ((current - min) / (max - min)) * 100;
   const isMaxed = current === max;
 
-  // Teal accent for the "maxed out" state, hue-shifted slightly per instance
-  // and timed with a per-instance offset so simultaneous max sliders read as
-  // one cohesive design rather than a mirrored duplicate.
+  // Hue-shifted and timed per instance so simultaneous maxed-out sliders don't pulse in unison.
   const hue = 185 + (seed - 0.5) * 16;
   const glowColor = isDark ? `oklch(68% 0.14 ${hue})` : `oklch(52% 0.13 ${hue})`;
   const fillGradient = isDark
@@ -193,7 +185,6 @@ export function SteppedSlider({
 
   return (
     <div className={cn('w-full', className)}>
-      {/* live value readout - sits in normal flow above the track, always visible */}
       <div className="mb-1.5 flex justify-end">
         <span className="text-xs font-medium text-foreground tabular-nums">{valueLabel}</span>
       </div>
@@ -209,11 +200,7 @@ export function SteppedSlider({
           disabled ? 'pointer-events-none opacity-50' : 'cursor-grab active:cursor-grabbing',
         )}
       >
-        {/* fill - runs from the left edge to the thumb; static teal gradient with a dot texture
-            steadily drifting left-to-right at the top step. Every dot has the same fixed
-            brightness - only position moves - so it reads as one smooth, consistent motion
-            instead of some dots being brighter than others. The pattern repeats every 10px and
-            shifts by exactly one period, so the loop point is never visible. */}
+        {/* Pattern repeats every 10px, shifting by exactly one period, so the loop point is never visible. */}
         <motion.div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: left }}>
           {isMaxed ? (
             <div
@@ -235,8 +222,7 @@ export function SteppedSlider({
           )}
         </motion.div>
 
-        {/* ticks - slight inset so the end dots don't clip; sized/ringed up at the top step so they
-            read as distinct markers instead of blending into the dot texture behind them */}
+        {/* Inset so end dots don't clip; sized up at max so they don't blend into the dot texture. */}
         <div className="pointer-events-none absolute inset-x-2 inset-y-0">
           {steps.map((tick) => {
             const tp = ((tick.value - min) / (max - min)) * 100;
@@ -253,9 +239,7 @@ export function SteppedSlider({
           })}
         </div>
 
-        {/* pulsing glow halo behind the thumb at the top step - kept as its own layer so only
-            opacity (a plain number) is animated, since Motion's box-shadow interpolator can't
-            parse CSS custom properties inside the color stops */}
+        {/* Own layer so only opacity animates - Motion's box-shadow interpolator can't parse CSS custom properties in the color stops. */}
         {isMaxed && !reduce && (
           <motion.div
             aria-hidden
@@ -266,7 +250,6 @@ export function SteppedSlider({
           />
         )}
 
-        {/* vertical bar thumb - contained at both ends via thumbX */}
         <motion.div
           id={id}
           role="slider"
@@ -283,8 +266,7 @@ export function SteppedSlider({
           transition={SPRING_BOUNCY}
           className={cn(
             'absolute top-1/2 h-5 w-1.5 rounded-sm bg-foreground shadow-sm outline-none ring-foreground/30 focus-visible:ring-4',
-            // a background-colored ring keeps the thumb legible against the accent
-            // fill at any position, instead of tinting it the same hue as its glow
+            // Background-colored ring keeps the thumb legible against the accent fill at any position.
             isMaxed && 'ring-2 ring-background',
           )}
           style={{ left, x: thumbX, y: '-50%' }}

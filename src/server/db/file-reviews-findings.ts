@@ -11,12 +11,8 @@ export type SuppressedFinding = {
   anchored: boolean;
 };
 
-// Findings that must not be posted again for this pull request: already posted on an EARLIER commit
-// with the anchored line unchanged, or rejected by a human anywhere in this repository.
-//
-// `j.commit_sha <> me.commit_sha` is load-bearing. Retries and mention-triggered re-reviews reuse the
-// SAME head commit, so without it a manual re-review matches everything the previous run posted and
-// returns an empty, summary-only review.
+// Findings already posted on an EARLIER commit with the anchored line unchanged, or rejected by a human anywhere in this repository.
+// `j.commit_sha <> me.commit_sha` is load-bearing: retries and mention-triggered re-reviews reuse the SAME head commit.
 export async function getSuppressedFindings(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -36,14 +32,11 @@ export async function getSuppressedFindings(
         WHERE j.id <> $1::uuid
           AND j.commit_sha <> me.commit_sha
           AND rc.posted
-          -- Either identity is enough. v1 alone missed reworded repeats: on PR #55 six of ten findings
-          -- were re-reports and only one shared a v1 fingerprint.
+          -- Either identity is enough: v1 alone misses reworded repeats.
           AND (rc.fingerprint IS NOT NULL OR rc.fingerprint_v2 IS NOT NULL)
       ),
       rejected AS (
-        -- Only the NEGATIVE outcomes. 'resolved' and 'marked_right' are stored but never read here:
-        -- suppressing on them would silence the findings that turned out to be correct. And note
-        -- there is no branch for "no row" -- an unlabelled finding is not a negative signal.
+        -- Only NEGATIVE outcomes: suppressing on 'resolved'/'marked_right' would silence findings that turned out correct, and "no row" is not a negative signal.
         SELECT DISTINCT cf.fingerprint, NULL::text AS anchor_hash, cf.fingerprint_v2
         FROM me
         JOIN comment_feedback cf ON cf.repository_id = me.repository_id
@@ -58,9 +51,7 @@ export async function getSuppressedFindings(
   );
 }
 
-// Resolves a finding fingerprint WITHIN a job, for the dashboard labelling route. This is the
-// authorization boundary, not a convenience: a label writes a REPOSITORY-WIDE suppression, so
-// without job scoping anyone could silence a finding by guessing eight hex characters.
+// Job scoping is the authorization boundary, not a convenience: a label writes a REPOSITORY-WIDE suppression.
 export async function getFindingLabelTarget(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -81,8 +72,7 @@ export async function getFindingLabelTarget(
   return rows[0] ?? null;
 }
 
-// Records which findings actually reached GitHub, so later commits can suppress them. Only
-// fingerprints GitHub genuinely accepted: marking a silently dropped one posted hides it forever.
+// Only fingerprints GitHub genuinely accepted: marking a silently dropped one posted would hide it forever.
 export async function markCommentsPosted(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -103,12 +93,7 @@ export async function markCommentsPosted(
   );
 }
 
-// Records WHY each finding did not reach the pull request.
-//
-// `posted = false` alone conflates the severity gate, the confidence gate, suppression, dedupe, the
-// verifier and the max_comments cap. That ambiguity is what made the corpus unusable: "P3 has never
-// been posted" was mostly P3 sorting last and the cap slicing from the end. Attribution has to be
-// recorded where the decision is made. One statement regardless of how many stages fired.
+// `posted = false` alone conflates the severity/confidence gates, suppression, dedupe, the verifier, and the max_comments cap, so attribution must be recorded where the decision is made.
 export async function markCommentDispositions(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -119,12 +104,7 @@ export async function markCommentDispositions(
   const dispositions = fingerprints.map((fp) => byFingerprint.get(fp)!.disposition);
   const reasons = fingerprints.map((fp) => byFingerprint.get(fp)!.reason);
 
-  // A posted finding's disposition is never rewritten. A KEPT finding is entered with a null
-  // disposition purely to carry its verifier reason, so an unconditional assignment would null out
-  // `posted`. Worse, the map is keyed on FINGERPRINT = hash(path + normalized title), so two findings
-  // on one file with the same title share one: this UPDATE matched BOTH and wrote 'suppression' over
-  // 'posted' for two P0s that really were posted. `posted` is GitHub's fact; a disposition is our
-  // inference. The fact wins.
+  // A posted finding's disposition is never rewritten: fingerprint collisions on same-titled findings once overwrote a real P0's 'posted' with 'suppression'. `posted` is GitHub's fact; disposition is our inference, so the fact wins.
   await queryRows(
     env,
     `

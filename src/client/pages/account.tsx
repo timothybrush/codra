@@ -25,11 +25,7 @@ import {
 import type { AccountSettings, AuthSessionUser } from '@shared/api';
 
 import { DetailGroup, RevealOnClick, DetailRow } from '@client/components/features/account/detail-rows';
-/**
- * Explicit zone list - no "Automatic". Timestamps default to UTC until a zone is
- * chosen here, so they read identically for everyone out of the box. The viewer's
- * own browser zone is folded in so it's always selectable.
- */
+// No "Automatic" option: defaults to UTC so timestamps read the same for everyone; the browser's own zone is folded into the list.
 function zoneOptions() {
   const zones = Array.from(new Set([DEFAULT_TIME_ZONE, ...COMMON_TIME_ZONES, browserTimeZone()]))
     .sort((a, b) => a.localeCompare(b));
@@ -61,8 +57,7 @@ export function AccountPage() {
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [savingZone, setSavingZone] = useState(false);
-  // The picker is driven by state, not by reading localStorage during render -
-  // a render-time read isn't reactive, so the control never reflected a save.
+  // State-driven, not a render-time localStorage read - that wasn't reactive and never reflected a save.
   const [zonePref, setZonePref] = useState<string | null>(() => getStoredTimeZone());
 
   const load = async () => {
@@ -74,9 +69,7 @@ export function AccountPage() {
       ]);
       setUser(session.user);
       setAccount(accountRes?.account ?? null);
-      // Mirror the server's choice locally so every other page formats in the
-      // same zone without waiting on this request. Only when the account actually
-      // loaded - a failed fetch must not silently reset the local preference.
+      // Mirror the server's choice locally so other pages format in the same zone; only on success, so a failed fetch doesn't reset the local preference.
       if (accountRes?.account) {
         setStoredTimeZone(accountRes.account.timezone ?? null);
         setZonePref(accountRes.account.timezone ?? null);
@@ -90,8 +83,7 @@ export function AccountPage() {
 
   const saveTimezone = async (zone: string) => {
     const previous = zonePref;
-    // Optimistic: the control reflects the choice immediately, and reverts if the
-    // server rejects it, so it never sits on a value that wasn't persisted.
+    // Optimistic: reflects the choice immediately and reverts if the server rejects it.
     setZonePref(zone);
     setStoredTimeZone(zone);
     setSavingZone(true);
@@ -118,13 +110,10 @@ export function AccountPage() {
     void load();
   }, []);
 
-  // Built once: a fresh array each render gave the Select a new `options` identity
-  // every pass, which re-fired its highlight/measure effects and made the open
-  // panel jitter.
+  // Built once - a fresh array each render gave Select a new `options` identity, re-firing its highlight/measure effects and jittering the open panel.
   const zoneOpts = useMemo(() => zoneOptions(), []);
 
-  // The editable display name is the persisted account name, falling back to
-  // the GitHub profile name (then login) until the user sets their own.
+  // Falls back to GitHub profile name (then login) until the user sets their own.
   const displayName =
     account?.accountName?.trim() || user?.name?.trim() || user?.login || 'GitHub user';
   const initial = displayName.charAt(0).toUpperCase();
@@ -156,8 +145,7 @@ export function AccountPage() {
     }
   };
 
-  // Skeletons stand in for content only - card chrome, section titles and row
-  // labels stay rendered so the page doesn't reflow when data lands.
+  // Skeletons replace content only; chrome and labels stay rendered so the page doesn't reflow when data lands.
   const pending = loading || !user;
 
   return (
@@ -178,7 +166,6 @@ export function AccountPage() {
 
       {(loading || user) && (
         <>
-          {/* ── Identity ─────────────────────────────────────────────────── */}
           <section className="ui-panel min-w-0 overflow-hidden">
             <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
               {pending ? (
@@ -291,7 +278,6 @@ export function AccountPage() {
             </div>
           </section>
 
-          {/* ── Details ──────────────────────────────────────────────────── */}
           <SectionCard
             title="Details"
           >
@@ -331,8 +317,7 @@ export function AccountPage() {
                   {user ? formatDate(user.signedInAt) : null}
                 </DetailRow>
 
-                {/* Display time zone. Timestamps are stored absolute (UTC); this only
-                    controls how they're rendered across the dashboard. */}
+                {/* Timestamps are stored absolute (UTC); this only controls how they're rendered. */}
                 <div className="flex items-center justify-between gap-4 px-4 py-3">
                   <span className="min-w-0 shrink-0">
                     <Text variant="body" size="sm" bold as="span" className="text-[13px] dark:text-ui-subtle">

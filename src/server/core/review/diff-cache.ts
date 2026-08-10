@@ -6,23 +6,18 @@ import { logger } from '../logger';
 
 const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
 
-// KV-cached access to a job's raw diff. The two readers share one cache key, so they must stay
-// together: `getDiffFiles` serves the review phases and `getOrFetchRawDiffForCompletedJob` serves
-// the dashboard's diffs endpoint long after the job finished.
-
+// KV-cached access to a job's raw diff. The two readers below share one cache key, so they must stay together.
 export function diffCacheKey(jobId: string) {
   return `diff:${jobId}`;
 }
 
-// Returns the job's reviewable files, fetching and parsing the PR diff from
-// GitHub only once per job (cached in KV) instead of once per phase invocation.
+// Fetches and parses the PR diff from GitHub only once per job (cached in KV) instead of once per phase invocation.
 export async function getDiffFiles(
   env: AppBindings,
   job: { id: string; owner: string; repo: string; prNumber: number },
   github: Pick<GitHubService, 'getPullRequestDiff'>,
   config: RepoConfig,
-  // Instance-wide file ceiling. Passed in rather than read here so a single settings lookup can
-  // serve both this and the concurrency level in the same phase.
+  // Passed in rather than read here so a single settings lookup can serve both this and the concurrency level in the same phase.
   maxFiles: number = reviewMaxFilesRange.default,
 ): Promise<{ files: FileDiff[]; skipped: number }> {
   const cacheKey = diffCacheKey(job.id);
@@ -40,12 +35,7 @@ export async function getDiffFiles(
   return filterReviewableFiles(parseUnifiedDiff(rawDiff, config.review), config.review, maxFiles);
 }
 
-// Reconstructs the raw PR diff for a job that has already finished, for the on-demand
-// "diff_input isn't stored in Postgres" reconstruction path (see /api/jobs/:id/diffs).
-// Reuses the same short-lived KV cache `getDiffFiles` writes during processing when it's
-// still warm (fast path, no GitHub call); once that 6h TTL has lapsed, re-derives the exact
-// same diff from GitHub via the job's own base/head commits (NOT the live PR diff, which may
-// have moved on since) and writes it back to the same cache key/TTL for subsequent requests.
+// Reconstructs the raw PR diff for a finished job (diff_input isn't stored in Postgres; see /api/jobs/:id/diffs). Reuses getDiffFiles' KV cache while warm; once the 6h TTL lapses, re-derives from GitHub via the job's own base/head commits (not the live PR diff, which may have moved on) and rewrites the cache.
 export async function getOrFetchRawDiffForCompletedJob(
   env: AppBindings,
   job: { id: string; owner: string; repo: string; baseSha: string; commitSha: string },

@@ -31,7 +31,6 @@ export function LoginPage() {
   return (
     <div className="relative flex min-h-svh flex-col items-center justify-center bg-background px-4 py-8">
 
-      {/* Top bar: back link + theme toggle */}
       <Link
         to="/"
         className="fixed left-4 top-4 z-50 flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary dark:border-white/10 dark:bg-white/[0.06] dark:shadow-[0_1px_2px_oklch(0%_0_0/0.4),inset_0_1px_0_oklch(100%_0_0/0.06)] dark:hover:bg-white/[0.1] sm:left-6 sm:top-6"
@@ -49,11 +48,8 @@ export function LoginPage() {
 
       <div className="page-enter flex w-full max-w-md flex-col items-center">
 
-        {/* Card */}
         <div className="surface surface-static-shadow relative w-full overflow-hidden">
-          {/* Dot-grid texture */}
           <span className="chart-card-inner" aria-hidden="true" />
-          {/* Lime top accent */}
           <span
             className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-transparent via-primary/70 to-transparent"
             aria-hidden="true"
@@ -61,14 +57,12 @@ export function LoginPage() {
 
           <div className="relative flex flex-col items-center gap-7 px-6 py-10 sm:px-12 sm:py-12">
 
-            {/* Logo */}
             <img
               src={theme === 'dark' ? codraDark : codraLight}
               alt="Codra"
               className="h-10 w-auto sm:h-11"
             />
 
-            {/* Heading + sub */}
             <div className="space-y-2 text-center">
               <h1 className="text-xl font-bold tracking-tight text-foreground">
                 Welcome back
@@ -78,7 +72,6 @@ export function LoginPage() {
               </p>
             </div>
 
-            {/* Error */}
             {error && (
               <div className="animate-slide-down flex w-full items-start gap-2.5 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-left text-sm text-danger">
                 <AlertCircle size={15} className="mt-0.5 shrink-0" />
@@ -86,7 +79,6 @@ export function LoginPage() {
               </div>
             )}
 
-            {/* CTA */}
             <a
               href="/auth/github"
               id="login-submit"
@@ -98,7 +90,6 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Footer note - outside the card */}
         <div className="mt-6 flex items-center gap-2.5 px-2 text-muted-foreground">
           <ShieldCheck size={16} className="shrink-0 text-success" />
           <p className="text-xs leading-snug">

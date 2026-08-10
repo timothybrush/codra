@@ -23,9 +23,7 @@ export async function setJobWorkflowInstance(env: Pick<AppBindings, 'HYPERDRIVE'
   );
 }
 
-// Refresh a job's cached PR title/author from the live pull request. The values are snapshotted at
-// job-creation time (and copied verbatim onto retries), so a title edited on GitHub afterwards would
-// otherwise keep showing stale on the dashboard. Called during prepare once the PR is fetched.
+// Values are snapshotted at job-creation time (and copied verbatim onto retries), so without this a title edited on GitHub afterward would keep showing stale on the dashboard.
 export async function setJobPullRequestMeta(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,
@@ -43,10 +41,7 @@ export async function setJobPullRequestMeta(
   );
 }
 
-// Whether the scheduled maintenance loop still has anything to do: any job that could still be
-// running/recoverable (queued/running) or any terminal job whose GitHub check run hasn't been
-// completed yet. When this is false the cron can clear the `system:active_jobs` flag so subsequent
-// ticks skip the DB entirely and the serverless Postgres is allowed to suspend.
+// False lets the cron clear `system:active_jobs` so later ticks skip the DB and serverless Postgres can suspend.
 export async function hasPendingMaintenanceWork(env: Pick<AppBindings, 'HYPERDRIVE'>): Promise<boolean> {
   const rows = await queryRows<{ has_work: boolean }>(
     env,
@@ -242,12 +237,16 @@ export async function getJobDetail(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: 
                 'modelProvider', fr.model_provider,
                 'overallCorrectness', fr.overall_correctness,
                 'confidenceScore', fr.confidence_score,
+                -- NULL on rows written before batching existed; the logs view renders >1 as shared.
+                'batchSize', fr.batch_size,
+                -- What the gates dropped. Without it the logs cannot tell "found nothing" apart
+                -- from "found things and withheld every one of them".
+                'withheldCounts', fr.withheld_counts,
                 'parsedComments', COALESCE(
                   (
                     SELECT JSON_AGG(
                       ${reviewCommentJsonObject(
-                        // Correlated rather than joined so this stays one round trip. Served by the
-                        // comment_feedback (repository_id, fingerprint) index from migration 005 (now folded into 003_grounding.sql).
+                        // Correlated rather than joined so this stays one round trip; served by the comment_feedback (repository_id, fingerprint) index.
                         `'humanLabel', (
                           SELECT cf.outcome FROM comment_feedback cf
                           WHERE cf.repository_id = j.repository_id
@@ -316,9 +315,7 @@ export async function findExistingJobForHead(
   return row ? mapJob(row) : null;
 }
 
-// Re-exported so '@server/db/jobs' stays the single import path for the whole family. Eight specs
-// vi.mock this specifier; importing a sibling directly would bypass the mock and the test would
-// keep passing while asserting nothing. eslint's no-restricted-imports enforces this.
+// Re-exported so '@server/db/jobs' stays the single import path: eight specs vi.mock this specifier, and a direct sibling import would bypass the mock silently.
 export { type JobRow, bytesToHex, mapJob } from './jobs-mapping';
 export { markSystemActive, clearSystemActive } from './jobs-activity';
 export {

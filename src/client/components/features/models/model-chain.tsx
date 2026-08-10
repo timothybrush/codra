@@ -19,8 +19,7 @@ import {
   routesEqual,
 } from './model-route';
 
-// Re-exported so repos.tsx and settings.tsx keep importing these names from here, which is where
-// they have always lived. The values themselves are in model-route.ts, free of the editor UI.
+// Re-exported so repos.tsx and settings.tsx keep importing these names from here, where they've always lived.
 export {
   EMPTY_MODEL_ROUTE,
   describeModelRoute,
@@ -254,7 +253,6 @@ export function ModelRouteEditor({
   return (
     <div className={cn('min-w-0 space-y-5', className)}>
 
-      {/* Toolbar row */}
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-muted-foreground">
           Baseline route plus file-size tiers for smaller changes.
@@ -269,7 +267,6 @@ export function ModelRouteEditor({
         </button>
       </div>
 
-      {/* Baseline route card */}
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="flex items-center gap-2 border-b border-border/60 bg-muted/[0.04] px-4 py-2.5">
           <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Baseline route</span>
@@ -289,7 +286,6 @@ export function ModelRouteEditor({
         </div>
       </div>
 
-      {/* Size tier cards */}
       {tiers.length > 0 && (
         <div className="space-y-3">
           {tiers.map((tier, index) => (

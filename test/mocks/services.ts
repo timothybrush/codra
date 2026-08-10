@@ -1,10 +1,6 @@
-// Shared service doubles for the DB-backed review suites (review-flow and async-batch).
-//
-// `vi.mock` factories are hoisted above imports, so these are pulled in with a dynamic `await
-// import(...)` inside the factory rather than a top-level import. That is the only shape that works.
-//
-// Each suite overrides the two or three methods it is actually testing and inherits the rest, so a
-// new field on a review response is added once here instead of in every suite that never reads it.
+import type { BatchReviewOutcome } from '@server/services/model';
+// Shared service doubles for the DB-backed review suites. `vi.mock` factories are hoisted, so pull
+// these in with a dynamic `await import(...)` inside the factory.
 
 // A PR that always resolves, with one changed file. Enough for any suite not testing GitHub itself.
 export function makeGitHubServiceMock(overrides: Record<string, unknown> = {}) {
@@ -56,8 +52,7 @@ function reviewFileResponse(overrides: Record<string, unknown> = {}) {
       fileSummary: 'Looks ok',
       overallCorrectness: 'issues found',
       confidenceScore: 0.9,
-      // finalize sums these to decide whether an empty review means "nothing found" or
-      // "everything withheld", so they must stay in step with parseFileReviewResponse.
+      // Must stay in step with parseFileReviewResponse; finalize sums these.
       evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
       claimTypeCounts: { other: 1 },
       deniedClaimCounts: {},
@@ -73,16 +68,55 @@ function reviewFileResponse(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// Synchronous review path by default: `submitReviewBatch` returns null so the review phase takes
-// `reviewFile` rather than the async batch submit/poll flow.
-//
-// `verifyFindings` keeps every candidate. Without it the verifier throws, and although it fails
-// open, the warning masked genuine failures in these suites.
+// One entry per packed file, shaped like parseBatchReviewResponse's output.
+export function reviewBatchResponse(paths: readonly string[], overrides: Record<string, unknown> = {}) {
+  // `satisfies` the real `batch` shape, so a production field change breaks here.
+  return {
+    batch: {
+      reviews: new Map(paths.map((path) => [path, {
+        comments: [{
+          path, line: 1, position: 1,
+          severity: 'P2', category: 'quality', title: `Typo in ${path}`, body: 'Fixed typo',
+        }],
+        verdict: 'comment' as const,
+        fileSummary: `Looks ok: ${path}`,
+        overallCorrectness: 'issues found',
+        confidenceScore: 0.9,
+        evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
+        claimTypeCounts: { other: 1 },
+        deniedClaimCounts: {},
+        absenceCheckStats: { absenceShaped: 0, identifierExtracted: 0, refuted: 0 },
+      }])),
+      missing: [] as string[],
+      stats: {
+        unroutableEntries: 0,
+        pathMismatchFindings: 0,
+        ambiguousAcrossBin: 0,
+        flatFallback: 0,
+        overCap: 0,
+        entriesReturned: paths.length,
+      },
+    },
+    modelUsed: 'test-model',
+    provider: 'test-provider',
+    inputTokens: 40,
+    outputTokens: 12,
+    rawText: '{"files":[]}',
+    userPrompt: '',
+    ...overrides,
+  } satisfies Pick<BatchReviewOutcome, 'batch' | 'userPrompt'> & Record<string, unknown>;
+}
+
+// Synchronous by default (`submitReviewBatch` returns null); `verifyFindings` keeps every candidate,
+// or the verifier fails open and masks real failures.
 export function makeModelServiceMock(overrides: Record<string, unknown> = {}) {
   return class MockModelService {
     async submitReviewBatch() { return null; }
     async pollReviewBatch() { return { status: 'pending' as const }; }
     async reviewFile() { return reviewFileResponse(); }
+    async reviewFiles({ files }: { files: Array<{ path: string }> }) {
+      return reviewBatchResponse(files.map((f) => f.path));
+    }
     async generateSummary() {
       return { modelUsed: 'sum-model', provider: 'google', rawText: '{"summary": "test"}', inputTokens: 3, outputTokens: 2 };
     }
@@ -106,3 +140,11 @@ export function makeModelServiceMock(overrides: Record<string, unknown> = {}) {
 
 export const isRetryableModelErrorMock = (error: unknown) =>
   Boolean(error && typeof error === 'object' && (error as { retryable?: boolean }).retryable === true);
+
+// Every hand-built mock of the '@server/services/model' barrel must include this. The review
+// runners call it inside their catch block, so a missing export is a TypeError raised while
+// handling a failure -- which silently converts a deferral into a terminal one.
+export const nextChainIndexOfMock = (error: unknown) => {
+  const value = (error as { nextChainIndex?: unknown } | null)?.nextChainIndex;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+};

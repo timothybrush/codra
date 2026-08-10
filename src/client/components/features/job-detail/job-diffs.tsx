@@ -16,9 +16,7 @@ import type { FileReviewRecord, JobDetail } from '@shared/schema';
 
 import { panelCvStyle, fileAnchorId, FileDiff } from './diff-file-panel';
 import { FileTree } from './diff-file-tree';
-/** A file present in the PR diff that has no review row (yet) - e.g. the job is
-    still running, or the file was skipped. Shown like GitHub shows every changed
-    file, with a "pending" status instead of review results. */
+/** A file present in the PR diff with no review row yet (job still running or file skipped) - shown as pending, GitHub-style. */
 function syntheticFileReview(jobId: string, filePath: string, diffInput: string): FileReviewRecord {
   return {
     id: `diff-only:${filePath}`,
@@ -40,12 +38,8 @@ function syntheticFileReview(jobId: string, filePath: string, diffInput: string)
   };
 }
 
-/* Above this many files, only files with review comments start expanded -
-   the tree is the navigation surface, so a huge PR opens as a short page. */
+// Above this many files, only files with review comments start expanded, so a huge PR opens short.
 const AUTO_EXPAND_FILE_LIMIT = 8;
-
-
-/* ── Files-changed view ───────────────────────────────────────── */
 
 interface JobDiffsProps {
   job: JobDetail;
@@ -75,9 +69,7 @@ export function JobDiffs({ job }: JobDiffsProps) {
     };
   }, [job.id]);
 
-  // The full GitHub-style file list: every file in the PR diff, merged with review
-  // rows where they exist. Files without a review row yet (job still running,
-  // skipped, etc.) show as pending, sorted by path like GitHub.
+  // Every file in the PR diff merged with review rows where they exist, sorted by path like GitHub.
   const files = useMemo(() => {
     const merged = job.files.map((f) =>
       diffsByPath?.[f.filePath] ? { ...f, diffInput: diffsByPath[f.filePath] } : f,
@@ -91,8 +83,7 @@ export function JobDiffs({ job }: JobDiffsProps) {
     return merged.sort((a, b) => a.filePath.localeCompare(b.filePath));
   }, [job.id, job.files, diffsByPath]);
 
-  // Per-file cheap stats, computed once per diff change and reused everywhere
-  // (header counts, tree, totals, panel size estimates).
+  // Computed once per diff change and reused everywhere (header counts, tree, totals, panel size estimates).
   const statsByPath = useMemo(() => {
     const map = new Map<string, ReturnType<typeof diffStats>>();
     for (const file of files) map.set(file.filePath, diffStats(file.diffInput));
@@ -100,9 +91,7 @@ export function JobDiffs({ job }: JobDiffsProps) {
   }, [files]);
 
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(() => new Set());
-  // Open state is an override on top of a default rule, so files that stream in
-  // later (running jobs, late-arriving diffs) still get sensible defaults: big
-  // PRs start collapsed except files carrying review comments.
+  // Open state is an override on top of a default rule, so late-arriving files still get sensible defaults.
   const [openOverrides, setOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
   const isLargePr = files.length > AUTO_EXPAND_FILE_LIMIT;
   const isOpen = (file: FileReviewRecord) =>
@@ -141,13 +130,11 @@ export function JobDiffs({ job }: JobDiffsProps) {
     setSelectedFileId(file.id);
     setOpen(file.id, true);
     if (singleFileMode) return; // the single panel swaps in place, nothing to scroll to
-    // Let the panel expand before scrolling to it.
     requestAnimationFrame(() => {
       fileRefs.current.get(file.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
 
-  // Single-file mode current selection (defaults to the first file).
   const currentIndex = Math.max(0, files.findIndex((f) => f.id === selectedFileId));
   const currentFile = files[currentIndex];
   const stepFile = (delta: number) => {
@@ -178,13 +165,9 @@ export function JobDiffs({ job }: JobDiffsProps) {
   }
 
   return (
-    /* This row fills the height the page hands it, so the tree is full height by
-       construction. A fixed viewport calc can't work here: the row starts below the
-       header and tabs, so `100svh - <constant>` overshot the bottom and forced the
-       whole page to scroll even for three files. */
+    // Fixed viewport math doesn't work here: the row starts below the header and tabs, so
+    // `100svh - <constant>` overshot and forced the whole page to scroll even for three files.
     <div className="flex min-h-0 min-w-0 flex-1 gap-4">
-      {/* File tree - full height, scrolling independently so it stays reachable
-          in huge PRs. */}
       <aside className="ui-panel hidden h-full w-72 shrink-0 flex-col overflow-hidden lg:flex xl:w-80">
         <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3">
           <FileDiffIcon size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
@@ -193,7 +176,6 @@ export function JobDiffs({ job }: JobDiffsProps) {
             {files.length}
           </span>
         </div>
-        {/* Viewed progress - matches the review progress bar styling. */}
         <div
           className="h-[3px] w-full shrink-0 bg-ui-fill"
           role="progressbar"
@@ -226,10 +208,8 @@ export function JobDiffs({ job }: JobDiffsProps) {
         </div>
       </aside>
 
-      {/* Diff column - scrolls itself rather than growing the page, which is what
-          keeps the tree beside it full height. */}
+      {/* Scrolls itself rather than growing the page, which is what keeps the tree beside it full height. */}
       <div className="auto-hide-scroll flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
-        {/* Large-PR banner */}
         {isLargePr && (
           <div className="ui-panel flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
             <Info size={14} className="shrink-0 text-ui-subtle" />
@@ -247,7 +227,6 @@ export function JobDiffs({ job }: JobDiffsProps) {
           </div>
         )}
 
-        {/* Summary strip */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
           <span className="flex items-center gap-1.5 text-xs text-ui-subtle">
             <GitCommitHorizontal size={13} />

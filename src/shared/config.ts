@@ -6,4 +6,5 @@
 // v4: `review.min_confidence` default 0.6 -> 0, `review.deny_claim_types` added (migration 005, now folded into 003_grounding.sql).
 // v5: a generator-restraint key, added then removed. Listed because versions are never reused.
 // v6: `review.rules` added.
-export const REPO_CONFIG_CACHE_VERSION = 'v6';
+// v7: `review.batch_small_files` added.
+export const REPO_CONFIG_CACHE_VERSION = 'v7';

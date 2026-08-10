@@ -33,11 +33,7 @@ export function AppShell() {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto-hide scrollbars app-wide: every scroll container shows its thumb only
-  // while actively scrolling, then fades it back out. Scroll events don't
-  // bubble, so we listen in the capture phase at the document level and flag
-  // whatever just scrolled with `data-scrolling` (the global CSS keys off it),
-  // clearing it ~700ms after scrolling stops.
+  // Scroll events don't bubble, so listen in the capture phase at the document level and flag whatever scrolled with `data-scrolling` (global CSS keys off it), clearing it ~700ms after scrolling stops.
   useEffect(() => {
     const timers = new WeakMap<Element, number>();
     const onScroll = (e: Event) => {
@@ -57,7 +53,6 @@ export function AppShell() {
   return (
     <div className="flex h-svh overflow-hidden bg-background">
 
-      {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div
           className="fixed inset-0 z-30 bg-background/60 backdrop-blur-md lg:hidden"
@@ -65,17 +60,15 @@ export function AppShell() {
         />
       )}
 
-      {/* ── SIDEBAR ─────────────────────────────────── */}
       <aside
         className={cn(
           'dashboard-sidebar ui-font-sans',
           'fixed bottom-3 left-3 top-3 z-40 flex flex-col',
-          // Mobile drawer: solid card floating over the page.
+          // Mobile: solid floating card.
           'rounded-xl border border-ui-line bg-background text-ui-default',
           'shadow-[0_6px_20px_-8px_oklch(0%_0_0/0.14)]',
           'dark:shadow-[0_8px_24px_-10px_oklch(0%_0_0/0.42)]',
-          // Desktop: flat - the sidebar IS the page background; the content card
-          // on the right carries the surface instead (Jasper/Mixpanel style).
+          // Desktop: flat - the sidebar IS the page background; the content card carries the surface instead.
           'lg:rounded-none lg:border-transparent lg:bg-transparent lg:shadow-none',
           'lg:dark:bg-transparent lg:dark:shadow-none',
           'transition-transform duration-300 ease-[var(--ease-out-expo)]',
@@ -87,15 +80,9 @@ export function AppShell() {
         )}
       >
 
-        {/* ── Header ──────────────────────────────────
-            `pl-4` puts the logo on the same optical left edge as the nav rows,
-            the section label and the account block below — the rail reads as one
-            column instead of a logo floating off-axis. */}
+        {/* `pl-4` aligns the logo with the nav rows, section label, and account block below. */}
         <div className="relative flex shrink-0 items-center justify-between px-2 py-4">
 
-          {/* Logo — `pl-4` inside the shared `px-2` container reproduces the exact
-              inset of a nav row's label, so the wordmark and the menu share one
-              optical left edge (they were 8px apart). */}
           <Link
             to="/dashboard"
             className="flex min-w-0 items-center rounded-md pl-4 transition-opacity duration-150 hover:opacity-75"
@@ -109,9 +96,7 @@ export function AppShell() {
             />
           </Link>
 
-          {/* Controls: theme toggle (all sizes) + close (mobile). Ghost, not boxed
-              — a bordered control here reads as a heavy chip on a flat rail, while
-              the rest of the app uses quiet ghost buttons for this weight. */}
+          {/* Ghost, not boxed: a bordered control would read as a heavy chip on a flat rail. */}
           <div className="ml-auto flex items-center gap-0.5">
             <button
               onClick={toggleTheme}
@@ -130,22 +115,18 @@ export function AppShell() {
           </div>
         </div>
 
-        {/* ── Nav ─────────────────────────────────── */}
         <nav className="flex-1 overflow-visible px-2 pb-3">
           <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle dark:text-ui-subtle/65">
             Menu
           </p>
 
-          {/* SharedLayoutBg provides the animated hover pill. Uses SidebarNavItem
-             (hook-based active state) instead of NavLink render props -
-             cloneElement can't wrap a render function as children. */}
+          {/* SidebarNavItem uses hook-based active state (not NavLink render props) since SharedLayoutBg's cloneElement can't wrap a render function. */}
           <SharedLayoutBg
             className="gap-1"
             pillClassName="rounded-md bg-ui-fill/50"
           >
             {links.map(({ to, label, end, icon }) => (
-              /* Plain div is the direct child SharedLayoutBg clones - it injects
-                 the pill + z-10 wrapper into a real DOM element. */
+              /* SharedLayoutBg clones this div to inject the pill + z-10 wrapper. */
               <div key={to}>
                 <SidebarNavItem
                   to={to}
@@ -159,17 +140,12 @@ export function AppShell() {
           </SharedLayoutBg>
         </nav>
 
-        {/* ── Footer ──────────────────────────────────
-            One inset rule separates navigation from account/meta. The header
-            divider is gone: spacing already groups it, and free-floating hairlines
-            on a transparent rail read as stray marks next to the card-bordered
-            surfaces everywhere else. */}
+        {/* One inset rule separates navigation from account/meta; the header divider is gone since free-floating hairlines read as stray marks on a transparent rail. */}
         <div className="mx-4 h-px shrink-0 bg-ui-line" />
 
         <div className="shrink-0 space-y-0.5 p-2 pt-2">
 
-          {/* GitHub star — tertiary, so it sits a step quieter than navigation and
-              gains an external-link cue on hover. */}
+          {/* Tertiary: sits a step quieter than navigation and gains an external-link cue on hover. */}
           <a
             href="https://github.com/devarshishimpi/codra"
             target="_blank"
@@ -191,14 +167,11 @@ export function AppShell() {
             />
           </a>
 
-          {/* Account */}
           {sessionUser && <AccountMenu user={sessionUser} />}
         </div>
       </aside>
 
-      {/* ── MAIN - the content card. The shell is fixed-height and never scrolls;
-          the card fills the viewport and hands scrolling to the page inside
-          (the jobs table scrolls its own body, so the card stays put). ── */}
+      {/* The shell is fixed-height and never scrolls; the card fills the viewport and hands scrolling to the page inside (the jobs table scrolls its own body, so the card stays put). */}
       <main
         className={cn(
           'app-shell-content',
@@ -211,8 +184,7 @@ export function AppShell() {
         )}
       >
 
-        {/* Mobile topbar - same ui-* tokens and control sizing as the sidebar
-            header, so the two read as one system when the drawer is open. */}
+        {/* Same ui-* tokens and control sizing as the sidebar header, so the two read as one system when the drawer is open. */}
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-ui-line px-4 lg:hidden">
           <button
             className="-ml-2 rounded-md p-2 text-ui-default transition-colors hover:bg-ui-fill hover:text-ui-strong"
@@ -230,11 +202,7 @@ export function AppShell() {
           </button>
         </header>
 
-        {/* Scroll region: full-width so its (auto-hiding) scrollbar sits at the
-            card's inner edge. Pages that fill the height (jobs) scroll their own
-            body and leave this untouched; shorter pages that overflow fall back
-            to scrolling here - always inside the card, never the window. The
-            inner wrapper centres content to the max width. */}
+        {/* Full-width so its auto-hiding scrollbar sits at the card's inner edge; pages that fill height (jobs) scroll their own body, shorter pages fall back to scrolling here - always inside the card, never the window. */}
         <div className="auto-hide-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="mx-auto flex h-full w-full max-w-screen-2xl flex-col px-4 py-6 md:px-6 md:py-8 lg:px-8">
             <Outlet />

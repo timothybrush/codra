@@ -20,10 +20,8 @@ import {
   type ProviderDraft,
 } from './settings-support';
 
-// One row of the LLM Providers list, with its collapsible config panel. Extracted from settings.tsx
-// as a component rather than left inline because it is the page's largest single block of markup;
-// the section shell around it stays in settings.tsx, so only these eight values are threaded through
-// instead of the ~23 the whole section would need.
+// Extracted from settings.tsx as its largest single block of markup; the section shell stays put,
+// so only these values are threaded through instead of the whole page's state.
 export function ProviderRow({
   provider,
   savedProviders,
@@ -47,8 +45,7 @@ export function ProviderRow({
   removeProvider: (id: string) => void | Promise<void>;
   clearProviderKey: (provider: ProviderDraft) => void | Promise<void>;
   saving: string | null;
-  // Passed in rather than imported so this component stays free of the toast singleton, which keeps
-  // it renderable in isolation.
+  // Passed in rather than imported so this component stays free of the toast singleton.
   toast: { error: (message: string, opts?: { description?: string }) => void };
 }) {
   const nativeCloudflare = provider.apiFormat === 'cloudflare-workers-ai';
@@ -69,7 +66,6 @@ export function ProviderRow({
         dirty && 'bg-primary/[0.018]',
       )}
     >
-      {/* Row - the whole left side toggles the config panel */}
       <div className="flex min-w-0 items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4">
         <button
           type="button"
@@ -105,9 +101,7 @@ export function ProviderRow({
           </span>
         </button>
 
-        {/* Controls */}
         <div className="flex shrink-0 items-center gap-1.5">
-          {/* Save - only visible when dirty */}
           {dirty && (
             <Button
               variant="primary"
@@ -149,7 +143,6 @@ export function ProviderRow({
         </div>
       </div>
 
-      {/* Expanded edit panel */}
       {configOpen && (
         <div className="animate-slide-down border-t border-ui-line/60 bg-ui-fill/20 px-4 py-5 sm:px-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -200,10 +193,7 @@ export function ProviderRow({
                     value={provider.apiKey}
                     onChange={e => {
                       const apiKey = e.target.value;
-                      // Losing the only credential must also drop `enabled`,
-                      // otherwise the switch (which renders enabled && has
-                      // credential) desyncs from the draft and Save would be
-                      // rejected by the server.
+                      // Losing the only credential must also drop `enabled`, or the switch desyncs from the draft and Save is rejected by the server.
                       const losesCredential = !apiKey.trim() && !provider.hasApiKey;
                       updateProviderDraft(provider.id, {
                         apiKey,

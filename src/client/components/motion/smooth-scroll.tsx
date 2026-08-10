@@ -11,8 +11,7 @@ import {
   useRef,
 } from 'react';
 
-// Lenis' own expo-out curve - the canonical smooth-scroll easing. Kept as a
-// named local fn (not a lib/ease token) because tokens are bezier control
+// Lenis' own expo-out curve, kept as a named fn (not a lib/ease token): tokens are bezier control
 // points for the motion lib, while Lenis needs a (t) => number easing fn.
 const EASE_SCROLL = (t: number) => Math.min(1, 1.001 - 2 ** (-10 * t));
 
@@ -31,7 +30,7 @@ export type SmoothScrollApi = {
   scrollY: MotionValue<number>;
   /** Scroll position as 0..1 of the scrollable height. */
   progress: MotionValue<number>;
-  /** Signed scroll velocity (px/frame); drives velocity-based effects. */
+  /** Signed scroll velocity (px/frame). */
   velocity: MotionValue<number>;
   /** Programmatic smooth scroll. Respects reduced motion (jumps instantly). */
   scrollTo: (target: ScrollTarget, options?: ScrollToOptions) => void;
@@ -48,9 +47,8 @@ export interface SmoothScrollProps {
   /** Wheel / programmatic ease duration in seconds. */
   duration?: number;
   orientation?: 'vertical' | 'horizontal';
-  /** Wheel scroll speed multiplier. */
   wheelMultiplier?: number;
-  /** Smooth touch scrolling. Off by default - native momentum is good on mobile. */
+  /** Off by default - native touch momentum is already good on mobile. */
   touch?: boolean;
   className?: string;
 }
@@ -186,8 +184,7 @@ export function SmoothScroll({
     [reduce, nativeSource],
   );
 
-  // Reduced motion drives the native listener; the Lenis path leaves it
-  // disabled and lets LenisBridge feed the values instead.
+  // Reduced motion drives the native listener; otherwise LenisBridge feeds the values instead.
   useNativeScrollSync(!!reduce, nativeSource, scrollY, progress, velocity);
 
   const api = useMemo<SmoothScrollApi>(
@@ -218,11 +215,8 @@ export function SmoothScroll({
           smoothWheel: true,
           syncTouch: touch,
           easing: EASE_SCROLL,
-          // Let native scrolling take over when the wheel/touch gesture lands on
-          // a nested scrollable element (log panes, drawers, long option lists)
-          // that can still scroll in that direction. Without this, Lenis
-          // preventDefault()s every wheel event and scrolls the page instead.
-          // Escape hatch for edge cases: add `data-lenis-prevent` on the element.
+          // Without this, Lenis preventDefault()s every wheel event, blocking nested scrollable
+          // elements (log panes, drawers, option lists). Escape hatch: `data-lenis-prevent`.
           allowNestedScroll: true,
         }}
       >

@@ -1,7 +1,6 @@
 /**
- * The row vocabulary shared by the job detail page, mirroring the jobs table: a coloured status dot
- * plus word and duration, restrained bordered verdict pills, and compact muted icon chips for
- * everything else. One place, so the detail page and the list read as one product.
+ * Row vocabulary shared by the job detail page, mirroring the jobs table so the two read as one
+ * product: status dot + word + duration, bordered verdict pills, muted icon chips.
  */
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
@@ -15,16 +14,13 @@ export { formatRelativeDate, formatRunDuration, jobDuration, statusLabel } from 
 import type { JobDetail, JobSummary } from '@shared/schema';
 
 
-/**
- * Full stamp for `title` tooltips, so the terse relative text stays precise.
- * Rendered in the account's display time zone (falls back to UTC, not the browser's).
- */
+/** Full stamp for `title` tooltips, in the account's display time zone (falling back to UTC). */
 export function formatAbsoluteDate(value: string | Date | null | undefined) {
   if (!value) return undefined;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
-  // Component options, NOT dateStyle/timeStyle: Intl throws `Invalid option` if
-  // either style shorthand is combined with a component like `timeZoneName`.
+  // Component options, not dateStyle/timeStyle: Intl throws if a style shorthand is combined
+  // with a component option like `timeZoneName`.
   return formatDateTime(date, {
     year: 'numeric',
     month: 'short',
@@ -35,9 +31,7 @@ export function formatAbsoluteDate(value: string | Date | null | undefined) {
   });
 }
 
-/* ── Pieces ───────────────────────────────────────────────────────────────── */
-
-/** The 7px status dot on its own (for rows that carry their own label). */
+/** Status dot alone, for rows that render their own label. */
 export function StatusDot({ status, className }: { status: string; className?: string }) {
   return (
     <span
@@ -52,10 +46,7 @@ export function StatusDot({ status, className }: { status: string; className?: s
   );
 }
 
-/**
- * Coloured dot + status word + run duration (e.g. "● Done  1m 36s") - the
- * detail page's counterpart to the table's status cell.
- */
+/** Dot + status word + duration ("● Done  1m 36s") - counterpart to the table's status cell. */
 export function StatusLine({
   status,
   duration,
@@ -83,10 +74,7 @@ export function JobStatusLine({ job, className }: { job: JobDetail; className?: 
   return <StatusLine status={job.status} duration={jobDuration(job)} className={className} />;
 }
 
-/**
- * Bordered verdict pill with a tinted leading icon: the border stays neutral so
- * only the icon carries colour.
- */
+/** Verdict pill: the border stays neutral so only the leading icon carries colour. */
 export function VerdictPill({ verdict }: { verdict: NonNullable<JobSummary['verdict']> }) {
   const approved = verdict === 'approve';
   const Icon = approved ? CheckCircle2 : MessageSquare;
@@ -151,9 +139,8 @@ export function MetaChip({
 }
 
 /**
- * Author avatar. Hits avatars.githubusercontent.com directly (github.com/<login>.png
- * only 302-redirects, and that hop can fail) and falls back to an initial, so the
- * header never shows a broken-image glyph. No `loading="lazy"` - intersection
+ * Author avatar. Hits avatars.githubusercontent.com directly, since the github.com/<login>.png
+ * redirect hop can fail, and falls back to an initial. No `loading="lazy"`: intersection
  * detection is unreliable inside the app's scroll containers.
  */
 export function AuthorAvatar({ login, size = 20 }: { login: string | null; size?: number }) {
@@ -184,7 +171,6 @@ export function AuthorAvatar({ login, size = 20 }: { login: string | null; size?
   );
 }
 
-/** Avatar + login as one chip, for the header's identity line. */
 export function AuthorChip({ login }: { login: string | null }) {
   if (!login) return null;
   return (
@@ -197,28 +183,17 @@ export function AuthorChip({ login }: { login: string | null }) {
   );
 }
 
-/* ── Row rhythm ───────────────────────────────────────────────────────────── */
-
-/**
- * One label → value row inside a panel. Fixed height and hairline dividers give
- * the detail cards the same uniform rhythm as the table's 48px rows (a touch
- * tighter, since these are dense key/value pairs).
- */
+/** One label → value row. Fixed height and hairline dividers echo the table's 48px rhythm. */
 export const DETAIL_ROW =
   'flex h-11 items-center justify-between gap-4 border-t border-ui-line first:border-transparent';
 
-/** Muted row label - quiet, sentence case, never competing with its value. */
 export const DETAIL_LABEL = 'shrink-0 text-xs leading-none text-ui-default dark:text-ui-subtle';
 
-/** The dash placeholder used wherever a nullable field is absent. */
 export function EmptyValue() {
   return <span className="text-xs leading-none text-ui-subtle">-</span>;
 }
 
-/**
- * A file path rendered like the table's mono cells: the directory prefix recedes
- * and the basename carries the weight, so long paths stay scannable.
- */
+/** File path in the table's mono style: the directory recedes, the basename carries the weight. */
 export function MonoPath({ path, className }: { path: string; className?: string }) {
   const slash = path.lastIndexOf('/');
   const dir = slash === -1 ? '' : path.slice(0, slash + 1);

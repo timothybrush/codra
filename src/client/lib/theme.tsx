@@ -76,7 +76,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Listen for system changes
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => {

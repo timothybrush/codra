@@ -179,3 +179,9 @@ CREATE INDEX IF NOT EXISTS review_comments_source_idx
 ALTER TABLE llm_providers DROP CONSTRAINT IF EXISTS llm_providers_api_format_check;
 ALTER TABLE llm_providers ADD CONSTRAINT llm_providers_api_format_check
   CHECK (api_format IN ('openai', 'anthropic', 'gemini', 'cloudflare-workers-ai', 'vertex'));
+
+ALTER TABLE file_reviews ADD COLUMN IF NOT EXISTS batch_size INTEGER;
+
+CREATE INDEX IF NOT EXISTS file_reviews_batch_size_idx
+  ON file_reviews (batch_size)
+  WHERE batch_size > 1;

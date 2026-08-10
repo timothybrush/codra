@@ -8,16 +8,9 @@ import type { TokenTracker } from '../core/token-tracker';
 import type { ModelInput, ModelResponse } from '../models/types';
 import type { ResolvedModelConfig } from '@server/db/model-configs';
 
-// Sibling of services/model.ts -- import from that barrel, not from here. Four specs vi.mock that
-// specifier.
-//
-// The two single-call model flows: PR summary and finding verification. Both walk the configured
-// model chain, so they share one shape and one context.
+// Import from services/model.ts, not here -- four specs vi.mock that specifier.
 
-// What these flows need from ModelService. An implementation detail, NOT new public API: the class
-// builds one of these and keeps selectModel / resolveModel / callResolvedModel private, because
-// three specs reach those via `(service as any)` and moving them off the class would leave
-// `undefined` there -- which reads as a passing skip rather than a failure.
+// Implementation detail, NOT new public API: kept private on ModelService because three specs reach these via `(service as any)`.
 export type ModelChainContext = {
   selectModel(params: { totalLineCount: number; config: RepoConfig }): { primary: string; fallbacks: string[] };
   resolveModel(model: string): Promise<ResolvedModelConfig>;
@@ -98,16 +91,14 @@ export async function generateSummary(ctx: ModelChainContext, params: {
   throw lastError;
 }
 
-// One model call re-checks candidates against their diff context. Best-effort: any throw is
-// "verification unavailable", keeping the pre-verification findings.
+// Best-effort: any throw here means "verification unavailable", keeping the pre-verification findings.
 export async function verifyFindings(ctx: ModelChainContext, params: { candidates: VerifyCandidate[]; config: RepoConfig }): Promise<ModelResponse> {
   const { primary, fallbacks } = ctx.selectModel({ totalLineCount: 0, config: params.config });
   const modelsToTry = [primary, ...fallbacks];
   const input: ModelInput = {
     systemPrompt: VERIFY_SYSTEM_PROMPT,
     userPrompt: buildVerifyPrompt(params.candidates),
-    // The verify grammar, NOT the file-review one -- sending the review schema here (as this
-    // used to, unconditionally) makes strict decoding unsatisfiable and the pass a silent no-op.
+    // Must be the verify grammar, not the file-review one -- that schema makes strict decoding unsatisfiable and the pass a silent no-op.
     responseSchema: VERIFY_RESPONSE_SCHEMA as unknown as ModelInput['responseSchema'],
   };
   // Scale the timeout with the number of findings under review (capped inside adaptiveModelTimeoutMs).
@@ -119,11 +110,7 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
   const recordGateWait = (waitedMs: number) => { gateWaitMs += waitedMs; };
 
   for (const [modelIndex, currentModel] of modelsToTry.entries()) {
-    // The same two breakers reviewFileChunk has, and they matter MORE here: finalize cannot
-    // hibernate, so it has one invocation's budget for the verify call, createReview, disposition
-    // writes and labels. A nine-model chain through an outage costs ~36 of 50 subrequests, or
-    // ~180s against a ~120s ceiling, swallowed by fail-open -- the review never posts and the job
-    // fails terminally with every file already reviewed. Giving up early is the right trade.
+    // Matters more here than in reviewFileChunk: finalize can't hibernate, so a full model chain through an outage can burn the whole invocation budget and fail the job terminally.
     if (modelIndex > 0 && ctx.tracker?.isNearLimit()) {
       logger.warn('Stopping the verification chain; subrequest budget for this invocation is nearly exhausted', {
         skippedModels: modelsToTry.slice(modelIndex),

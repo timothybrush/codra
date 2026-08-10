@@ -18,8 +18,7 @@ async function main() {
   console.log(chalk.gray('This script will automatically configure your Cloudflare resources.\n'));
 
   const env = getEnvVars();
-  
-  // 1. Prerequisites Check
+
   const authSpinner = ora('Checking Cloudflare authentication...').start();
   let globallyAuthenticated = true;
   try {
@@ -42,7 +41,6 @@ async function main() {
     process.exit(1);
   }
 
-  // 2. KV Namespace
   console.log(chalk.cyan.bold('📦 KV Namespaces'));
   const kvId = await handleKVNamespace('codra-review', false);
   if (!kvId) console.log(chalk.yellow('  ⚠️ Could not extract KV ID.'));
@@ -51,7 +49,6 @@ async function main() {
   if (!kvPreviewId) console.log(chalk.yellow('  ⚠️ Could not extract preview KV ID.'));
   console.log('');
 
-  // 3. Queues
   console.log(chalk.cyan.bold('📨 Queues'));
   const jobsSpinner = ora('Creating jobs queue (codra-review-jobs)...').start();
   try {
@@ -68,7 +65,6 @@ async function main() {
 
   console.log('');
 
-  // 4. Hyperdrive
   console.log(chalk.cyan.bold('🗄️  Hyperdrive'));
   console.log(chalk.gray(`  (Using default from .dev.vars if available)`));
   const { dbUrl } = await prompts({
@@ -91,7 +87,6 @@ async function main() {
   const hyperdriveId = await handleHyperdrive(dbUrl);
   console.log('');
 
-  // 5. Domain Configuration
   console.log(chalk.cyan.bold('🌐 Domain Configuration'));
   const { domainChoice } = await prompts({
     type: 'select',
@@ -133,7 +128,6 @@ async function main() {
   }
   console.log('');
 
-  // 6. Application Variables
   console.log(chalk.cyan.bold('📝 Application Variables'));
   const { botUsername } = await prompts({
     type: 'text',
@@ -157,15 +151,12 @@ async function main() {
   }, { onCancel: () => process.exit(1) });
   console.log('');
 
-  // 7. Config Update
   console.log(chalk.cyan.bold('⚙️  Configuration'));
   const configSpinner = ora('Updating wrangler.jsonc...').start();
   let wranglerConfig = fs.readFileSync(WRANGLER_JSONC_PATH, 'utf-8');
   let configChanged;
 
-  // Escape a string for safe embedding inside JSON double-quoted literals.
-  // Use JSON.stringify (which correctly escapes backslashes, quotes, and control
-  // characters) and strip the surrounding quotes it adds.
+  // JSON.stringify escapes backslashes/quotes/control chars correctly; strip the quotes it adds.
   const escapeJson = (str) => JSON.stringify(String(str)).slice(1, -1);
 
   const routeRegex = /"routes"\s*:\s*\[[\s\S]*?\]|"workers_dev"\s*:\s*(true|false)/;
@@ -212,7 +203,6 @@ async function main() {
   }
   console.log('');
 
-  // 8. Secrets
   console.log(chalk.cyan.bold('🔐 Secrets'));
   const requiredSecrets = [
     "APP_PRIVATE_KEY",

@@ -17,8 +17,7 @@ import {
 } from './phase-control';
 import { sendReviewTelemetry } from './telemetry';
 import { applyFindingGates } from './gate-pipeline';
-// Sibling of the core/review barrel; import from there, not here. Finalize reconciles reviews,
-// gates findings, then composes and posts the review.
+// Reconciles reviews, gates findings, then composes and posts the review. Import from the core/review barrel, not here.
 
 export async function runFinalizePhase(
   env: AppBindings,
@@ -37,14 +36,14 @@ export async function runFinalizePhase(
   const { files, skipped: filesOverCap } = await getDiffFiles(env, job, github, config, reviewSettings.maxFiles);
   let reviews = await getFileReviewsForJobs(env, [job.id]);
 
-  if (reviews.length < files.length) {
+  {
+    // Set difference, not counts: the re-fetched diff can differ, so equal counts can still hide unreviewed files.
     const reviewedPaths = new Set(reviews.map((r) => r.file_path));
     const missingFiles = files.filter((f) => !reviewedPaths.has(f.path));
-    
+
     if (missingFiles.length > 0) {
       logger.warn(`Job ${job.id} reached finalize phase with ${missingFiles.length} missing file reviews. Forcing them to failed state.`);
-      // One INSERT: per-file scales subrequest cost with the missing-file count and exhausts the budget
-      // right before posting, which finalize cannot hibernate through.
+      // One INSERT: per-file writes would exhaust the subrequest budget right before posting.
       await bulkMarkFilesFailed(
         env,
         job.id,
@@ -53,9 +52,9 @@ export async function runFinalizePhase(
       );
 
       reviews = await getFileReviewsForJobs(env, [job.id]);
-    } else {
+    } else if (reviews.length < files.length) {
+      // Every path covered but fewer rows than files: review isn't done, so bounce back. Must stay an `else if`, or the healthy path loops finalize forever.
       await updateJobStep(env, job.id, 'Reviewing Files', { status: 'running' });
-      // Bounce back to review on a fresh invocation/budget (finalize already spent this one).
       await enqueueJobPhase(env, job.id, 'review', FRESH_INVOCATION_YIELD_SECONDS);
       return;
     }
@@ -204,8 +203,7 @@ export async function runFinalizePhase(
     })),
   });
 
-  // `postedIndices`, not `finalComments`: the 422 fallback posts nothing and would otherwise mark all
-  // comments posted and hide them forever. Resume has no per-comment correspondence, so mark nothing.
+  // `postedIndices`, not `finalComments`: the 422 fallback posts nothing, and marking all posted would hide them forever.
   if (review.postedIndices && review.postedIndices.length > 0) {
     const postedFingerprints = review.postedIndices
       .map((index) => finalComments[index]?.fingerprint)
@@ -215,8 +213,7 @@ export async function runFinalizePhase(
 
   // Measurement only: a failure here must never fail a review already on GitHub.
   try {
-    // Union of both maps. KEPT findings have no disposition and must not clobber 'posted' (see the
-    // COALESCE in markCommentDispositions).
+    // Union of both maps. Kept findings have no disposition and must not clobber 'posted'.
     const withReasons = new Map<string, { disposition: string | null; reason: string | null }>();
     for (const fingerprint of new Set([...dispositions.keys(), ...verifyReasons.keys()])) {
       withReasons.set(fingerprint, {
@@ -244,8 +241,7 @@ export async function runFinalizePhase(
   const partialErrorMessage = hasFailures
     ? `Partial review: ${failedFileCount} of ${files.length} file${files.length === 1 ? '' : 's'} could not be reviewed.`
     : null;
-  // Marked done immediately after createReview: the review is on GitHub, so a budget-exhausted
-  // cosmetic call must not strand the job.
+  // Done immediately after createReview: the review is on GitHub, so a budget-exhausted cosmetic call must not strand the job.
   await completeJob(env, job.id, {
     verdict: verdictSummary.verdict,
     fileCount: files.length,
@@ -259,9 +255,7 @@ export async function runFinalizePhase(
   });
   logger.info(`Review job completed: ${job.owner}/${job.repo} PR #${job.prNumber}`);
 
-  // KV diff cache left as-is: the job UI reads it for its 6h TTL, then falls back to GitHub.
-  // Cosmetics only from here (labels, check-run conclusion). Best-effort; the review is posted and the
-  // job is 'done', and completeTerminalCheckRuns reconciles on failure.
+  // Cosmetics only from here (labels, check-run conclusion), best-effort: the review is posted, and completeTerminalCheckRuns reconciles on failure.
   try {
     // Check-run conclusion first: it drives the status badge, so it wins if the budget allows only one.
     if (job.checkRunId) {
@@ -271,7 +265,7 @@ export async function runFinalizePhase(
         title: hasFailures ? 'Review partially failed' : (verdictSummary.verdict === 'approve' ? 'LGTM' : 'Comments posted'),
         summary: `${finalComments.length} inline comments across ${files.length} files.${hasFailures ? ` ${failedFileCount} file${failedFileCount === 1 ? '' : 's'} could not be reviewed.` : ''}`,
       });
-      // Record completion so the maintenance sweep skips it; if the update threw, it is finished later.
+      // Record completion so the maintenance sweep skips it.
       await markJobCheckRunCompleted(env, job.id);
     }
 

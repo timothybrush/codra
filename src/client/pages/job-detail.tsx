@@ -42,8 +42,7 @@ export function JobDetailPage() {
     <section
       className={cn(
         'ui-font-sans flex flex-col gap-5',
-        // Files changed fills the viewport so the tree can be full height and the
-        // diff pane scrolls itself; Overview keeps normal page flow.
+        // Files-changed fills the viewport so the tree is full height and the diff pane scrolls itself; Overview keeps normal flow.
         tab === 'files' && 'min-h-0 flex-1',
       )}
     >
@@ -61,7 +60,6 @@ export function JobDetailPage() {
 
       <JobProgress job={job} />
 
-      {/* PR-style tab bar */}
       <nav className="flex items-center gap-1 border-b border-ui-line" role="tablist" aria-label="Job detail sections">
         {TABS.map(({ id: tabId, label, icon: Icon }) => {
           const active = tab === tabId;

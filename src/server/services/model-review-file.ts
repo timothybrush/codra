@@ -1,42 +1,25 @@
-import type { AppBindings } from '../env';
-import { buildFileReviewPrompts, buildReviewResponseSchema, type RejectedExemplar } from '../prompts/file-review';
-import { parseFileReviewResponse } from '../core/model-output';
-import { chunkFileDiff } from '../core/diff';
-import { adaptiveModelTimeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
 import {
-  estimatePromptTokens,
-  isCloudflareAllocationError,
-  isGoogleRateLimitError,
-  isTransientModelFailure,
-  mergeCounts,
-  RetryableModelError,
-} from './model-support';
+  buildBatchReviewPrompts,
+  buildBatchReviewResponseSchema,
+  buildFileReviewPrompts,
+  buildReviewResponseSchema,
+  type RejectedExemplar,
+} from '../prompts/file-review';
+import { parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '../core/model-output';
+import { chunkFileDiff, type FileDiff } from '../core/diff';
+import { adaptiveModelTimeoutMs } from '../models/limits';
+import { mergeCounts } from './model-support';
+import { type ModelReviewContext, runModelChain } from './model-review-chain';
 import { logger } from '../core/logger';
 import type { RepoConfig } from '@shared/schema';
 import type { ModelResponse } from '../models/types';
-import type { ResolvedModelConfig } from '@server/db/model-configs';
-import type { ModelChainContext } from './model-chain-runner';
-import type { ModelRateLimitBook } from './model-rate-limits';
 
-// Sibling of the services/model barrel; import from there, not here (four specs vi.mock it).
-// Per-file review flow: chunking, the fallback chain, and the Cloudflare async-batch path.
+// Import from the services/model barrel, not here (four specs vi.mock it).
 
-// Per-invocation state on top of the model-chain surface. Implementation detail, not public API.
 export const COMPACT_REVIEW_PROMPT_LINE_CAP = 400;
-// Budget required before a chunk past BASE_CHUNKS runs, so a tail chunk only spends while another
-// whole file still fits. Not chain-length derived: that shrinks the tail when budget is tightest.
+// Budget required before a chunk past BASE_CHUNKS runs, so a tail chunk only spends while another whole file still fits.
 const EXTRA_CHUNK_BUDGET_RESERVE = 8;
-// Two: each model has its own bucket so the next often succeeds, but past two each attempt spends a
-// subrequest for nothing.
-const MAX_QUOTA_FAILURES_PER_FILE = 2;
-
-export type ModelReviewContext = ModelChainContext & {
-  env: AppBindings;
-  rateLimits: ModelRateLimitBook;
-  // Models proven this invocation not to support async batching: the first file probes, and the rest
-  // skip straight to synchronous rather than pay for another failed submit.
-  asyncUnsupportedModels: Set<string>;
-};
+export type { ModelReviewContext };
 
 export async function reviewFile(ctx: ModelReviewContext, params: {
   file: any;
@@ -53,11 +36,10 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     : configuredLineCap;
 
   let chunks = chunkFileDiff(params.file, modelLineCap);
-  // Remember the pre-cap chunk count so wasPromptTruncated doesn't have to re-run chunkFileDiff.
+  // Pre-cap count, so wasPromptTruncated doesn't re-run chunkFileDiff.
   const totalChunkCount = chunks.length;
 
-  // Was a flat 4, hard-capping files at 3,200 lines and silently dropping the rest (~15% of one
-  // 3,749-line file never reached a model). Past BASE_CHUNKS is opportunistic, only on spare budget.
+  // Past BASE_CHUNKS is opportunistic, only on spare budget.
   const BASE_CHUNKS = 4;
   const MAX_CHUNKS = 8;
   if (chunks.length > MAX_CHUNKS) {
@@ -77,9 +59,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
       break;
     }
 
-    // Opportunistic tail. isNearLimit() fires only at the safe margin, by which point in-flight files are
-    // starved: that is how one large file took 16 others down. Needs spare budget, not merely remaining;
-    // yielding here reports truncated, not failed.
+    // Needs spare budget, not merely remaining: isNearLimit() only fires once in-flight files are already starved.
     if (chunkIndex >= BASE_CHUNKS) {
       const remaining = ctx.tracker?.remainingSafeBudget() ?? Number.POSITIVE_INFINITY;
       if (remaining < EXTRA_CHUNK_BUDGET_RESERVE) {
@@ -116,8 +96,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     parsed: {
       ...primaryResult.parsed,
       comments: combinedFindings,
-      // Summed across chunks, or a truncated file under-reports by nearly the chunk count; drives the
-      // "N claims withheld" note.
+      // Summed across chunks, or a truncated file under-reports the "N claims withheld" note.
       evidenceStats: results.reduce((acc, r) => ({
         total: acc.total + (r.parsed.evidenceStats?.total ?? 0),
         matched: acc.matched + (r.parsed.evidenceStats?.matched ?? 0),
@@ -155,149 +134,69 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
     config: params.config.review,
     rejectedExemplars: params.rejectedExemplars,
   });
-  const responseSchema = buildReviewResponseSchema(params.config.review.max_comments);
 
-  const { primary, fallbacks } = ctx.selectModel({
+  const response = await runModelChain(ctx, {
+    systemPrompt,
+    userPrompt,
+    responseSchema: buildReviewResponseSchema(params.config.review.max_comments),
+    // Scales with the diff the model sees: small files fail over fast.
+    timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount),
+    label: params.file.path,
     totalLineCount: params.totalLineCount,
     config: params.config,
+    parse: (rawText) => parseFileReviewResponse(rawText, params.file, {
+      deniedClaimTypes: params.config.review.deny_claim_types,
+    }),
   });
-  const modelsToTry = [primary, ...fallbacks];
 
-  // Timeout scales with the diff the model sees: small files fail over fast, large diffs get longer.
-  const timeoutMs = adaptiveModelTimeoutMs(params.file.lineCount);
-  const estimatedPromptTokens = estimatePromptTokens(systemPrompt, userPrompt);
+  return {
+    ...response,
+    reviewedLineCount: params.file.lineCount,
+    wasPromptTruncated: params.file.isTruncated === true,
+  };
+}
 
-  let lastError: unknown;
-  let lastTransientError: unknown;
-  let sawTransientFailure = false;
-  let quotaFailures = 0;
-  const chainStartedAt = Date.now();
-  // Gate-wait is excluded from the call timeout: charging it made a busy gate look like a slow model
-  // and deferred files before any fallback ran.
-  let gateWaitMs = 0;
-  const recordGateWait = (waitedMs: number) => { gateWaitMs += waitedMs; };
-  for (const [modelIndex, currentModel] of modelsToTry.entries()) {
-    // The primary always gets a shot; past that each fallback risks the 50-subrequest cap, so defer.
-    if (modelIndex > 0 && ctx.tracker?.isNearLimit()) {
-      logger.warn(`Skipping remaining fallback models for ${params.file.path}; subrequest budget for this invocation is nearly exhausted`, {
-        skippedModels: modelsToTry.slice(modelIndex),
-      });
+export type BatchReviewOutcome = ModelResponse & {
+  batch: BatchReviewResult;
+  userPrompt: string;
+};
 
-      // With no transient failures seen (all permanent), let the last permanent error propagate.
-      if (sawTransientFailure) {
-        lastTransientError = lastTransientError ?? lastError ?? new Error('Subrequest budget for this invocation was nearly exhausted before trying all configured fallback models');
-      }
-      break;
-    }
+// Caller fans the result out to per-file rows and must not record `batch.missing` as reviewed.
+export async function reviewFiles(ctx: ModelReviewContext, params: {
+  files: readonly FileDiff[];
+  prTitle: string | null;
+  prDescription: string | null;
+  config: RepoConfig;
+  totalLineCount: number;
+  rejectedExemplars?: readonly RejectedExemplar[];
+}): Promise<BatchReviewOutcome> {
+  const { systemPrompt, userPrompt } = buildBatchReviewPrompts({
+    files: params.files,
+    prTitle: params.prTitle,
+    prDescription: params.prDescription,
+    config: params.config.review,
+    rejectedExemplars: params.rejectedExemplars,
+  });
 
-    // Stop walking the chain once wall clock is spent: back-to-back slow calls pass Cloudflare's ~120s
-    // limit and die as `exceededCpu`.
-    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
-      logger.warn(`Deferring ${params.file.path}: fallback chain exceeded its per-invocation time budget`, {
-        elapsedMs: Date.now() - chainStartedAt,
-        gateWaitMs,
-        skippedModels: modelsToTry.slice(modelIndex),
-      });
-      // Deferrable, so the file retries on a fresh budget instead of failing permanently.
-      sawTransientFailure = true;
-      lastTransientError = lastTransientError ?? lastError ?? new Error(`Model fallback chain for ${params.file.path} exceeded its time budget; deferring for retry.`);
-      break;
-    }
+  // The bin's total: a 400-line bin on a small-file timeout dies mid-call and takes all of it down.
+  const binLineCount = params.files.reduce((sum, file) => sum + file.lineCount, 0);
 
-    let resolved: ResolvedModelConfig;
-    try {
-      resolved = await ctx.resolveModel(currentModel);
-    } catch (error) {
-      lastError = error;
-      logger.warn(`Model ${currentModel} could not be resolved`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
+  const response = await runModelChain(ctx, {
+    systemPrompt,
+    userPrompt,
+    responseSchema: buildBatchReviewResponseSchema(params.config.review.max_comments, params.files.length),
+    timeoutMs: adaptiveModelTimeoutMs(binLineCount),
+    label: `${params.files.length} files (${params.files[0]?.path ?? 'unknown'} …)`,
+    // Per file, so progress survives the bin narrowing or exploding into singles.
+    progressLabels: params.files.map((file) => file.path),
+    totalLineCount: params.totalLineCount,
+    config: params.config,
+    parse: (rawText) => parseBatchReviewResponse(rawText, params.files, {
+      deniedClaimTypes: params.config.review.deny_claim_types,
+      maxCommentsPerFile: params.config.review.max_comments,
+    }),
+  });
 
-    if (resolved.apiFormat === 'cloudflare-workers-ai' && await ctx.isProviderUnavailable(resolved.providerId)) {
-      logger.warn(`Skipping ${resolved.providerName} model ${currentModel} because the provider is unavailable for job ${ctx.jobId ?? 'unknown'}`);
-      continue;
-    }
-
-    // Skip a call known to fail rather than pay a subrequest to be told: this is what stops the stronger
-    // models' buckets being spent on 429s for files that could never fit.
-    const skipReason = ctx.rateLimits.skipReason(resolved.modelName, estimatedPromptTokens);
-    if (skipReason) {
-      logger.info(`Skipping ${currentModel} for ${params.file.path}: ${skipReason}`);
-      continue;
-    }
-
-    // One shot per model; a retryable outage defers the whole file, so failure falls to the next.
-    try {
-      const response = await ctx.callResolvedModel(
-        resolved,
-        { systemPrompt, userPrompt, responseSchema },
-        timeoutMs,
-        recordGateWait,
-      );
-
-      if (ctx.tracker) {
-        ctx.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
-      }
-
-      const parsed = parseFileReviewResponse(response.rawText, params.file, {
-        deniedClaimTypes: params.config.review.deny_claim_types,
-      });
-      return {
-        ...response,
-        parsed,
-        userPrompt,
-        reviewedLineCount: params.file.lineCount,
-        wasPromptTruncated: params.file.isTruncated === true,
-      };
-    } catch (error) {
-      lastError = error;
-      if (isTransientModelFailure(error)) {
-        sawTransientFailure = true;
-        lastTransientError = error;
-      }
-      if (resolved.apiFormat === 'cloudflare-workers-ai' && isCloudflareAllocationError(error)) {
-        await ctx.markProviderUnavailable(resolved.providerId, error instanceof Error ? error.message : String(error));
-      }
-
-      const rateLimited = isGoogleRateLimitError(error);
-      if (rateLimited) {
-        quotaFailures += 1;
-        // Learn bucket size and cool-off from the provider's message, so later files skip it instead of
-        // rediscovering the limit at their own expense.
-        ctx.rateLimits.note(resolved, error);
-      }
-
-      // A 429 means come back later, not try another model: nine models x three attempts is 27 subrequests
-      // for ONE file against a 50-subrequest cap.
-      const outOfQuotaBudget = quotaFailures >= MAX_QUOTA_FAILURES_PER_FILE;
-
-      logger.warn(`Model ${currentModel} failed for ${params.file.path}`, {
-        error: error instanceof Error ? error.message : String(error),
-        rateLimited,
-        quotaFailures,
-        willTryFallback: !outOfQuotaBudget && modelIndex < modelsToTry.length - 1,
-      });
-
-      if (outOfQuotaBudget) {
-        sawTransientFailure = true;
-        lastTransientError = error;
-        break;
-      }
-      // Fall through to the next model in the fallback chain.
-    }
-  }
-
-  if (sawTransientFailure) {
-    const retryCause = lastTransientError ?? lastError;
-    const lastMessage = retryCause instanceof Error ? retryCause.message : String(retryCause ?? 'Unknown model error');
-    throw new RetryableModelError(
-      `All configured review models failed for ${params.file.path}; retrying later. Last error: ${lastMessage}`,
-      retryCause,
-    );
-  }
-
-  throw lastError;
+  return { ...response, batch: response.parsed };
 }
 

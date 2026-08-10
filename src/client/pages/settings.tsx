@@ -38,10 +38,7 @@ import { ProviderRow } from '@client/components/features/settings/provider-row';
 import { ReviewSection } from '@client/components/features/settings/review-section';
 import { useReviewSettings } from '@client/hooks/use-review-settings';
 
-/**
- * Kept as a named export from this module because `test/settings.spec.ts` imports it from here.
- * The implementation lives with the ModelRouteConfig type it operates on.
- */
+/** Named export kept here because `test/settings.spec.ts` imports it from this module. */
 export const normalizeGlobalConfig = normalizeModelRoute;
 
 
@@ -119,12 +116,7 @@ export function SettingsPage() {
   );
 
   const applyModelConfigResponse = (modelsRes: ModelConfigsResponse) => {
-    // A save on one provider triggers a background catalog refresh (see saveProvider below), which
-    // lands here mid-edit on OTHER provider rows. Overwriting every row from the server wholesale
-    // silently discarded any unsaved draft (a flipped-but-not-yet-saved toggle, a typed-but-unsaved
-    // API key) the moment ANY provider was saved -- surfacing as "the toggle won't stay on". Keep a
-    // row's local draft if it still has unsaved edits relative to what we last knew the server had;
-    // only rows with no pending edits get replaced with the fresh server copy.
+    // A save on one provider triggers a catalog refresh that can land here mid-edit on other rows; only overwrite rows without an unsaved draft.
     setProviders(current => modelsRes.providers.map(fresh => {
       const draft = current.find(item => item.id === fresh.id);
       const lastKnownSaved = savedProviders.find(item => item.id === fresh.id);
@@ -213,8 +205,7 @@ export function SettingsPage() {
       if (mounted && loaded) void refreshModelCatalog({ quiet: true });
     });
     return () => { mounted = false; };
-    // Mount-only bootstrap. Both callbacks close over the page's 15+ state setters and are recreated
-    // every render, so listing them would re-fetch the whole model catalog on each keystroke.
+    // Mount-only: both callbacks close over 15+ state setters and are recreated every render, so listing deps would re-fetch on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -299,10 +290,7 @@ export function SettingsPage() {
   };
 
   const clearProviderKey = async (provider: ProviderDraft) => {
-    // Build the payload from the last SAVED state, not the draft - "remove key"
-    // must not silently persist unrelated unsaved edits (name/URL/protocol).
-    // A provider can't stay enabled without a key, so drop it to disabled while
-    // clearing (the server rejects an enabled provider with no credential).
+    // Build from the last saved state, not the draft, so clearing the key doesn't persist unrelated unsaved edits; a provider without a key can't stay enabled.
     const saved = savedProviders.find(item => item.id === provider.id);
     const base = saved ? providerToDraft(saved) : provider;
     await persistProvider(
@@ -399,7 +387,6 @@ export function SettingsPage() {
         </Alert>
       )}
 
-      {/* ── Review performance ──────────────────────────────────────────────── */}
       <ReviewSection
         loading={loading}
         reviewSettings={reviewSettings}
@@ -414,10 +401,8 @@ export function SettingsPage() {
       />
 
 
-      {/* ── LLM Providers ──────────────────────────────────────────────────── */}
       <section className="ui-panel min-w-0 overflow-hidden">
 
-        {/* Header */}
         <div className="flex items-center justify-between gap-4 border-b border-ui-line px-4 py-4 sm:px-5">
           <div className="min-w-0">
             <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">LLM Providers</h2>
@@ -447,7 +432,6 @@ export function SettingsPage() {
           </div>
         </div>
 
-        {/* Add provider form */}
       {addingProvider && (
           <div className="animate-slide-down border-b border-ui-line bg-ui-fill/20 px-4 py-5 sm:px-5 sm:py-6">
             <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
@@ -528,7 +512,6 @@ export function SettingsPage() {
           </div>
         )}
 
-        {/* Provider list */}
         {loading ? (
           <div className="divide-y divide-ui-line/60">
             {[148, 148, 148].map((h, i) => (
@@ -567,7 +550,6 @@ export function SettingsPage() {
           </div>
       )}
 
-      {/* Global model strategy */}
         <div className="border-t border-ui-line">
           <div className="px-4 py-4 sm:px-5">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">Default models</h3>
@@ -591,7 +573,6 @@ export function SettingsPage() {
           </div>
         </div>
 
-        {/* Footer */}
         {!loading && (
           <div className="border-t border-ui-line/50 px-4 py-2.5 sm:px-5">
             <p className="text-xs text-ui-subtle/70">
@@ -605,7 +586,6 @@ export function SettingsPage() {
         )}
       </section>
 
-      {/* ── About ──────────────────────────────────────────────────────────── */}
       <AboutSection />
     </section>
   );

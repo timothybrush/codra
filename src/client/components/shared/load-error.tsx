@@ -14,11 +14,7 @@ interface LoadErrorProps {
   className?: string;
 }
 
-/**
- * Load-failure banner: friendly copy up front, the raw error as a small mono
- * detail chip, and a Retry action - instead of a bare toast/alert echoing
- * "Failed to fetch".
- */
+/** Friendly copy up front, raw error as a small mono chip - instead of a bare toast echoing "Failed to fetch". */
 export function LoadError({
   title = "Couldn't load data",
   detail,

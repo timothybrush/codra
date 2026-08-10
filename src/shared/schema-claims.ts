@@ -1,8 +1,7 @@
 import { reviewCategories } from './schema-enums';
 
 // Enforced, not just labelled: DEFAULT_DENIED_CLAIM_TYPES drops whole types and filters rule
-// candidates. Makes per-type precision measurable; would have caught react_hook_missing_deps at
-// 0-posted-out-of-28 months earlier.
+// candidates. Makes per-type precision measurable.
 export const claimTypes = [
   'react_hook_missing_deps',
   'react_missing_cleanup',
@@ -19,8 +18,8 @@ export const claimTypes = [
   'swallowed_error',
   'mutable_default_arg',
   'destructive_migration',
-  // About the outside world: unverifiable by training cutoff or diff grounding. Worst family measured,
-  // 21 generated, 4 posted, all wrong, confidence 0.964.
+  // About the outside world, so unverifiable by cutoff or diff grounding. Worst family measured:
+  // 21 generated, 4 posted, all wrong, at confidence 0.964.
   'external_version_claim',
   'other',
 ] as const;

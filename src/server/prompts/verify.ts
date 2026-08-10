@@ -17,8 +17,7 @@ const verifyResultSchema = z.object({
     .array(
       z.object({
         index: z.number().int(),
-        // `.optional()` and NOT `.default()`: a default would materialize the key on every parsed
-        // result, which changes the object shape callers (and tests) compare against.
+        // `.optional()` and NOT `.default()`: a default would materialize the key on every parsed result, changing the shape callers compare against.
         reason: z.string().optional(),
         verdict: z.enum(['keep', 'drop']),
         confidence: z.number().min(0).max(1).optional(),
@@ -29,9 +28,7 @@ const verifyResultSchema = z.object({
 
 export type VerifyResult = z.infer<typeof verifyResultSchema>['results'][number];
 
-// Grammar for the verification response. Field order matters for providers that decode against
-// the schema: `reason` precedes `verdict` so the model commits to a justification BEFORE the
-// decision token, rather than rationalizing a verdict it already emitted.
+// Field order matters for providers that decode against the schema: `reason` precedes `verdict` so the model commits to a justification BEFORE the decision token.
 export const VERIFY_RESPONSE_SCHEMA = {
   name: 'codra_verify_findings',
   schema: {
@@ -97,13 +94,8 @@ export function buildVerifyPrompt(candidates: VerifyCandidate[]): string {
   ].join('\n');
 }
 
-// Renders a window of the diff around a finding's line so the verifier can judge it in context
-// without re-sending the whole file.
-//
-// Returns '' when the line can't be located. It used to fall back to `anchor = 0` -- the TOP of
-// the file's diff -- which meant the verifier silently judged the claim against completely
-// unrelated code. An empty string lets the caller pass the candidate through unverified instead,
-// so an infrastructure miss never masquerades as a model verdict.
+// Renders a window of the diff around a finding's line so the verifier can judge it in context without re-sending the whole file.
+// Returns '' when the line can't be located, rather than falling back to `anchor = 0`: that used to make the verifier silently judge unrelated code, masquerading an infrastructure miss as a real verdict.
 export function renderDiffSnippet(file: FileDiff | undefined, line: number | undefined, radius = 12): string {
   if (!file) return '';
   const flat = file.hunks.flatMap((hunk) => hunk.lines);
@@ -111,14 +103,7 @@ export function renderDiffSnippet(file: FileDiff | undefined, line: number | und
 
   if (line == null) return '';
 
-  // NEW-file numbers first, in a separate pass. Callers always pass a post-image line
-  // (`ParsedReviewComment.line` comes from `evidence.line.newLineNumber`), but a single findIndex with
-  // `newLineNumber === line || oldLineNumber === line` returns whichever matches EARLIER in the
-  // flattened list -- and in a deletion-heavy file a context line whose OLD number equals the target
-  // sits before the correct row. The window then lands N-deletions away from the finding, so the
-  // verifier judges the claim against unrelated code and drops it, and the same wrong window is
-  // persisted as `contextSnippet`, which is unrecoverable later. The old-number pass is retained only
-  // as a fallback for a finding about removed code.
+  // NEW-file numbers first, in a separate pass: a combined findIndex on `newLineNumber === line || oldLineNumber === line` can match an earlier OLD-numbered context line in a deletion-heavy file, landing the window N-deletions away from the real finding. Old-number pass is kept only as a fallback for removed code.
   const byNewLine = flat.findIndex((l) => l.newLineNumber === line);
   const anchor = byNewLine !== -1 ? byNewLine : flat.findIndex((l) => l.oldLineNumber === line);
   if (anchor === -1) return '';

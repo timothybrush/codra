@@ -6,19 +6,14 @@ interface BarSparklineProps {
   data: number[];
   /** Bar color (hex). A vertical gradient is derived from it. */
   color: string;
-  /** Target number of bars to render. */
   bars?: number;
   className?: string;
 }
 
 /**
- * Resample `data` into exactly `bars` values so the chart always renders the
- * same number of bars, for any range or data density:
- *  - empty            → all zeros (rendered as baseline bars)
- *  - more points      → summed down into `bars` buckets
- *  - fewer points     → nearest-neighbour stretched up to `bars`
- * The trend query omits inactive days, so a quiet range can yield far fewer
- * points than the selected day count - this keeps the bar count stable anyway.
+ * Resamples `data` to exactly `bars` values (summed down or nearest-neighbour
+ * stretched up) so the chart renders a stable bar count even though the trend
+ * query omits inactive days and a quiet range can yield far fewer points.
  */
 function bucketize(data: number[], bars: number): number[] {
   const out = Array<number>(bars).fill(0);
@@ -39,13 +34,8 @@ function bucketize(data: number[], bars: number): number[] {
   return out;
 }
 
-/**
- * Compact bar-chart sparkline for the stat cards: a handful of chunky,
- * gradient bars - lightweight divs rather than a charting lib.
- */
-// Every bar gets at least this share of the height, so even zero/quiet periods
-// render as a clearly visible small bar rather than an invisible nub. Real
-// values scale linearly above the baseline, preserving the trend shape.
+// Lightweight divs rather than a charting lib.
+// Minimum height share so zero/quiet periods still render as a visible bar, not an invisible nub.
 const BASELINE_PCT = 32;
 
 export function BarSparkline({ data, color, bars = 8, className }: BarSparklineProps) {

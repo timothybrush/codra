@@ -15,8 +15,7 @@ import {
   MAX_COMMENTS_STEPS,
 } from './settings-support';
 
-// The "Review performance" card plus the confirm dialog that guards its two ceilings. Everything it
-// needs comes from useReviewSettings, so the page spreads that hook's return value straight in.
+// Everything this needs comes from useReviewSettings, so the page spreads that hook's return value straight in.
 export function ReviewSection({
   loading,
   reviewSettings,
@@ -96,8 +95,7 @@ export function ReviewSection({
                   step={1}
                   value={maxFilesDraft}
                   onChange={(event) => setMaxFilesDraft(event.target.value)}
-                  // Committed on blur/Enter rather than on every keystroke: this is a free text
-                  // field, and saving mid-typing would persist "2" on the way to "200".
+                  // Committed on blur/Enter, not every keystroke, so typing "200" doesn't persist "2" mid-way.
                   onBlur={commitMaxFiles}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.currentTarget.blur();

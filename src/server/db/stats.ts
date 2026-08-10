@@ -10,11 +10,7 @@ const reviewTriggerSet = new Set<string>(reviewTriggers);
 const reviewSeveritySet = new Set<string>(reviewSeverities);
 const reviewCategorySet = new Set<string>(reviewCategories);
 
-// Day buckets are grouped in `timeZone` so the trend lines up with the timestamps
-// shown elsewhere in the dashboard. `created_at` is `timestamptz` (absolute), and
-// `AT TIME ZONE <zone>` converts it to wall-clock time in that zone before
-// truncating, so a job at 03:00 IST lands on the IST day rather than the UTC one.
-// Defaults to UTC, matching the client's default display zone.
+// `created_at` is `timestamptz` (absolute); `AT TIME ZONE <zone>` converts it to wall-clock time before truncating, so a job at 03:00 IST lands on the IST day, not the UTC one.
 export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30, timeZone = 'UTC') {
   const parsedDays = Number(days);
   const safeDays = Number.isFinite(parsedDays) ? Math.trunc(parsedDays) : 30;
@@ -161,9 +157,7 @@ export async function getStats(env: Pick<AppBindings, 'HYPERDRIVE'>, days = 30, 
       outputTokens: row.output_tokens ?? 0,
     })),
     topRepos: topRepos.map((row) => ({ owner: row.owner, repo: row.repo, jobs: row.jobs })),
-    // Drop any rows whose enum-typed column holds an unexpected value (e.g. legacy
-    // rows back-migrated from JSON, where severity/category have no DB CHECK
-    // constraint). Keeping them would fail statsSchema.parse and 500 the endpoint.
+    // Drop rows whose enum-typed column holds an unexpected value (e.g. legacy rows with no DB CHECK constraint) -- keeping them would fail statsSchema.parse and 500 the endpoint.
     statuses: statusRows.filter((row) => jobStatusSet.has(row.status)).map((row) => ({ status: row.status as (typeof jobStatuses)[number], count: row.count })),
     triggers: triggerRows.filter((row) => reviewTriggerSet.has(row.trigger)).map((row) => ({ trigger: row.trigger as (typeof reviewTriggers)[number], count: row.count })),
     severities: severityRows.filter((row) => reviewSeveritySet.has(row.severity)).map((row) => ({ severity: row.severity as (typeof reviewSeverities)[number], count: row.count })),

@@ -29,8 +29,6 @@ import {
   modelName,
 } from './chart-primitives';
 
-// The stats page metric cards and their charts.
-
 export function MetricsGrid({
   stats,
   isDark,
@@ -48,8 +46,7 @@ export function MetricsGrid({
   const repoMax = Math.max(...stats.topRepos.map((repo) => repo.jobs), 1);
   const modelMax = Math.max(...stats.models.map((model) => model.calls), 1);
 
-  // Theme-aware chart chrome. CSS variables don't reliably resolve inside
-  // Recharts SVG text, so use explicit colors keyed off the active theme.
+  // CSS variables don't reliably resolve inside Recharts SVG text, so colors are keyed off the active theme explicitly.
   const axisColor = isDark ? 'rgba(228,228,231,0.55)' : 'rgba(63,63,70,0.7)';
   const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
   const cursorColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
@@ -60,9 +57,7 @@ export function MetricsGrid({
     axisLine: false,
     tick: { fontFamily: MONO_STACK, fill: axisColor },
   } as const;
-  // Let Recharts thin the labels by available space (respecting minTickGap)
-  // rather than a fixed stride keyed off the range - the trend array can have
-  // far fewer points than `days`, which would hide every label but the first.
+  // minTickGap thins labels by available space, not a fixed stride, since the trend array can have far fewer points than `days`.
   const xAxisProps = {
     dataKey: 'day',
     tickFormatter: formatDay,
@@ -156,7 +151,6 @@ export function MetricsGrid({
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
         <GraphShell title="Job Health" icon={<ShieldCheck size={14} strokeWidth={2} />}>
           <div className="flex flex-1 items-center gap-5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-            {/* Donut with centred total */}
             <div className="relative h-36 w-36 shrink-0">
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <PieChart>
@@ -185,7 +179,6 @@ export function MetricsGrid({
               </div>
             </div>
 
-            {/* Legend with counts + share */}
             <div className="min-w-0 flex-1 space-y-2.5">
               {stats.statuses.map((s) => (
                 <div key={s.status} className="flex items-center justify-between gap-3">

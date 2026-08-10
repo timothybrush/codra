@@ -34,8 +34,7 @@ const COLUMNS = 'id, github_user_id, github_username, account_name, account_emai
 function mapRow(row: Row): AccountSettingsRecord {
   return {
     id: row.id,
-    // BIGINT comes back as a string from postgres.js; GitHub ids are well within
-    // Number's safe integer range.
+    // BIGINT comes back as a string from postgres.js; GitHub ids are well within Number's safe integer range.
     githubUserId: Number(row.github_user_id),
     githubUsername: row.github_username,
     accountName: row.account_name,
@@ -44,7 +43,6 @@ function mapRow(row: Row): AccountSettingsRecord {
   };
 }
 
-// Insert or refresh the account record for a GitHub user, returning the row.
 export async function upsertAccountSettings(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: AccountSettingsInput,
@@ -55,9 +53,7 @@ export async function upsertAccountSettings(
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (github_user_id) DO UPDATE SET
        github_username = EXCLUDED.github_username,
-       -- COALESCE, not EXCLUDED: this upsert runs on every sign-in, so assigning
-       -- the GitHub profile name unconditionally would wipe a display name the
-       -- user set on the account page. Keep theirs; only backfill when unset.
+       -- COALESCE, not EXCLUDED: this upsert runs on every sign-in, so keep an existing display name and only backfill when unset.
        account_name    = COALESCE(account_settings.account_name, EXCLUDED.account_name),
        account_email   = EXCLUDED.account_email,
        updated_at      = now()
@@ -79,10 +75,7 @@ export async function getAccountSettings(
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-// Update the user-editable fields. Only keys present in `patch` are written, so a
-// name change can't clobber the timezone and vice versa. `timezone: null` is a
-// meaningful value ("follow the browser"), hence the `!== undefined` checks.
-// Returns null if no row exists for this user.
+// Only keys present in `patch` are written, so one field can't clobber the other; `timezone: null` is a meaningful value ("follow the browser"), hence the `!== undefined` checks.
 export async function updateAccountSettings(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   githubUserId: number,

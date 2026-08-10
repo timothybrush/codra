@@ -5,19 +5,15 @@ import { LayerCard } from '@client/components/ui/layer-card';
 import { Text } from '@client/components/ui/text';
 import { Badge } from '@client/components/ui/badge';
 
-// Static: version, license and links, all read from package.json at build time. No props and no
-// state, which is why it is a component rather than inlined JSX -- it keeps 50 lines of markup out
-// of SettingsPage without threading anything through.
+// No props and no state, which is why this is a component rather than inlined JSX: it keeps 50 lines of markup out of SettingsPage.
 export function AboutSection() {
   return (
   <SectionCard
     title="About"
     description="Version, license, and links for this Codra instance"
   >
-    {/* LayerCards: Version/License in one, the links grid in its own. */}
     <div className="space-y-3 p-5">
 
-      {/* Version + License */}
       <LayerCard className="divide-y divide-ui-line rounded-lg">
         <div className="flex items-center justify-between gap-4 px-4 py-3.5">
           <Text variant="body" size="sm" bold as="span">Version</Text>
@@ -34,7 +30,6 @@ export function AboutSection() {
         </div>
       </LayerCard>
 
-      {/* Links - original 3-column grid, in its own card */}
       <LayerCard className="rounded-lg">
         <div className="grid grid-cols-1 divide-y divide-ui-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           {[

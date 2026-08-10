@@ -3,7 +3,6 @@ import { type TreeNode } from '@client/lib/file-tree';
 import { diffStats } from '@client/lib/prompt-diff';
 import { cn } from '@client/lib/utils';
 import type { FileReviewRecord } from '@shared/schema';
-// The collapsible file tree in the diff view sidebar.
 
 export interface TreeProps {
   nodes: TreeNode[];
@@ -15,8 +14,7 @@ export interface TreeProps {
 }
 
 export function FileTree({ nodes, collapsedDirs, viewedFiles, selectedFileId, onToggleDir, onSelectFile }: TreeProps) {
-  // Indentation, guide lines, and connector ticks come from the `.diff-tree`
-  // CSS (nested ul padding + borders); rows carry no depth styling themselves.
+  // Indentation, guide lines, and connector ticks come from `.diff-tree` CSS; rows carry no depth styling themselves.
   return (
     <ul>
       {nodes.map((node) => {
@@ -84,8 +82,7 @@ export function FileTree({ nodes, collapsedDirs, viewedFiles, selectedFileId, on
               {node.file.parsedComments.length > 0 && (
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title={`${node.file.parsedComments.length} review comments`} />
               )}
-              {/* Counts appear only on hover/selection - `hidden` (not opacity-0) so
-                  they don't reserve width and squeeze the filename when invisible. */}
+              {/* `hidden` not opacity-0, so counts don't reserve width and squeeze the filename when invisible. */}
               <span
                 className={cn(
                   'ui-font-mono shrink-0 text-[10px] tabular-nums',

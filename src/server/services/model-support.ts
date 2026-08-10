@@ -2,14 +2,11 @@ import { normalizeModelId } from '@shared/schema';
 import { isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
 import { UnparseableModelResponseError } from '../models/types';
 
-// Pure helpers for the model service: alias resolution, prompt-size estimation, rate-limit parsing
-// and error classification. No state, no `this`, no I/O - everything ModelService needs that does
-// not touch its per-invocation caches.
+// Pure helpers for the model service: alias resolution, prompt-size estimation, rate-limit parsing, error classification.
 
 // Legacy id rewrites, applied before resolution. Empty today; kept as the hook for the next one.
 const MODEL_ALIASES: Record<string, string> = {};
 
-// Sums per-key counters across a file's chunks.
 export function mergeCounts(sources: Array<Record<string, number> | undefined>): Record<string, number> {
   const merged: Record<string, number> = {};
   for (const source of sources) {
@@ -20,32 +17,29 @@ export function mergeCounts(sources: Array<Record<string, number> | undefined>):
   return merged;
 }
 
-// Rough prompt size in tokens, for deciding whether a call can fit a token-per-minute bucket.
-//
-// Four characters per token is the usual English/code approximation. It only has to be good enough
-// to answer "is this prompt hopeless against a 16k bucket?", and it is deliberately used with a
-// safety factor (see PROMPT_FIT_SAFETY_FACTOR) because underestimating costs a wasted call and a
-// 429, whereas overestimating merely routes a borderline file to the next model.
+// Rough estimate at four chars/token, only good enough to answer "is this hopeless against a 16k bucket?" -- underestimating costs a wasted call, overestimating just routes onward.
 export function estimatePromptTokens(systemPrompt: string, userPrompt: string): number {
   return Math.ceil((systemPrompt.length + userPrompt.length) / 4);
 }
 
-// Only commit a prompt to a token-metered model if the estimate leaves this much headroom. The
-// estimate is approximate in both directions and the bucket is shared with concurrent calls.
+// Only commit a prompt to a token-metered model if the estimate leaves this much headroom.
 export const PROMPT_FIT_SAFETY_FACTOR = 0.8;
 
-// Calls that may queue on a serialized model before further files route elsewhere. Two keeps it fed
-// without anyone waiting more than about one call. Deeper queues lost 16 of 119 files once: the wait
-// ate the per-file chain budget, so they were deferred without ever trying a second model.
+// Set by runModelChain on the deferral it throws when the chain still has untried models, so the
+// caller can tell "we made progress, resume lower down" from "the same models failed again".
+// A property rather than a constructor field, matching how retry-policy.ts attaches
+// `retryAfterSeconds`. Deliberately lives here and not on the services/model barrel: four specs
+// vi.mock that barrel with a hand-written object, and a symbol missing from it reads as `undefined`
+// at the call site -- which is a TypeError inside the very catch block that handles failures.
+export function nextChainIndexOf(error: unknown): number | null {
+  const value = (error as { nextChainIndex?: unknown } | null)?.nextChainIndex;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+// Calls that may queue on a serialized model before further files route elsewhere; deeper queues have cost files their per-file chain budget while waiting.
 export const MAX_METERED_QUEUE_DEPTH = 2;
 
-// Reads a provider's own account of its rate limit out of the error it just returned.
-//
-// Google states both numbers in the 429 body:
-//   "Quota exceeded for metric: ...input_token_count, limit: 16000, model: <model-id>
-//    Please retry in 26.917952921s."
-// Anything not present is simply absent from the result -- a provider that reports neither still
-// gets a cool-off applied by the caller, just without a learned bucket size.
+// Google states both numbers in the 429 body ("...limit: 16000, model: <id> Please retry in 26.9s."); anything absent is simply omitted.
 export function parseRateLimitFromError(error: unknown): { limitTokens?: number; retryAfterMs?: number } {
   const message = error instanceof Error ? error.message : String(error ?? '');
 
@@ -113,7 +107,6 @@ export function isTransientModelFailure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
 
-  // Explicitly fail fast for timeouts so they don't loop endlessly
   if (isTimeoutMessage(lower)) {
     return false;
   }
@@ -124,10 +117,7 @@ export function isTransientModelFailure(error: unknown) {
     lower.includes('fetch failed') ||
     lower.includes('network') ||
     lower.includes('temporar') ||
-    // Upstream 5xx (e.g. Gemini's frequent "request failed with 500: Internal error encountered")
-    // is a transient server-side outage, not a deterministic client error. Without this a sustained
-    // 5xx run makes every model in the chain throw a non-transient error, so the file is marked
-    // permanently failed instead of being deferred and retried once the provider recovers.
+    // An upstream 5xx is a transient outage, not a client error, so it defers rather than permanently failing files.
     /\b50[0-9]\b/.test(lower) ||
     lower.includes('internal error')
   );

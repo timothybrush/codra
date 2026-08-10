@@ -1,11 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { reviewWithCloudflare, submitCloudflareBatch, pollCloudflareBatch } from '@server/models/cloudflare';
 
-// Regression coverage for the "qwen returned no parseable review content (empty response)"
-// incident: some Workers AI models (notably @cf/qwen/qwen2.5-coder-32b-instruct honoring
-// response_format) return the completion in `response` as an already-parsed JSON object/array
-// rather than a string. extractCloudflareText used to only accept a string, so a perfectly good
-// review was discarded as an "empty response" and synthesized into an inconclusive verdict.
+// Regression: some Workers AI models (e.g. @cf/qwen/qwen2.5-coder-32b-instruct honoring
+// response_format) return `response` as an already-parsed JSON object/array rather than a string.
+// extractCloudflareText used to only accept a string, discarding a good review as "empty response".
 
 const REVIEW_JSON = {
   findings: [],

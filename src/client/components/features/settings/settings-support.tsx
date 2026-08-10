@@ -1,9 +1,7 @@
 import type { LlmApiFormat, LlmProvider } from '@shared/schema';
 import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, type ReviewConcurrencyLevel } from '@shared/review-limits';
 
-// Module-scope constants, provider-draft predicates and the shared field label for the settings
-// page. Pure and render-free apart from FieldLabel, so the page and its section components can all
-// depend on it without either depending on the other.
+// Pure and render-free apart from FieldLabel, so the settings page and its sections can all depend on it without depending on each other.
 
 export const API_FORMAT_OPTIONS: Array<{ value: LlmApiFormat; label: string }> = [
   { value: 'openai', label: 'OpenAI' },
@@ -98,7 +96,6 @@ export function providerDraftDirty(provider: ProviderDraft, saved?: LlmProvider)
   );
 }
 
-/* ─── Field label ─────────────────────────────────────────────────────────── */
 export function FieldLabel({ htmlFor, id, children }: { htmlFor: string; id?: string; children: React.ReactNode }) {
   return (
     <label htmlFor={htmlFor} id={id} className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-ui-subtle">

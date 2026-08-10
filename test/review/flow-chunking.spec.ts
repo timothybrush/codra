@@ -16,10 +16,8 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
 
-// `global_settings` is a singleton, so a suite that READS it races the suites that write it
-// (api-auth and review-max-files) once files run in parallel. Unique row names cannot isolate a
-// single-row key/value table. This suite only needs some fixed concurrency, not the stored one, so
-// pin it to the schema default. The two suites that genuinely test the table take an advisory lock.
+// `global_settings` is a singleton, so reading it races the suites that write it once files run in
+// parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
@@ -35,21 +33,25 @@ vi.mock('@server/services/github', async () => {
 });
 
 vi.mock('@server/services/model', async () => {
-  const { makeModelServiceMock, isRetryableModelErrorMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock };
+  const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
+  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
-  // Tripwire: proves the mock above is actually reached by this suite's consumer.
-  // If a future refactor rewires runReviewJob to import getOtherRunningJobsCount from a
-  // sibling module instead of the @server/db/jobs barrel, this mock silently stops applying
-  // and every test here would still pass while asserting nothing about concurrency admission.
+  // Tripwire: if a refactor rewires runReviewJob past the @server/db/jobs barrel, the mock stops
+  // applying and every test here still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();
   });
 
   const env = createTestEnv();
+
+  // Batching opted out: this measures per-file concurrency. Batched equivalent in batch-flow.spec.ts.
+  const unbatchedConfig = {
+    ...defaultRepoConfig,
+    review: { ...defaultRepoConfig.review, batch_small_files: false },
+  };
 
   it('reviews files in a chunk concurrently', async () => {
     const { GitHubService } = await import('@server/services/github');
@@ -99,7 +101,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
       trigger: 'auto',
       headRef: 'feature',
       baseRef: 'main',
-      configSnapshot: defaultRepoConfig,
+      configSnapshot: unbatchedConfig,
     });
     await updateJobFileCount(env, job.id, 2);
     await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
@@ -112,9 +114,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
         phase: 'review',
       });
 
-      // Finalize always yields long enough to hibernate into a fresh invocation (fresh subrequest
-      // budget), so the delay is the hibernation yield, not 0.
-      // Transitioning into finalize -> runs on a fresh instance for a clean subrequest budget.
+      // Finalize yields long enough to hibernate into a fresh instance, so the delay is that yield.
       expect(result).toEqual({ action: 'next_phase', phase: 'finalize', delaySeconds: expect.any(Number), jobId: expect.any(String), freshInstance: true });
       expect(result.action === 'next_phase' && result.delaySeconds).toBeGreaterThan(0);
       expect(maxActive).toBe(2);
@@ -220,8 +220,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
       generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),
     );
-    // A prior finalize attempt already posted this review (id 999) but died before recording it, so
-    // the GitHub lookup finds it. Finalize must reuse it, not post a second review.
+    // A prior attempt posted review 999 but died before recording it; finalize must reuse it.
     const findSpy = vi.spyOn(GitHubService.prototype, 'findBotReviewForCommit').mockResolvedValue({ id: 999 });
     const createSpy = vi.spyOn(GitHubService.prototype, 'createReview');
 

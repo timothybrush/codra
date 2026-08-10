@@ -6,15 +6,7 @@ export function isSupportedGitHubWebhookEvent(eventName: string): eventName is G
   return (supportedGitHubWebhookEvents as readonly string[]).includes(eventName);
 }
 
-// Events that carry human feedback on findings we already posted.
-//
-// Deliberately a SEPARATE list from `supportedGitHubWebhookEvents`, which means "this event can
-// produce a review job" and is also consumed by the queue consumer. These are handled inline in the
-// webhook handler and never enqueue anything.
-//
-// NOTE: the GitHub App must be subscribed to "Pull request review comment" and "Pull request review
-// thread" in its settings. That lives outside this repository -- until it is done, no feedback
-// arrives and this code is simply never reached.
+// Deliberately separate from `supportedGitHubWebhookEvents` (queue-consumed, produces review jobs); these are handled inline and never enqueue. Requires the GitHub App to subscribe to "Pull request review comment/thread" or no feedback ever arrives.
 export const feedbackGitHubWebhookEvents = ['pull_request_review_comment', 'pull_request_review_thread'] as const;
 
 export type FeedbackGitHubWebhookEventName = typeof feedbackGitHubWebhookEvents[number];

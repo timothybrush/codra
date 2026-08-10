@@ -72,13 +72,11 @@ export async function loadRepoConfig(
     return cached as CachedConfig;
   }
 
-  // Check DB for existing config
   const existing = await getRepoConfigRecord(env, input.owner, input.repo);
 
   let parsedJson = existing?.parsedJson ?? defaultRepoConfig;
   const enabled = existing?.enabled ?? true;
 
-  // If there's no DB override, use the GLOBAL config
   if (!hasRepoModelOverride(existing)) {
     const globalModel = await getGlobalConfig(env);
     parsedJson = {

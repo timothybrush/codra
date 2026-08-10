@@ -23,11 +23,7 @@ interface JobsTableProps {
   loading: boolean;
   /** Columns to show. Defaults to all. */
   columns?: Column[];
-  /**
-   * Fill the parent's height and scroll the table body internally, instead of
-   * growing to fit all rows. Used on the Jobs page so the page / content card
-   * never needs its own scrollbar.
-   */
+  /** Fill the parent's height and scroll the body internally, instead of growing to fit all rows. */
   fill?: boolean;
 }
 
@@ -42,9 +38,7 @@ const DEFAULT_COLUMNS: Column[] = [
   'author',
 ];
 
-/* Deployment-table layout: the title takes all the slack and every other cell
-   is a fixed-width, single-line metadata chip sized to its widest realistic
-   content. Secondary metadata drops off first on narrow viewports so a row
+/* Title takes all the slack; secondary metadata drops off first on narrow viewports so a row
    never wraps and the title never collapses to nothing. */
 const COLUMN_CLASSES: Record<Column, string> = {
   title: 'min-w-0 pl-4',
@@ -69,9 +63,6 @@ function formatDate(value: JobSummary['createdAt']) {
   });
 }
 
-/* ── Row pieces ───────────────────────────────────────────────────────────── */
-
-/** Coloured dot + status word + run duration (e.g. "● Done  1m 36s"). */
 function StatusCell({ job }: { job: JobSummary }) {
   const duration = jobDuration(job);
   const isRunning = job.status === 'running';
@@ -97,8 +88,6 @@ function StatusCell({ job }: { job: JobSummary }) {
     </span>
   );
 }
-
-/* ── Mobile card ──────────────────────────────────────────────────────────── */
 
 function JobMobileCard({ job }: { job: JobSummary }) {
   return (
@@ -130,17 +119,12 @@ function JobMobileCard({ job }: { job: JobSummary }) {
   );
 }
 
-/* ── Table ────────────────────────────────────────────────────────────────── */
-
-/* Fixed cell height (not vertical padding) keeps every row exactly 48px tall,
-   whether or not it carries a verdict pill - padding-based rows grew ~6px on
-   pill rows and broke the vertical rhythm. */
+/* Fixed cell height, not vertical padding: padding-based rows grew ~6px on verdict-pill rows and
+   broke the vertical rhythm. */
 const CELL = 'h-12 border-t border-ui-line px-2.5 align-middle';
 
-/* Row dividers sit between rows only: the first row's top border goes
-   transparent (rather than 0-width) so it can't double up with the border of
-   whatever sits above the table - the filter toolbar or the card header -
-   without changing the row's height. */
+/* Top border goes transparent, not 0-width, so it can't double up with whatever sits above the
+   table without changing row height. */
 const ROW_DIVIDERS = 'first:[&>td]:border-transparent';
 
 export function JobsTable({ jobs, loading, columns, fill = false }: JobsTableProps) {
@@ -154,7 +138,6 @@ export function JobsTable({ jobs, loading, columns, fill = false }: JobsTablePro
         fill ? 'flex min-h-0 flex-1 flex-col' : 'overflow-hidden',
       )}
     >
-      {/* Mobile: stacked cards */}
       <div className={cn('sm:hidden', fill && 'auto-hide-scroll min-h-0 flex-1 overflow-y-auto')}>
         {loading && jobs.length === 0
           ? Array.from({ length: 6 }).map((_, i) => (
@@ -173,7 +156,6 @@ export function JobsTable({ jobs, loading, columns, fill = false }: JobsTablePro
           : jobs.map((job) => <JobMobileCard key={job.id} job={job} />)}
       </div>
 
-      {/* Desktop: header-less deployment rows */}
       <div
         className={cn(
           'hidden max-w-full sm:block',
@@ -245,8 +227,7 @@ export function JobsTable({ jobs, loading, columns, fill = false }: JobsTablePro
                   >
                     {show('title') && (
                       <td className={cn(CELL, COLUMN_CLASSES.title, 'overflow-hidden')}>
-                        {/* `after:` stretches this link across the whole row, so the
-                            entire row is one click target (like Vercel's rows). */}
+                        {/* `after:` stretches this link across the row, making the whole row one click target. */}
                         <Link
                           to={`/jobs/${job.id}`}
                           className="block truncate text-[13px] font-medium leading-none text-ui-strong outline-none after:absolute after:inset-0 after:content-[''] focus-visible:underline"

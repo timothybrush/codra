@@ -6,9 +6,8 @@ interface EmptyStateProps {
   icon?: React.ReactNode;
   title: string;
   description?: string;
-  /** Bullet-point hints shown with green dot prefix (Beetle-style) */
+  /** Bullet hints with a green dot prefix. */
   hints?: string[];
-  /** Renders an outlined link button below the hints */
   linkAction?: {
     label: string;
     href?: string;

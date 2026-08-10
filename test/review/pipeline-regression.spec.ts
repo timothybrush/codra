@@ -5,14 +5,11 @@ import type { FileDiff } from '@server/core/diff';
 
 // End-to-end regression over the parse-time chain: JSON extraction, evidence grounding, the
 // claim-type denylist, label repair and fingerprinting, in one pass over ONE realistic response.
+// Replaces a 3.4 MB corpus that showed regressions but never said which behaviour broke; each
+// behaviour is covered precisely elsewhere, and only the corpus exercised every gate at once.
 //
-// Replaces a 3.4 MB corpus whose aggregate assertions made regressions visible but never said WHICH
-// behaviour broke. Every individual behaviour is covered precisely elsewhere; what only the corpus
-// gave was one response exercising every gate at once, and that is what this keeps.
-//
-// Deliberately NOT a measure of model accuracy: synthetic findings flatter a reviewer by roughly an
-// order of magnitude. Precision is measured on real reviews, via `comment_feedback` and
-// `scripts/outdated-rate.ts`.
+// NOT a measure of model accuracy: synthetic findings flatter a reviewer by an order of
+// magnitude. Precision is measured on real reviews via `comment_feedback`.
 
 const file: FileDiff = {
   path: 'src/server/db/stats.ts',
@@ -105,8 +102,8 @@ describe('the parse-time chain, composed', () => {
     expect(parsed.overallCorrectness).toBe('patch is incorrect');
   });
 
-  // The whole point of composing them: six findings in, exactly one survives. Asserting the surviving
-  // SET rather than a count means a gate that stops firing shows up as a specific new title here.
+  // Six findings in, exactly one survives. Asserting the surviving SET rather than a count means
+  // a gate that stops firing shows up as a specific new title.
   it('surfaces only the finding that is both grounded and decidable', () => {
     expect(parsed.comments.map((c) => c.title)).toEqual([
       'Empty catch swallows the refresh failure',
@@ -118,30 +115,26 @@ describe('the parse-time chain, composed', () => {
     // weak:      quoted `}`, which matches dozens of lines and proves nothing.
     // absent:    omitted the one field that can be checked.
     //
-    // `matched` is 3, not 1: evidence resolution runs BEFORE the claim-type denylist, so the two
-    // findings that are later denied still resolved their quotes correctly. The two gates are
-    // independent, and this is what proves it.
+    // `matched` is 3, not 1: evidence resolution runs BEFORE the denylist, so the two findings
+    // later denied still resolved their quotes. The gates are independent.
     expect(parsed.evidenceStats).toMatchObject({ total: 6, matched: 3, unmatched: 1, weak: 1, absent: 1 });
   });
 
   it('denies the claim types that cannot be decided from a diff hunk', () => {
-    // react_hook_missing_deps needs the enclosing component; the version claim needs the outside
-    // world. Both are counted before being dropped, so the denial is measurable rather than silent.
+    // Counted before being dropped, so the denial is measurable rather than silent.
     expect(parsed.deniedClaimCounts.react_hook_missing_deps).toBe(1);
     expect(parsed.deniedClaimCounts.external_version_claim).toBe(1);
   });
 
-  // The version claim arrives labelled `other` - models never self-label it - so the denylist can
-  // only see it if the parser relabels it first. This is the family that posted two P0s asserting a
-  // SHA-pinned action "does not exist" while the CI job using it was green.
+  // The version claim arrives labelled `other`, so the denylist only sees it once the parser
+  // relabels it. This family posted two P0s against SHA-pinned actions while CI was green.
   it('relabels a version-existence claim before denying it', () => {
     expect(parsed.claimTypeCounts.external_version_claim).toBe(1);
     expect(parsed.comments.some((c) => c.title.includes('Invalid GitHub Action'))).toBe(false);
   });
 
-  // Withheld findings are appended to `fileSummary` under an "Off-diff" heading rather than being
-  // dropped, each tagged with WHY. That tag is what lets the dashboard attribute a withholding to a
-  // specific gate, instead of showing a review that appears to have found nothing.
+  // Withheld findings are appended to `fileSummary` under "Off-diff", each tagged with WHY, so
+  // the dashboard can attribute a withholding to a gate instead of showing an empty review.
   it('lists every withheld finding, tagged with the gate that withheld it', () => {
     expect(parsed.fileSummary).toContain('Off-diff');
     expect(parsed.fileSummary).toMatch(/\[unverified:unmatched\]/);
@@ -172,8 +165,7 @@ describe('the parse-time chain, composed', () => {
 });
 
 describe('a clean response', () => {
-  // The parser must not invent findings from an empty array - the failure mode a corpus of 25
-  // zero-finding samples existed to catch.
+  // The parser must not invent findings from an empty array.
   it('produces no findings and approves', () => {
     const parsed = parseFileReviewResponse(
       '{"findings":[],"overall_explanation":"No issues.","overall_correctness":"patch is correct","overall_confidence_score":0.9}',

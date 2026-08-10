@@ -157,11 +157,8 @@ describe('Dashboard API: jobs, stats and queue messages', () => {
     expect(data.job.files[0].parsedComments[0].codeSuggestion).toBeNull();
   });
 
-  // `fingerprint_v2` was written on every insert and omitted from this projection alone, so the
-  // dashboard never saw it, while cross-run suppression and the golden-set labels both key on it.
-  // The projection is now generated from one shared field list; this pins the round trip so a
-  // future field cannot go the same way.
-
+  // Regression: `fingerprint_v2` was written on every insert but omitted from this projection
+  // alone, so the dashboard never saw it even though suppression and gold-set labels key on it.
   it('returns both fingerprints on job detail comments', async () => {
     const env = createTestEnv();
     const token = await getAuthCookie(env);

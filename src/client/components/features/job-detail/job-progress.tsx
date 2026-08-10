@@ -16,7 +16,6 @@ export function JobProgress({ job }: JobProgressProps) {
   const activeFile = job.files.find(f => f.fileStatus === 'pending');
   const activeFilePath = activeFile?.filePath ?? null;
 
-  // Shorten file path for display: keep last 2 segments
   const displayPath = activeFilePath
     ? activeFilePath.split('/').slice(-2).join('/')
     : null;
@@ -26,7 +25,6 @@ export function JobProgress({ job }: JobProgressProps) {
 
   return (
     <div className="ui-panel ui-font-sans overflow-hidden">
-      {/* Header strip */}
       <div className="flex items-baseline justify-between gap-4 border-b border-ui-line px-4 py-3 sm:px-5">
         <div className="flex items-center gap-2">
           {isQueued
@@ -43,7 +41,6 @@ export function JobProgress({ job }: JobProgressProps) {
       </div>
 
       <div className="px-4 py-4 sm:px-5">
-        {/* Progress track */}
         <div
           className="h-1.5 overflow-hidden rounded-full bg-ui-fill"
           role="progressbar"
@@ -58,7 +55,6 @@ export function JobProgress({ job }: JobProgressProps) {
           />
         </div>
 
-        {/* Active file + percent */}
         {!isQueued && (
           <div className="mt-2.5 flex items-baseline justify-between gap-4">
             <div className="ui-font-mono flex min-w-0 items-baseline gap-0 truncate text-[11px] text-ui-subtle">

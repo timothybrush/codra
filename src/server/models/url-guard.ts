@@ -1,12 +1,5 @@
-// SSRF guard for operator-supplied provider base URLs.
-//
-// A provider's `baseUrl` is set from the dashboard and then fetched server-side, so an operator (or
-// anyone who reaches that form) could otherwise point an adapter at the Worker's own network or a
-// cloud metadata endpoint and have the response relayed back.
-//
-// This lives in one module because the copy-paste version had already failed: the guard existed in
-// the Google and OpenAI adapters and was simply absent from Anthropic, which fetched `config.baseUrl`
-// unchecked. Every adapter that accepts a base URL must call `assertPublicBaseUrl`.
+// SSRF guard for operator-supplied provider base URLs: without it, a `baseUrl` from the dashboard could point an adapter at the Worker's own network or a cloud metadata endpoint.
+// Lives in one module because a per-adapter copy-paste version had already failed once (Anthropic fetched `config.baseUrl` unchecked); every adapter must call `assertPublicBaseUrl`.
 import { ProviderRequestError } from './types';
 
 const PRIVATE_HOST_PATTERNS = [
@@ -16,9 +9,7 @@ const PRIVATE_HOST_PATTERNS = [
   /^192\.168\./,
   /^169\.254\./,
   /^localhost$/i,
-  // IPv6. The original guard carried only /^::1$/, which never matched anything: URL.hostname
-  // returns an IPv6 literal WITH its brackets ("[::1]"), so loopback was reachable the whole time.
-  // `isPrivateHost` strips them before testing.
+  // IPv6: URL.hostname returns the literal WITH brackets ("[::1]"), so `isPrivateHost` strips them before testing.
   /^::1?$/,                    // loopback and unspecified
   /^f[cd][0-9a-f]{2}:/i,       // fc00::/7  unique-local
   /^fe[89ab][0-9a-f]:/i,       // fe80::/10 link-local

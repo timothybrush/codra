@@ -14,10 +14,7 @@ import type { RejectedExemplar } from '@server/prompts/file-review';
 import { GitHubService } from '../../services/github';
 import { getReviewSettings } from '@server/db/app-settings';
 import { type PersistedReviewJob, JOB_LEASE_SECONDS, FRESH_INVOCATION_YIELD_SECONDS, enqueueJobPhase } from './phase-control';
-// Sibling of core/review.ts -- import from that barrel, not from here. Several specs mock that
-// specifier, and workflows/review.ts imports only runReviewJob from it.
-//
-// The prepare phase: fetch the PR, snapshot config, count files.
+// Sibling of core/review.ts -- import from that barrel, not from here.
 
 export async function runPreparePhase(
   env: AppBindings,
@@ -29,8 +26,7 @@ export async function runPreparePhase(
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
 
-  // Refresh the cached PR title/author from the live PR: these are snapshotted at job creation and
-  // copied onto retries, so a title edited on GitHub afterwards would otherwise stay stale.
+  // Refresh cached PR title/author: these are snapshotted at job creation and copied onto retries, so a title edited on GitHub afterwards would otherwise stay stale.
   try {
     await setJobPullRequestMeta(env, job.id, {
       prTitle: pr.title ?? null,
@@ -63,8 +59,7 @@ export async function runPreparePhase(
   }
 
   if (checkRunId) {
-    // Best-effort progress cosmetics only (see runReviewPhase): don't let a failed check-run
-    // update block enqueuing the review phase that does the actual work.
+    // Best-effort progress cosmetics only: don't let a failed check-run update block enqueuing the review phase.
     try {
       await github.updateCheckRun(job.owner, job.repo, checkRunId, {
         title: `Reviewing (0/${files.length})`,
@@ -74,16 +69,11 @@ export async function runPreparePhase(
       logger.warn(`Failed to update initial progress check run for job ${job.id}; continuing to the review phase anyway`, error instanceof Error ? error : new Error(String(error)));
     }
   }
-  // Yield like every other phase transition. Prepare has already spent this invocation's budget on
-  // getPullRequest, createCheckRun, the KV diff read/write and the check-run update, but the review
-  // phase builds a FRESH TokenTracker that starts at zero. Without a hibernating delay the two share
-  // one invocation, the tracker reports 25 free subrequests that do not exist, and the chunk fans out
-  // into "Too many subrequests".
+  // Yield: the review phase builds a FRESH TokenTracker starting at zero, so without a hibernating delay it would share this invocation's already-spent budget and fan out into "Too many subrequests".
   await enqueueJobPhase(env, job.id, 'review', FRESH_INVOCATION_YIELD_SECONDS);
 }
 
-// Negative few-shot exemplars for this repository. Best-effort, and per chunk so it costs one query
-// rather than one per file.
+// Negative few-shot exemplars for this repository. Best-effort, and per chunk so it costs one query rather than one per file.
 export async function loadRejectedExemplars(env: AppBindings, job: PersistedReviewJob): Promise<RejectedExemplar[]> {
   try {
     const repositoryId = await getRepositoryIdForJob(env, job.id);
