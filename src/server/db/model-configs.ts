@@ -296,7 +296,10 @@ export async function upsertDiscoveredModelConfigs(
     modelNames: string[];
   },
 ) {
-  const uniqueModelNames = Array.from(new Set(input.modelNames.map(name => name.trim()).filter(Boolean)));
+  const uniqueModelNames = Array.from(new Set(input.modelNames.flatMap(name => {
+    const trimmed = name.trim();
+    return trimmed ? [trimmed] : [];
+  })));
   if (uniqueModelNames.length === 0) return [];
 
   const providerSlug = slugify(input.providerName);

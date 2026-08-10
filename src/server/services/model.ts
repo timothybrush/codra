@@ -120,7 +120,7 @@ export class ModelService {
     let fallbackModels = (modelCfg?.fallbacks || []).map(normalizeModel);
 
     if (modelCfg?.size_overrides && modelCfg.size_overrides.length > 0) {
-      const sortedOverrides = [...modelCfg.size_overrides].sort((a, b) => a.max_lines - b.max_lines);
+      const sortedOverrides = modelCfg.size_overrides.toSorted((a, b) => a.max_lines - b.max_lines);
       const matched = sortedOverrides.find(o => thresholdBase <= o.max_lines);
       if (matched) {
         selectedModel = normalizeModel(matched.model);

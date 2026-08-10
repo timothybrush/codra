@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import { Skeleton } from '@client/components/shared/skeleton';
@@ -17,21 +17,79 @@ import {
   type ModelOption,
   type ModelRouteConfig,
   type ProviderOption,
-} from '@client/components/features/models/model-chain';
+} from '@client/components/features/models/model-route';
 
 import { RepoRow } from '@client/components/features/repos/repo-row';
 import { RepoModelModal } from '@client/components/features/repos/repo-model-modal';
 
 
 import { repoId, hasMeaningfulCustomStrategy } from '@client/components/features/repos/repo-route';
+
+type ReposState = {
+  repos: RepoConfigRecord[];
+  globalConfig: ModelRouteConfig;
+  modelOptions: ModelOption[];
+  providerOptions: ProviderOption[];
+  error: string | null;
+  loading: boolean;
+};
+
+type ReposAction =
+  | { type: 'load-started' }
+  | {
+      type: 'load-succeeded';
+      repos: RepoConfigRecord[];
+      globalConfig: ModelRouteConfig;
+      modelOptions: ModelOption[];
+      providerOptions: ProviderOption[];
+    }
+  | { type: 'load-failed'; message: string }
+  | { type: 'sync-started' }
+  | { type: 'sync-failed'; message: string }
+  | { type: 'repo-merged'; targetId: string; updates: Partial<RepoConfigRecord> };
+
+const INITIAL_REPOS_STATE: ReposState = {
+  repos: [],
+  globalConfig: EMPTY_MODEL_ROUTE,
+  modelOptions: [],
+  providerOptions: [],
+  error: null,
+  loading: true,
+};
+
+function reposReducer(state: ReposState, action: ReposAction): ReposState {
+  switch (action.type) {
+    case 'load-started':
+      return { ...state, loading: true };
+    case 'load-succeeded':
+      return {
+        ...state,
+        repos: action.repos,
+        globalConfig: action.globalConfig,
+        modelOptions: action.modelOptions,
+        providerOptions: action.providerOptions,
+        loading: false,
+      };
+    case 'load-failed':
+      return { ...state, error: action.message, loading: false };
+    case 'sync-started':
+      return { ...state, error: null };
+    case 'sync-failed':
+      return { ...state, error: action.message };
+    case 'repo-merged':
+      return {
+        ...state,
+        repos: state.repos.map(repo =>
+          repoId(repo) === action.targetId ? { ...repo, ...action.updates } : repo,
+        ),
+      };
+  }
+}
+
 export function ReposPage() {
-  const [repos, setRepos] = useState<RepoConfigRecord[]>([]);
-  const [globalConfig, setGlobalConfig] = useState<ModelRouteConfig>(EMPTY_MODEL_ROUTE);
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
-  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [{ repos, globalConfig, modelOptions, providerOptions, error, loading }, dispatch] =
+    useReducer(reposReducer, INITIAL_REPOS_STATE);
   const [syncing, setSyncing] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [editingRepoId, setEditingRepoId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -57,7 +115,7 @@ export function ReposPage() {
   const enabledCount = repos.filter(repo => repo.enabled).length;
 
   const loadRepos = () => {
-    setLoading(true);
+    dispatch({ type: 'load-started' });
     Promise.all([
       api.getRepos(),
       api.getGlobalConfig(),
@@ -68,30 +126,30 @@ export function ReposPage() {
         const providers = Array.isArray(modelsRes?.providers) ? modelsRes.providers : [];
         const configs = Array.isArray(modelsRes?.configs) ? modelsRes.configs : [];
 
-        setRepos(nextRepos);
-        setGlobalConfig(normalizeModelRoute(globalRes?.config));
-        setProviderOptions(providers.map(provider => ({ value: provider.id, label: provider.name })));
-        setModelOptions(configs.map(config => ({
-          value: config.modelId,
-          label: `${config.providerName} / ${config.modelName}`,
-          providerId: config.providerId,
-        })));
-        setLoading(false);
+        dispatch({
+          type: 'load-succeeded',
+          repos: nextRepos,
+          globalConfig: normalizeModelRoute(globalRes?.config),
+          providerOptions: providers.map(provider => ({ value: provider.id, label: provider.name })),
+          modelOptions: configs.map(config => ({
+            value: config.modelId,
+            label: `${config.providerName} / ${config.modelName}`,
+            providerId: config.providerId,
+          })),
+        });
       })
       .catch(e => {
-        setError(e instanceof Error ? e.message : 'Failed to load repositories.');
-        setLoading(false);
+        dispatch({
+          type: 'load-failed',
+          message: e instanceof Error ? e.message : 'Failed to load repositories.',
+        });
       });
   };
 
   useEffect(() => { loadRepos(); }, []);
 
   const mergeRepo = (targetId: string, updates: Partial<RepoConfigRecord>) => {
-    setRepos(current =>
-      current.map(repo =>
-        repoId(repo) === targetId ? { ...repo, ...updates } : repo,
-      ),
-    );
+    dispatch({ type: 'repo-merged', targetId, updates });
   };
 
   const handleToggleEnabled = async (repo: RepoConfigRecord, nextEnabled: boolean) => {
@@ -138,7 +196,7 @@ export function ReposPage() {
   const handleSync = async () => {
     if (syncing) return;
     setSyncing(true);
-    setError(null);
+    dispatch({ type: 'sync-started' });
     const tid = toast.loading('Syncing with GitHub…');
     try {
       const result = await api.syncRepos();
@@ -152,7 +210,7 @@ export function ReposPage() {
       loadRepos();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Sync failed.';
-      setError(msg);
+      dispatch({ type: 'sync-failed', message: msg });
       toast.error('Sync failed', { id: tid, description: 'Could not reach GitHub. Check your connection and try again.' });
     } finally {
       setSyncing(false);

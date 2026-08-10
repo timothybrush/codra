@@ -51,11 +51,12 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
   }
 
   const results: Array<ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>, reviewedLineCount: number, wasPromptTruncated: boolean, userPrompt: string }> = [];
-  
+  const { path: filePath } = params.file;
+
   for (const [chunkIndex, chunk] of chunks.entries()) {
     // No new chunk when close to the 50-subrequest limit.
     if (results.length > 0 && ctx.tracker?.isNearLimit()) {
-      logger.warn(`Stopping chunk processing for ${params.file.path} early due to subrequest budget limits.`);
+      logger.warn(`Stopping chunk processing for ${filePath} early due to subrequest budget limits.`);
       break;
     }
 
@@ -63,7 +64,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     if (chunkIndex >= BASE_CHUNKS) {
       const remaining = ctx.tracker?.remainingSafeBudget() ?? Number.POSITIVE_INFINITY;
       if (remaining < EXTRA_CHUNK_BUDGET_RESERVE) {
-        logger.info(`Skipping the opportunistic chunk tail for ${params.file.path}; budget is committed elsewhere.`, {
+        logger.info(`Skipping the opportunistic chunk tail for ${filePath}; budget is committed elsewhere.`, {
           chunkIndex,
           totalChunks: chunks.length,
           remainingSafeBudget: remaining,
@@ -80,7 +81,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
       if (results.length === 0) {
         throw error; // First chunk failed, let it defer/fail properly
       }
-      logger.warn(`Chunk review failed for ${params.file.path}, returning partial results to avoid stalling the job.`, { error: error instanceof Error ? error.message : String(error) });
+      logger.warn(`Chunk review failed for ${filePath}, returning partial results to avoid stalling the job.`, { error: error instanceof Error ? error.message : String(error) });
       break;
     }
   }

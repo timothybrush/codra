@@ -117,12 +117,17 @@ function extractAnthropicModels(data: AnthropicModelsResponse) {
 
 function extractGeminiModels(data: GeminiModelsResponse) {
   if (!Array.isArray(data?.models)) return [];
-  return data.models
-    .filter((model) => Array.isArray(model?.supportedGenerationMethods)
-      ? model.supportedGenerationMethods.includes('generateContent')
-      : true)
-    .map((model) => typeof model?.name === 'string' ? cleanGeminiModelName(model.name) : null)
-    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+
+  const ids: string[] = [];
+  for (const model of data.models) {
+    const methods = model?.supportedGenerationMethods;
+    if (Array.isArray(methods) && !methods.includes('generateContent')) continue;
+    if (typeof model?.name !== 'string') continue;
+    const id = cleanGeminiModelName(model.name);
+    if (id.length > 0) ids.push(id);
+  }
+
+  return ids;
 }
 
 export async function listProviderModels(input: {

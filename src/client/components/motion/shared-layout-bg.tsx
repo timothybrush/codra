@@ -1,7 +1,9 @@
 // beui.dev/components/motion/shared-layout-bg
 import {
   AnimatePresence,
-  motion,
+  domMax,
+  LazyMotion,
+  m,
   useReducedMotion,
   type Variants,
 } from "motion/react";
@@ -54,62 +56,69 @@ export function SharedLayoutBg({
   const uid = useId();
   const reduce = useReducedMotion();
 
-  return (
-    <motion.div
-      layoutRoot
-      onMouseLeave={() => setActiveId(null)}
-      className={cn("flex w-full flex-col", className)}
-    >
-      {Children.toArray(children)
-        .filter(isValidElement)
-        .map((child, index) => {
-          const el = child as ReactElement<{
-            className?: string;
-            onMouseEnter?: (e?: any) => void;
-            children?: ReactNode;
-          }>;
-          const childKey = el.key ? String(el.key) : `item-${index}`;
-          return cloneElement(
-            el,
-            {
-              key: childKey,
-              className: cn("relative z-10", el.props.className),
-              onMouseEnter: (e: any) => {
-                el.props.onMouseEnter?.(e);
-                setActiveId(childKey);
-              },
-            },
-            <>
-              <div className="pointer-events-none absolute inset-0 z-0">
-                <AnimatePresence custom={activeId !== null}>
-                  {activeId !== null ? (
-                    <motion.div
-                      variants={reduce ? reducedVariants : variants}
-                      initial="initial"
-                      animate="animate"
-                      exit="exit"
-                      custom={activeId !== null}
-                      className="absolute inset-0"
-                      style={{ left: -inset, right: -inset, top: 0, bottom: 0 }}
-                    >
-                      {activeId === childKey ? (
-                        <motion.div
-                          layoutId={`shared-bg-${uid}`}
-                          transition={reduce ? { duration: 0 } : SPRING_LAYOUT}
-                          className={cn(
-                            "pointer-events-none h-full w-full rounded-lg",
-                            pillClassName,
-                          )}
-                        />
-                      ) : null}
-                    </motion.div>
+  const rows: ReactNode[] = [];
+  for (const child of Children.toArray(children)) {
+    if (!isValidElement(child)) continue;
+    const el = child as ReactElement<{
+      className?: string;
+      onMouseEnter?: (e?: any) => void;
+      children?: ReactNode;
+    }>;
+    // rows.length is the index among *valid* children, so keyless rows keep stable fallback keys.
+    const childKey = el.key ? String(el.key) : `item-${rows.length}`;
+    rows.push(
+      cloneElement(
+        el,
+        {
+          key: childKey,
+          className: cn("relative z-10", el.props.className),
+          onMouseEnter: (e: any) => {
+            el.props.onMouseEnter?.(e);
+            setActiveId(childKey);
+          },
+        },
+        <>
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <AnimatePresence custom={activeId !== null}>
+              {activeId !== null ? (
+                <m.div
+                  variants={reduce ? reducedVariants : variants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  custom={activeId !== null}
+                  className="absolute inset-0"
+                  style={{ left: -inset, right: -inset, top: 0, bottom: 0 }}
+                >
+                  {activeId === childKey ? (
+                    <m.div
+                      layoutId={`shared-bg-${uid}`}
+                      transition={reduce ? { duration: 0 } : SPRING_LAYOUT}
+                      className={cn(
+                        "pointer-events-none h-full w-full rounded-lg",
+                        pillClassName,
+                      )}
+                    />
                   ) : null}
-                </AnimatePresence>
-              </div>
-              {el}
-            </>
-          );
-        })}
-    </motion.div>
+                </m.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+          {el}
+        </>
+      ),
+    );
+  }
+
+  return (
+    <LazyMotion features={domMax}>
+      <m.div
+        layoutRoot
+        onMouseLeave={() => setActiveId(null)}
+        className={cn("flex w-full flex-col", className)}
+      >
+        {rows}
+      </m.div>
+    </LazyMotion>
   );
 }

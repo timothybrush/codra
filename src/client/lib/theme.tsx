@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 
 export type Theme = 'light' | 'dark';
 
@@ -69,12 +69,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      const next = prev === 'light' ? 'dark' : 'light';
-      applyTheme(next, { pauseTransitions: true });
-      return next;
-    });
-  }, []);
+    setTheme(theme === 'light' ? 'dark' : 'light');
+  }, [theme, setTheme]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -87,11 +83,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => media.removeEventListener('change', handler);
   }, []);
 
-  return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  const value = useMemo(() => ({ theme, toggleTheme, setTheme }), [theme, toggleTheme, setTheme]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

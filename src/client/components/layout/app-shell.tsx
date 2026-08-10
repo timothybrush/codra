@@ -54,8 +54,14 @@ export function AppShell() {
     <div className="flex h-svh overflow-hidden bg-background">
 
       {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-background/60 backdrop-blur-md lg:hidden"
+        /* A button so the tap target is a real control, but hidden from the keyboard and the
+           a11y tree: the drawer already has a focusable "Close menu" X, and a full-viewport
+           scrim as a tab stop would be an invisible focus target announced twice. */
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="fixed inset-0 z-30 cursor-default bg-background/60 backdrop-blur-md focus:outline-none lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}

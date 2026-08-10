@@ -349,7 +349,10 @@ export function parseRawPayload(raw: string): z.infer<typeof fileReviewModelOutp
       }
 
       if (Array.isArray(obj.findings)) {
-        obj.findings = obj.findings.map(normalizeFinding).filter(Boolean);
+        obj.findings = obj.findings.flatMap((finding: unknown) => {
+          const normalized = normalizeFinding(finding);
+          return normalized ? [normalized] : [];
+        });
       }
       data = obj;
     }

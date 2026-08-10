@@ -1,5 +1,4 @@
-import { Check, ChevronDown } from 'lucide-react';
-import { motion, type Transition, useReducedMotion, type Variants } from 'motion/react';
+import { domAnimation, LazyMotion, useReducedMotion } from 'motion/react';
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -12,27 +11,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@client/lib/utils';
-import { EASE_OUT } from '@client/lib/ease';
-
-// Spring with bounce powers the unfold; per-property timings on the panel choreograph it.
-const CHEVRON_TRANSITION: Transition = { type: 'spring', duration: 0.4, bounce: 0.3 };
-
-// Compounds per option; 0.035 delayed the last item ~0.9s on long lists, so 0.02 is the compromise.
-const LIST_VARIANTS: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.02, delayChildren: 0.03 } },
-};
-const ITEM_VARIANTS: Variants = {
-  hidden: { opacity: 0, y: -5, filter: 'blur(2px)' },
-  show: { opacity: 1, y: 0, filter: 'blur(0px)' },
-};
-
-type Placement = 'bottom' | 'top';
-
-interface SelectOption {
-  value: string;
-  label: string;
-}
+import { SelectPanel } from './select-panel';
+import type { Placement, SelectOption, TriggerRect } from './select-shared';
+import { SelectTrigger } from './select-trigger';
 
 interface SelectProps {
   value: string;
@@ -64,13 +45,15 @@ export function Select({
   const baseId = useId();
   const triggerId = `${baseId}-trigger`;
   const listId = `${baseId}-list`;
+  const labelId = `${baseId}-label`;
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const labelRef = useRef<HTMLLabelElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<Placement>('bottom');
   const [height, setHeight] = useState(0);
-  const [rect, setRect] = useState<{ left: number; width: number; top: number; bottom: number } | null>(null);
+  const [rect, setRect] = useState<TriggerRect | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   /** What last moved the highlight - only keyboard moves should auto-scroll. */
@@ -100,6 +83,9 @@ export function Select({
       const target = e.target as Node;
       if (triggerRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
+      // The label forwards its click to the trigger, so treating it as "outside" would close the
+      // panel here and let that forwarded click reopen it -- one click, no visible change.
+      if (labelRef.current?.contains(target)) return;
       setOpen(false);
     };
     window.addEventListener('keydown', onKey);
@@ -196,187 +182,76 @@ export function Select({
     }
   };
 
+  const selectOption = (next: string) => {
+    onValueChange(next);
+    setOpen(false);
+  };
+
+  const highlightOption = (index: number) => {
+    highlightSource.current = 'pointer';
+    setHighlightedIndex(index);
+  };
+
   const isTop = placement === 'top';
 
-  // Gooey: the edge facing the panel snaps flat while attached, then rounds as the two pinch apart.
-  const kf = open ? [0, 0, 7] : [7, 0, 7];
-  const kfT: Transition = reduce
-    ? { duration: 0 }
-    : open
-      ? { duration: 0.46, times: [0, 0.4, 1], ease: EASE_OUT }
-      : { duration: 0.34, times: [0, 0.5, 1], ease: EASE_OUT };
-  const flatT: Transition = { duration: 0 };
-
-  const nearGap = open ? 8 : 0;
-  const nearRadius = open ? 7 : 0;
-  const gapT: Transition = open
-    ? { type: 'spring', duration: 0.44, bounce: 0.45, delay: 0.09 }
-    : { type: 'spring', duration: 0.26, bounce: 0.1 };
-  const radiusT: Transition = open
-    ? { duration: 0.26, ease: EASE_OUT, delay: 0.1 }
-    : { duration: 0.15, ease: EASE_OUT };
-  const instant: Transition = { duration: 0 };
-
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
-      {label && (
-        <label className="text-[10px] font-bold uppercase tracking-wider text-ui-subtle">
-          {label}
-        </label>
-      )}
-      <div className="relative">
-        <motion.button
-          ref={triggerRef}
-          type="button"
-          id={triggerId}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-controls={listId}
-          aria-activedescendant={open && options[highlightedIndex] ? `${listId}-option-${highlightedIndex}` : undefined}
-          onClick={() => setOpen((v) => !v)}
-          onKeyDown={onTriggerKeyDown}
-          initial={false}
-          animate={{
-            borderTopLeftRadius: isTop ? kf : 7,
-            borderTopRightRadius: isTop ? kf : 7,
-            borderBottomLeftRadius: isTop ? 7 : kf,
-            borderBottomRightRadius: isTop ? 7 : kf,
-          }}
-          transition={{
-            borderTopLeftRadius: isTop ? kfT : flatT,
-            borderTopRightRadius: isTop ? kfT : flatT,
-            borderBottomLeftRadius: isTop ? flatT : kfT,
-            borderBottomRightRadius: isTop ? flatT : kfT,
-          }}
-          style={triggerStyle}
-          className={cn(
-            'relative z-10 flex h-9 w-full items-center justify-between gap-2 border border-ui-line px-3 py-2 text-sm font-normal text-ui-default outline-none transition-colors',
-            variant === 'page' ? 'bg-ui-base' : 'bg-ui-fill/50',
-            'hover:bg-ui-fill/70 focus-visible:ring-2 focus-visible:ring-ui-brand/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            !selectedOption && 'text-ui-subtle',
-            triggerClassName,
-          )}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            {leadingIcon && <span className="shrink-0 text-primary/70">{leadingIcon}</span>}
-            <span className="min-w-0 truncate">
-              {selectedOption ? selectedOption.label : placeholder}
-            </span>
-          </span>
-          <motion.span
-            aria-hidden
-            animate={{ rotate: open ? 180 : 0 }}
-            transition={reduce ? { duration: 0 } : CHEVRON_TRANSITION}
-            className="shrink-0 text-ui-subtle"
+    <LazyMotion features={domAnimation}>
+      <div className={cn('flex flex-col gap-1.5', className)}>
+        {label && (
+          <label
+            ref={labelRef}
+            id={labelId}
+            htmlFor={triggerId}
+            className="text-[10px] font-bold uppercase tracking-wider text-ui-subtle"
           >
-            <ChevronDown className="h-4 w-4" />
-          </motion.span>
-        </motion.button>
+            {label}
+          </label>
+        )}
+        <div className="relative">
+          <SelectTrigger
+            triggerRef={triggerRef}
+            triggerId={triggerId}
+            listId={listId}
+            labelId={label ? labelId : undefined}
+            activeDescendantId={
+              open && options[highlightedIndex] ? `${listId}-option-${highlightedIndex}` : undefined
+            }
+            open={open}
+            isTop={isTop}
+            reduce={reduce}
+            selectedOption={selectedOption}
+            placeholder={placeholder}
+            leadingIcon={leadingIcon}
+            variant={variant}
+            className={triggerClassName}
+            style={triggerStyle}
+            onToggle={() => setOpen((v) => !v)}
+            onKeyDown={onTriggerKeyDown}
+          />
+        </div>
 
+        {/* Portaled to <body> so it can't be clipped by an ancestor's stacking context. */}
+        {createPortal(
+          <SelectPanel
+            panelRef={panelRef}
+            innerRef={innerRef}
+            optionRefs={optionRefs}
+            listId={listId}
+            triggerId={triggerId}
+            options={options}
+            value={value}
+            highlightedIndex={highlightedIndex}
+            open={open}
+            isTop={isTop}
+            reduce={reduce}
+            height={height}
+            rect={rect}
+            onSelect={selectOption}
+            onHighlight={highlightOption}
+          />,
+          document.body,
+        )}
       </div>
-
-      {/* Portaled to <body> so it can't be clipped by an ancestor's stacking context. */}
-      {createPortal(
-        <motion.div
-          ref={panelRef}
-          id={listId}
-          role="listbox"
-          aria-labelledby={triggerId}
-          aria-hidden={!open}
-          initial={false}
-          animate={
-            reduce
-              ? { opacity: open ? 1 : 0, height: open ? height : 0 }
-              : {
-                  opacity: open ? 1 : 0,
-                  height: open ? height : 0,
-                  // gap opens on the side facing the trigger
-                  marginTop: isTop ? 0 : nearGap,
-                  marginBottom: isTop ? nearGap : 0,
-                  // near corners go flat->round; far corners stay rounded
-                  borderTopLeftRadius: isTop ? 7 : nearRadius,
-                  borderTopRightRadius: isTop ? 7 : nearRadius,
-                  borderBottomLeftRadius: isTop ? nearRadius : 7,
-                  borderBottomRightRadius: isTop ? nearRadius : 7,
-                }
-          }
-          transition={
-            reduce
-              ? { duration: 0.12 }
-              : {
-                  opacity: open ? { duration: 0.18 } : { duration: 0.16, delay: 0.1 },
-                  height: open
-                    ? { type: 'spring', duration: 0.4, bounce: 0.14 }
-                    : { duration: 0.24, ease: EASE_OUT, delay: 0.1 },
-                  marginTop: isTop ? instant : gapT,
-                  marginBottom: isTop ? gapT : instant,
-                  borderTopLeftRadius: isTop ? instant : radiusT,
-                  borderTopRightRadius: isTop ? instant : radiusT,
-                  borderBottomLeftRadius: isTop ? radiusT : instant,
-                  borderBottomRightRadius: isTop ? radiusT : instant,
-                }
-          }
-          style={{
-            position: 'fixed',
-            left: rect?.left ?? 0,
-            width: rect?.width ?? 0,
-            top: isTop ? undefined : (rect?.bottom ?? 0),
-            bottom: isTop ? window.innerHeight - (rect?.top ?? 0) : undefined,
-            transformOrigin: isTop ? 'bottom' : 'top',
-            overflow: 'hidden',
-            pointerEvents: open ? 'auto' : 'none',
-          }}
-          // Flush against the trigger, then separates into its own rounded pill.
-          className="z-50 border border-ui-line bg-ui-base shadow-lg shadow-black/[0.04] dark:shadow-black/40"
-        >
-          <motion.ul
-            ref={innerRef}
-            variants={reduce ? undefined : LIST_VARIANTS}
-            initial={false}
-            animate={open ? 'show' : 'hidden'}
-            className="max-h-[min(28rem,60vh)] overflow-y-auto p-1"
-          >
-            {options.map((option, index) => {
-              const selected = option.value === value;
-              const highlighted = index === highlightedIndex;
-              return (
-                <motion.li key={option.value} variants={reduce ? undefined : ITEM_VARIANTS}>
-                  <button
-                    ref={(node) => {
-                      optionRefs.current[index] = node;
-                    }}
-                    id={`${listId}-option-${index}`}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    tabIndex={-1}
-                    onMouseEnter={() => {
-                      highlightSource.current = 'pointer';
-                      setHighlightedIndex(index);
-                    }}
-                    onClick={() => {
-                      onValueChange(option.value);
-                      setOpen(false);
-                    }}
-                    className={cn(
-                      // `whitespace-nowrap`: on the 72px "rows per page" select, the check icon ate the width and "10" wrapped to stacked digits.
-                      'flex w-full items-center justify-between gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm outline-none transition-colors',
-                      selected
-                        ? 'bg-ui-brand/10 font-medium text-ui-brand'
-                        : 'text-ui-default hover:bg-ui-fill hover:text-ui-strong focus-visible:bg-ui-fill',
-                      highlighted && !selected && 'bg-ui-fill text-ui-strong',
-                    )}
-                  >
-                    <span className="min-w-0 truncate">{option.label}</span>
-                    {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
-                  </button>
-                </motion.li>
-              );
-            })}
-          </motion.ul>
-        </motion.div>,
-        document.body,
-      )}
-    </div>
+    </LazyMotion>
   );
 }

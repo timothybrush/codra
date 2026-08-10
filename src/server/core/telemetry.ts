@@ -74,9 +74,11 @@ export async function sendTelemetryEvent(
     }
 
     // Filter out stub/test models (e.g. 'test-model') used in vitest mocks.
-    const cleanModelsUsed = data.modelsUsed
-      .map((m) => m.replace(/^(google|cloudflare|openai|anthropic):/i, '').trim())
-      .filter((m) => Boolean(m) && !m.toLowerCase().includes('test'));
+    const cleanModelsUsed: string[] = [];
+    for (const model of data.modelsUsed) {
+      const cleaned = model.replace(/^(google|cloudflare|openai|anthropic):/i, '').trim();
+      if (cleaned && !cleaned.toLowerCase().includes('test')) cleanModelsUsed.push(cleaned);
+    }
 
     if (data.modelsUsed.length > 0 && cleanModelsUsed.length === 0) {
       logger.debug('Skipping telemetry: only test/stub models detected', { modelsUsed: data.modelsUsed });

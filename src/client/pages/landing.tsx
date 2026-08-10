@@ -155,7 +155,7 @@ export function LandingPage() {
                 key={item.title}
                 className="group relative overflow-hidden rounded-xl border border-ui-line bg-ui-base p-4 transition-colors duration-200 hover:border-ui-brand/40"
               >
-                <span className="absolute inset-y-0 left-0 w-[2px] scale-y-0 bg-ui-brand transition-transform duration-200 group-hover:scale-y-100" />
+                <span className="absolute inset-y-0 left-0 w-[2px] scale-y-95 bg-ui-brand opacity-0 transition-[transform,opacity] duration-200 group-hover:scale-y-100 group-hover:opacity-100" />
 
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-[0.72rem] font-semibold tabular-nums text-ui-brand">

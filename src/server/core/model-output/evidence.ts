@@ -105,11 +105,11 @@ export function resolveEvidence(
   if (exact && exact.length > 0) return { status: 'matched', line: nearest(exact) };
 
   // A quote may be a fragment or carry trailing context, so accept containment either way -- but BOTH sides must be discriminating, or a fabricated quote trivially contains a real but meaningless line.
-  const contained = index.lines
-    .filter(({ normalized }) =>
-      normalized.length >= MIN_DISCRIMINATING_EVIDENCE_CHARS
-      && (normalized.includes(firstLine) || firstLine.includes(normalized)))
-    .map(({ line }) => line);
+  const contained = index.lines.flatMap(({ normalized, line }) =>
+    normalized.length >= MIN_DISCRIMINATING_EVIDENCE_CHARS
+    && (normalized.includes(firstLine) || firstLine.includes(normalized))
+      ? [line]
+      : []);
   if (contained.length > 0) return { status: 'matched', line: nearest(contained) };
 
   return { status: 'unmatched' };

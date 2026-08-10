@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeGlobalConfig } from '@client/pages/settings';
+import { normalizeGlobalConfig } from '@client/hooks/use-provider-settings';
 
 describe('settings model strategy', () => {
   it('does not invent a global strategy when none has been saved', () => {

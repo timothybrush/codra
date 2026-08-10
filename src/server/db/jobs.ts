@@ -172,29 +172,30 @@ export async function listJobs(
   params.push(query.offset);
   const offsetIdx = params.length;
 
-  const rows = await queryRows<JobRow>(
-    env,
-    `
-      SELECT j.*, r.owner, r.repo, r.installation_id
-      FROM jobs j
-      JOIN repositories r ON j.repository_id = r.id
-      ${whereClause}
-      ORDER BY j.created_at DESC
-      LIMIT $${limitIdx} OFFSET $${offsetIdx}
-    `,
-    params,
-  );
-
-  const [totalResult] = await queryRows<{ count: string }>(
-    env,
-    `
-      SELECT COUNT(*) as count
-      FROM jobs j
-      JOIN repositories r ON j.repository_id = r.id
-      ${whereClause}
-    `,
-    params.slice(0, -2),
-  );
+  const [rows, [totalResult]] = await Promise.all([
+    queryRows<JobRow>(
+      env,
+      `
+        SELECT j.*, r.owner, r.repo, r.installation_id
+        FROM jobs j
+        JOIN repositories r ON j.repository_id = r.id
+        ${whereClause}
+        ORDER BY j.created_at DESC
+        LIMIT $${limitIdx} OFFSET $${offsetIdx}
+      `,
+      params,
+    ),
+    queryRows<{ count: string }>(
+      env,
+      `
+        SELECT COUNT(*) as count
+        FROM jobs j
+        JOIN repositories r ON j.repository_id = r.id
+        ${whereClause}
+      `,
+      params.slice(0, -2),
+    ),
+  ]);
 
   return {
     jobs: rows.map(mapJob),

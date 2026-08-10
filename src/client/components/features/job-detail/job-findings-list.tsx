@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger } from '@client/components/motion/tabs';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';
 import { severityConfig } from './constants';
+import { commentKey } from './diff-file-panel-utils';
 
 interface JobFindingsListProps {
   job: JobDetail;
@@ -123,9 +124,9 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
 
           {reviewSeverities.map((groupName) => {
             const comments = job.files.flatMap((f) =>
-              f.parsedComments
-                .filter((c) => c.severity === groupName)
-                .map((c) => ({ ...c, filePath: f.filePath })),
+              f.parsedComments.flatMap((c) =>
+                c.severity === groupName ? [{ ...c, filePath: f.filePath }] : [],
+              ),
             );
             if (comments.length === 0) return null;
 
@@ -147,9 +148,9 @@ export function JobFindingsList({ job }: JobFindingsListProps) {
                   {groupName}
                 </GroupHeader>
                 <div className="flex flex-col gap-3 p-4 sm:p-5">
-                  {comments.map((comment, index) => (
+                  {comments.map((comment, i) => (
                     <CommentCard
-                      key={`${groupName}-${index}`}
+                      key={commentKey(comment, i)}
                       comment={comment}
                       filePath={comment.filePath}
                       jobId={job.id}

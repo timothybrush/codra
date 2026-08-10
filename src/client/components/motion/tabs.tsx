@@ -1,6 +1,16 @@
 // beui.dev/components/motion/tabs
-import { motion, MotionConfig, useReducedMotion, type Transition } from 'motion/react';
-import { createContext, useContext, useId, useState, type ReactNode } from 'react';
+// domMax rather than domAnimation: the active-tab indicator animates via layoutId/layoutRoot, and
+// layout projection only ships in the max bundle.
+import { LazyMotion, m, domMax, MotionConfig, useReducedMotion, type Transition } from 'motion/react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { cn } from '@client/lib/utils';
 
 type Variant = 'pill' | 'underline' | 'segment';
@@ -48,18 +58,27 @@ export function Tabs({
   const reduce = useReducedMotion();
   const controlled = value !== undefined;
   const current = controlled ? value : internal;
-  const setValue = (v: string) => {
-    if (!controlled) setInternal(v);
-    onValueChange?.(v);
-  };
+  const setValue = useCallback(
+    (v: string) => {
+      if (!controlled) setInternal(v);
+      onValueChange?.(v);
+    },
+    [controlled, onValueChange],
+  );
+  const ctx = useMemo(
+    () => ({ value: current, setValue, layoutId, variant }),
+    [current, setValue, layoutId, variant],
+  );
   return (
     <MotionConfig transition={reduce ? { duration: 0 } : transition}>
-      <TabsCtx.Provider value={{ value: current, setValue, layoutId, variant }}>
-        {/* layoutRoot: the indicator's layoutId measures in page coordinates, so without this
-            it would replay scroll offsets as movement inside fixed/scrolled containers. */}
-        <motion.div layoutRoot className={className}>
-          {children}
-        </motion.div>
+      <TabsCtx.Provider value={ctx}>
+        <LazyMotion features={domMax}>
+          {/* layoutRoot: the indicator's layoutId measures in page coordinates, so without this
+              it would replay scroll offsets as movement inside fixed/scrolled containers. */}
+          <m.div layoutRoot className={className}>
+            {children}
+          </m.div>
+        </LazyMotion>
       </TabsCtx.Provider>
     </MotionConfig>
   );
@@ -109,7 +128,7 @@ export function TabsTrigger({
       >
         {children}
         {active ? (
-          <motion.span
+          <m.span
             layoutId={layoutId}
             className={cn('absolute -bottom-px left-0 right-0 h-px bg-primary', indicatorClassName)}
           />
@@ -130,7 +149,7 @@ export function TabsTrigger({
   return (
     <div className="relative">
       {active ? (
-        <motion.span
+        <m.span
           layoutId={layoutId}
           style={{ borderRadius: variant === 'pill' ? 9999 : 5 }}
           className={cn('absolute inset-0', indicatorBg, radius, indicatorClassName)}

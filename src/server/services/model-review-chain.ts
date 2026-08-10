@@ -234,7 +234,10 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
     // Only when there is somewhere left to go: at the end of the chain the memo would pin every
     // future attempt to the last entry, and the file should get a clean walk instead.
     if (attemptedFailedThrough > 0 && attemptedFailedThrough < wholeChain.length) {
-      for (const key of progressLabels) await ctx.chainProgress.advance(key, attemptedFailedThrough);
+      // Together, not one at a time: the store is single-flight, so a bin's N labels coalesce into
+      // one merged put (plus the drain loop's redundant second put) instead of paying a KV get+put
+      // per member out of the 50-subrequest budget.
+      await Promise.all(progressLabels.map((key) => ctx.chainProgress.advance(key, attemptedFailedThrough)));
       Object.defineProperty(error, 'nextChainIndex', { value: attemptedFailedThrough, configurable: true });
     }
     throw error;

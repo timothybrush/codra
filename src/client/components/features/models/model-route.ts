@@ -1,5 +1,5 @@
 // Separate from model-chain.tsx so repos.tsx/settings.tsx can read and compare routes without
-// pulling in the editor UI; model-chain.tsx re-exports it all for backward-compat imports.
+// pulling in the editor UI.
 
 export type ProviderOption = {
   value: string;

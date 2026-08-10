@@ -42,8 +42,8 @@ export function StatsGrid({ items, className, ...props }: StatsGridProps) {
       )}
       {...props}
     >
-      {items.map((item, i) => (
-        <StatCard key={i} {...item} />
+      {items.map((item) => (
+        <StatCard key={item.label} {...item} />
       ))}
     </div>
   );

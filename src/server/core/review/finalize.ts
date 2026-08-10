@@ -33,8 +33,12 @@ export async function runFinalizePhase(
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
   // One lookup supplies both the file ceiling and the gating comment cap.
   const reviewSettings = await getReviewSettings(env);
-  const { files, skipped: filesOverCap } = await getDiffFiles(env, job, github, config, reviewSettings.maxFiles);
-  let reviews = await getFileReviewsForJobs(env, [job.id]);
+  // The diff (KV/GitHub) and the file reviews (Postgres) share no state; two in flight cannot breach the subrequest cap.
+  const [{ files, skipped: filesOverCap }, initialReviews] = await Promise.all([
+    getDiffFiles(env, job, github, config, reviewSettings.maxFiles),
+    getFileReviewsForJobs(env, [job.id]),
+  ]);
+  let reviews = initialReviews;
 
   {
     // Set difference, not counts: the re-fetched diff can differ, so equal counts can still hide unreviewed files.

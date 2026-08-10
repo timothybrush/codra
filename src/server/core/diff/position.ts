@@ -26,23 +26,29 @@ export type FileDiff = {
 };
 
 export function getValidNewLines(file: FileDiff) {
-  return new Set(
-    file.hunks.flatMap((hunk) =>
-      hunk.lines
-        .filter((line) => line.kind !== 'del' && line.newLineNumber !== undefined)
-        .map((line) => line.newLineNumber as number),
-    ),
-  );
+  const newLines = new Set<number>();
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind !== 'del' && line.newLineNumber !== undefined) {
+        newLines.add(line.newLineNumber);
+      }
+    }
+  }
+
+  return newLines;
 }
 
 export function getValidPositions(file: FileDiff) {
-  return new Set(
-    file.hunks.flatMap((hunk) =>
-      hunk.lines
-        .filter((line) => line.kind !== 'del')
-        .map((line) => line.position),
-    ),
-  );
+  const positions = new Set<number>();
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind !== 'del') {
+        positions.add(line.position);
+      }
+    }
+  }
+
+  return positions;
 }
 
 export function findPositionForLine(file: FileDiff, lineNumber: number) {

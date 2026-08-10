@@ -24,12 +24,12 @@ const MODEL_TIMEOUT_STRIKES = 3;
 type StoredShape = { files?: Record<string, unknown>; timeouts?: Record<string, unknown> };
 
 function positiveInts(source: Record<string, unknown> | undefined): Map<string, number> {
-  if (!source || typeof source !== 'object') return new Map();
-  return new Map(
-    Object.entries(source)
-      .filter(([, value]) => typeof value === 'number' && Number.isInteger(value) && value > 0)
-      .map(([key, value]) => [key, value as number]),
-  );
+  const kept = new Map<string, number>();
+  if (!source || typeof source !== 'object') return kept;
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) kept.set(key, value);
+  }
+  return kept;
 }
 
 export class ModelChainProgressStore {

@@ -20,10 +20,10 @@ export async function sendReviewTelemetry(
 
     const cleanModels = Array.from(
       new Set(
-        doneReviews
-          .map((r) => bareModelId(r.model_used))
-          .filter(Boolean)
-          .filter((m) => !m.toLowerCase().includes('test')),
+        doneReviews.flatMap((r) => {
+          const model = bareModelId(r.model_used);
+          return model && !model.toLowerCase().includes('test') ? [model] : [];
+        }),
       ),
     );
 
@@ -39,7 +39,10 @@ export async function sendReviewTelemetry(
       inputTokens: doneReviews.reduce((sum, r) => sum + (r.input_tokens ?? 0), 0),
       outputTokens: doneReviews.reduce((sum, r) => sum + (r.output_tokens ?? 0), 0),
       modelsUsed: cleanModels,
-      fileExtensions: Array.from(new Set(files.map((f) => extractExtension(f.path)).filter(Boolean))),
+      fileExtensions: Array.from(new Set(files.flatMap((f) => {
+        const extension = extractExtension(f.path);
+        return extension ? [extension] : [];
+      }))),
       triggerType: job.trigger,
       reviewDurationMs: Math.max(0, Date.now() - new Date(job.createdAt).getTime()),
       filesReviewed: files.length,

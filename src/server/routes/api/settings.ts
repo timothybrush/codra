@@ -5,14 +5,14 @@ import { getReviewSettings, updateReviewSettings } from '@server/db/app-settings
 import { jsonError } from '@server/core/http';
 import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema } from '@shared/schema';
 
-const reviewSettingsPatchSchema = z.object({
+const reviewSettingsPatchSchema = z.strictObject({
   concurrencyLevel: z.enum(reviewConcurrencyLevels).optional(),
   maxComments: z.number().int().refine(
     (value) => (reviewMaxCommentsOptions as readonly number[]).includes(value),
     'Invalid max comments value.',
   ).optional(),
   maxFiles: z.number().int().min(reviewMaxFilesRange.min).max(reviewMaxFilesRange.max).optional(),
-}).strict().refine(
+}).refine(
   (settings) => Object.values(settings).some((value) => value !== undefined),
   'At least one setting must be provided.',
 );
