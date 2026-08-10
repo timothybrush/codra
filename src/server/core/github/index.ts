@@ -26,12 +26,9 @@ import type {
   PullRequestRecord,
 } from './types';
 
-// This module is the mock seam: a spec replaces the whole GitHubClient class via
-// vi.mock('@server/core/github', ...). The sibling modules in this folder are implementation detail --
-// everything else must import from here, and eslint's no-restricted-imports enforces that.
+// This module is the mock seam: a spec replaces the whole GitHubClient class via vi.mock('@server/core/github', ...). Sibling modules in this folder are implementation detail; eslint's no-restricted-imports enforces importing only from here.
 export type { GitHubInstallation, GitHubRepository, GitHubReviewComment };
-// Re-exported because it is the error every method below throws: without it on the barrel there is no
-// legal way for a caller to write `instanceof GitHubError`, since ./http is a restricted sibling.
+// Re-exported because it is the error every method below throws, and ./http is a restricted sibling.
 export { GitHubError };
 
 const GITHUB_REPOSITORIES_PER_PAGE = 100;
@@ -47,14 +44,11 @@ export class GitHubClient {
     private readonly tracker?: { incrementSubrequests(count?: number): void },
   ) {}
 
-  // Token cache scoped to this client (one Worker invocation). Without it every GitHub request
-  // re-read the token from KV, a wasted subrequest per call, which pushed finalize toward the
-  // 50-subrequest cap right before posting.
+  // Scoped to this client (one Worker invocation); without it every GitHub request re-read the token from KV, pushing finalize toward the 50-subrequest cap right before posting.
   private memoToken: InstallationTokenCacheRecord | null = null;
 
   async getInstallationToken(): Promise<string> {
-    // Reuse the in-memory token while it's comfortably unexpired (invocations are < ~120s; tokens
-    // last ~1h, so this holds for the whole invocation) -- no KV read, no network call.
+    // Reuse the in-memory token while comfortably unexpired (invocations are < ~120s; tokens last ~1h).
     if (this.memoToken?.token && new Date(this.memoToken.expiresAt).getTime() > Date.now() + 60_000) {
       return this.memoToken.token;
     }
@@ -147,8 +141,7 @@ export class GitHubClient {
     return response;
   }
 
-  // Hands the extracted helpers the authenticated-request surface without making `request` /
-  // `requestAndCheck` public. Built per call; it holds no state of its own.
+  // Hands the extracted helpers the authenticated-request surface without making `request`/`requestAndCheck` public.
   private ctx(): GitHubRequestContext {
     return {
       request: (path, init, accept) => this.request(path, init, accept),
@@ -156,7 +149,6 @@ export class GitHubClient {
     };
   }
 
-  // Single GraphQL call against api.github.com/graphql with the installation token.
   async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
     return withRetry('graphql', async () => {
       const token = await this.getInstallationToken();
@@ -331,8 +323,7 @@ export class GitHubClient {
     return listIssueLabels(this.ctx(), owner, repo, issueNumber);
   }
 
-  // Case-insensitive, and removes using the label's ACTUAL casing as GitHub stores it -- the delete
-  // endpoint is case-sensitive, so passing the caller's spelling would silently no-op on a 404.
+  // Case-insensitive, and removes using the label's actual stored casing -- the delete endpoint is case-sensitive and would silently no-op on a 404 otherwise.
   async removeIssueLabelsIfPresent(owner: string, repo: string, issueNumber: number, labels: string[]) {
     const currentLabels = await this.listIssueLabels(owner, repo, issueNumber);
     const currentByLowerName = new Map(currentLabels.map(label => [label.toLowerCase(), label]));

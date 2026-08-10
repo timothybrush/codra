@@ -9,8 +9,7 @@ interface OverviewStatsProps {
   stats: StatsPayload | null;
 }
 
-// Per-card accent colors (light / dark) - the blue / purple / orange / rose
-// rhythm from the reference dashboard. Bar color is card identity, not status.
+// Bar color is card identity, not status (blue / purple / orange / rose rhythm).
 const ACCENTS = {
   reviews: { light: '#2563eb', dark: '#3b82f6' },
   input: { light: '#9333ea', dark: '#a855f7' },

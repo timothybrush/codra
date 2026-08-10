@@ -42,7 +42,7 @@ Hope this helps!`;
 
     const result = parseFileReviewResponse(rawOutput, mockFile);
     expect(result.comments).toHaveLength(1);
-    expect(result.verdict).toBe('comment'); // Since it has comments, verdict becomes 'comment'
+    expect(result.verdict).toBe('comment');
   });
 
   it('salvages malformed JSON with unescaped newlines using jsonrepair', () => {
@@ -127,9 +127,7 @@ unescaped newlines",
     expect(result.comments[1].severity).toBe('P3');
   });
 
-  // The matched quote is the anchor, so a wrong line number costs nothing -- and the line-snapping
-  // fallback that used to handle this is gone, because requiring matched evidence made it
-  // unreachable. What matters now is that the reported line does not move the comment.
+  // The matched quote is the anchor, so a wrong reported line must not move the comment.
   it('anchors on the quoted line and ignores a wrong reported line number', () => {
     const rawOutput = `
 {
@@ -161,8 +159,7 @@ unescaped newlines",
   "overall_explanation": "explanation"
 }`;
 
-    // A line this far out means the model was reasoning about code that isn't here. Relocating it
-    // onto line 3 would turn a hallucination into a confidently-anchored false positive.
+    // A line this far out means the model was reasoning about code that isn't here.
     const result = parseFileReviewResponse(rawOutput, mockFile);
     expect(result.comments).toHaveLength(0);
     expect(result.fileSummary).toContain('Additional Comments (Off-diff)');
@@ -177,6 +174,51 @@ export function nextOwner(owner: string) {
 \`\`\``;
 
     expect(() => parseFileReviewResponse(rawOutput, mockFile)).toThrow('Could not find JSON root');
+  });
+
+  // `z.string().max(100)` on `title` rejects the whole file's review, not the one finding.
+  it('clips an over-long or non-string title instead of failing the whole file', () => {
+    const rawOutput = JSON.stringify({
+      findings: [
+        {
+          evidence: 'new line',
+          code_location: { absolute_file_path: 'test.ts', line: 2 },
+          claim_type: 'other',
+          title: 'T'.repeat(150),
+          body: 'Long title finding.',
+          priority: 1,
+        },
+        {
+          evidence: 'new line',
+          code_location: { absolute_file_path: 'test.ts', line: 2 },
+          claim_type: 'other',
+          title: 42,
+          body: 'Non-string title finding.',
+          priority: 1,
+        },
+        {
+          evidence: 'new line',
+          code_location: { absolute_file_path: 'test.ts', line: 2 },
+          claim_type: 'other',
+          title: 'Healthy sibling',
+          body: 'This one is well formed.',
+          priority: 1,
+        },
+      ],
+      overall_correctness: 'patch is correct',
+      overall_explanation: 'ok',
+      overall_confidence_score: 0.9,
+    });
+
+    const result = parseFileReviewResponse(rawOutput, mockFile);
+
+    // The invariant: one malformed title must not take its well-formed siblings down with it.
+    expect(result.comments).toHaveLength(3);
+    for (const comment of result.comments) {
+      expect(comment.title.length).toBeLessThanOrEqual(100);
+    }
+    expect(result.comments[1].title).toBe('42');
+    expect(result.comments[2].title).toBe('Healthy sibling');
   });
 
   it('drops placeholder schema findings instead of failing validation', () => {

@@ -16,8 +16,6 @@ import {
 } from '@client/components/features/models/model-chain';
 import { getGlobalRoute, getRepoRoute, hasStoredModelStrategy, repoId, type GlobalModelConfig } from './repo-route';
 
-// The per-repository model-strategy dialog, including the inherit-from-global toggle.
-
 export interface RepoModelModalProps {
   repo: RepoConfigRecord | null;
   globalConfig: GlobalModelConfig | ModelRouteConfig | null;
@@ -56,10 +54,8 @@ export function RepoModelModal({
     setInitialRoute(nextRoute);
     setSaving(null);
     setError(null);
-    // Keyed on VALUE identity, not object identity: `selectedRepoId` and `globalRouteKey` are a
-    // string id and a JSON serialization of exactly the inputs `getRepoRoute` reads. Depending on
-    // `repo`/`globalConfig` directly would reset the user's unsaved edits every time the poll
-    // returned a structurally identical object.
+    // Keyed on value identity (id + JSON of the route), not object identity, so a poll returning a
+    // structurally identical object doesn't reset the user's unsaved edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRepoId, globalRouteKey]);
 

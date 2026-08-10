@@ -134,12 +134,9 @@ Binary files a/image.png and b/image.png differ
     });
   });
 
-  // First coverage for chunkFileDiff, which had none - and it decides how much of a large file any model
-  // ever sees. `reviewFile` chunks at `max_diff_lines_per_file` and then keeps only the first MAX_CHUNKS,
-  // so a silent partition bug here means whole regions of a file are never reviewed and nothing reports it.
-  //
-  // The invariant that matters is exact partition: every original line appears in exactly one chunk, in
-  // order. Truncation is allowed (it is capped and reported); losing a line in the middle is not.
+  // chunkFileDiff decides how much of a large file any model ever sees; a silent partition bug means
+  // whole regions go unreviewed with nothing to report it. Invariant: every original line appears in
+  // exactly one chunk, in order. Truncation is allowed; losing a line in the middle is not.
   describe('chunkFileDiff', () => {
     // Distinct content per line so a dropped or duplicated line is detectable - Array(n).fill(sameObject)
     // would hide exactly the bug this is looking for.

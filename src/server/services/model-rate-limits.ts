@@ -3,37 +3,24 @@ import { ModelCallGate } from '../models/limits';
 import type { ResolvedModelConfig } from '@server/db/model-configs';
 import { MAX_METERED_QUEUE_DEPTH, PROMPT_FIT_SAFETY_FACTOR, parseRateLimitFromError } from './model-support';
 
-// Sibling of the services/model barrel; import from there, not here (four specs vi.mock it).
-// What ModelService learned this invocation about rate limits, plus the gates enforcing them. A
-// collaborator, not free functions: the two maps and the gate are one state with one lifetime.
-// (resolveModel / callModel / selectModel) deliberately stay methods on ModelService.
+// Import from the services/model barrel, not here (four specs vi.mock it).
 export class ModelRateLimitBook {
-  // Workers allows only 6 simultaneous connections per invocation; an un-gated call queues past
-  // that and burns its whole client timeout before dispatch (a provider "timing out" at exactly
-  // the configured timeout). Gating starts the timeout only once a slot is held.
+  // Workers allows 6 simultaneous connections per invocation; gating starts the client timeout once a slot is held, instead of while queued.
   private readonly callGate = new ModelCallGate();
 
-  // What each model has told us about its own rate limit, this invocation. Google's 429 body
-  // carries both bucket and cool-off, so parsing it keeps this adaptive with no baked-in numbers.
+  // Google's 429 body carries both bucket and cool-off, so parsing it keeps this adaptive with no baked-in numbers.
   private readonly modelRateLimits = new Map<string, { limitTokens?: number; cooldownUntil: number }>();
 
-  // Models observed to enforce a token-per-minute bucket, each with its own serial gate: four
-  // parallel files at ~4k tokens is 16k in one instant, tripping a 16k/min limit even though each
-  // call alone would fit.
-  //
-  // KEYED BY MODEL, NOT PROVIDER. Google states the bucket per model; keying by provider
-  // serialized every Google call in an all-Google chain: concurrency fell 1.21 -> 0.85, 32s -> 54s/file.
+  // Keyed by model, not provider: keying by provider serialized every call in an all-Google chain, dropping concurrency and throughput.
   private readonly tokenMeteredModels = new Map<string, ModelCallGate>();
 
-  // Records what a 429 taught us, keyed by model. Deliberately does NOT wait out the cool-off:
-  // the file falls through to the next model immediately, trading share of files for wall-clock.
+  // Deliberately does NOT wait out the cool-off: the file falls through to the next model immediately, trading share of files for wall-clock.
   note(resolved: ResolvedModelConfig, error: unknown) {
     const { limitTokens, retryAfterMs } = parseRateLimitFromError(error);
     const existing = this.modelRateLimits.get(resolved.modelName);
 
     this.modelRateLimits.set(resolved.modelName, {
-      // A learned bucket size is sticky: it describes the model, not this one failure, so a later
-      // 429 that omits the number must not erase it.
+      // Sticky: a later 429 that omits the number must not erase it.
       limitTokens: limitTokens ?? existing?.limitTokens,
       // Default to a minute when the provider didn't say -- these buckets are per-minute.
       cooldownUntil: Date.now() + (retryAfterMs ?? 60_000),
@@ -48,13 +35,9 @@ export class ModelRateLimitBook {
     }
   }
 
-  // Saves a call that was going to fail. Before this, every file re-probed a model that had
-  // already said "retry in 50s", spending one of ~25 subrequests per probe -- which is what
-  // produced "Too many subrequests", not any single large file.
+  // Avoids re-probing a model that already said "retry in Ns" once per file, which is what produced "Too many subrequests".
   skipReason(modelName: string, estimatedPromptTokens: number): string | null {
-    // Never queue deeply behind a serialized model: doing so once made 39 files queue behind
-    // ~36s calls and lose the wait against their fallback budget, losing 16 of 119 files. A shallow
-    // queue sends the overflow to a free model instead.
+    // Never queue deeply behind a serialized model; a shallow queue sends overflow to a free model instead.
     const gate = this.tokenMeteredModels.get(modelName);
     if (gate && gate.queueDepth >= MAX_METERED_QUEUE_DEPTH) {
       return `${gate.queueDepth} calls already queued on it`;
@@ -67,8 +50,7 @@ export class ModelRateLimitBook {
       return `cooling off for another ${Math.ceil((known.cooldownUntil - Date.now()) / 1000)}s`;
     }
 
-    // A prompt larger than the whole per-minute bucket can never succeed, no matter how long we
-    // wait, so it must not be allowed to consume the bucket's error path either.
+    // A prompt larger than the whole per-minute bucket can never succeed, however long we wait.
     if (known.limitTokens && estimatedPromptTokens > known.limitTokens * PROMPT_FIT_SAFETY_FACTOR) {
       return `prompt ~${estimatedPromptTokens} tokens exceeds its ${known.limitTokens}-token bucket`;
     }
@@ -76,16 +58,12 @@ export class ModelRateLimitBook {
     return null;
   }
 
-  // The runtime's 6-connection cap ONLY, with no per-model serial gate. Used by the Cloudflare
-  // async-batch submit/poll calls, which are not the token-metered per-model path -- putting them
-  // behind a metered model's serial gate would make a batch submit queue behind synchronous reviews.
+  // 6-connection cap only, no per-model gate: async-batch submit/poll isn't the token-metered path.
   async runShared<T>(fn: () => Promise<T>): Promise<T> {
     return this.callGate.run(fn);
   }
 
-  // Shared gate always (the runtime's 6-connection cap), plus a serial gate for a metered model.
-  // Model gate THEN shared gate: consistent ordering rules out deadlock, and taking the model gate
-  // first stops one metered model's queue from occupying slots other models could use.
+  // Model gate then shared gate, in that order, to rule out deadlock.
   async runGated<T>(
     resolved: ResolvedModelConfig,
     onGateWait: ((waitedMs: number) => void) | undefined,

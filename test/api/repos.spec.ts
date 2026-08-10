@@ -110,8 +110,7 @@ describe('Dashboard API: repositories and repo config', () => {
       },
       body: JSON.stringify({
         review: {
-          // Below reviewConfigSchema's minimum of 1. (This used to use `max_files`, which has
-          // since moved to instance-wide settings and is no longer part of the repo config.)
+          // Below reviewConfigSchema's minimum of 1.
           max_comments: 0,
         },
       }),

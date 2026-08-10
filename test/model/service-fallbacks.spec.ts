@@ -6,9 +6,8 @@ import { createTestEnv, saveTestProviderApiKey } from '../helpers';
 import { defaultRepoConfig } from '@shared/schema';
 import { TokenTracker } from '@server/core/token-tracker';
 
-// Walking the configured model chain: falling back to a smaller model, the two subrequest-budget
-// breakers that stop the chain early, and marking a provider unavailable for the rest of a job.
-// The inline retry ladder lives in model-service-retries.spec.ts.
+// Walking the model chain: fallback, the two subrequest-budget breakers, and marking a provider
+// unavailable. The inline retry ladder lives in service-retries.spec.ts.
 describe('ModelService: chain fallback, budget breakers and provider availability', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -21,8 +20,7 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
         JSON.stringify({ error: { code: 500, message: 'Internal error encountered.', status: 'INTERNAL' } }),
         { status: 500, headers: { 'content-type': 'application/json' } },
       );
-    // GEMINI_MAX_RETRIES = 2, so the primary model makes 3 attempts (initial + 2 retries) before
-    // failing over; then the smaller fallback succeeds on the 4th call.
+    // The primary makes 3 attempts before failing over; the fallback succeeds on the 4th call.
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(gemini500())
       .mockResolvedValueOnce(gemini500())
@@ -87,6 +85,85 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
     expect(response.modelUsed).toBe('gemini-2.5-pro');
   });
 
+  // Parse lives inside the per-model try: an unreadable 200 is that model's failure.
+  it('falls through to the next model when the primary returns an unparseable body', async () => {
+    const geminiText = (text: string) => new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(geminiText('I am unable to review this diff.'))
+      .mockResolvedValueOnce(geminiText('{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}'));
+
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const service = new ModelService(env);
+
+    const response = await service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'gemini-3.1-pro-preview', fallbacks: ['gemini-2.5-pro'], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(response.modelUsed).toBe('gemini-2.5-pro');
+  });
+
+  // Three `continue` paths can leave the loop with `lastError` undefined, which matches no retry
+  // predicate and fails the file permanently.
+  it('defers rather than throwing undefined when every model is skipped', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const service = new ModelService(env);
+    // A learned bucket below the prompt size makes skipReason refuse every model.
+    (service as unknown as { rateLimits: { skipReason: () => string } }).rateLimits.skipReason = () => 'prompt too large for its bucket';
+
+    const promise = service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'gemini-3.1-pro-preview', fallbacks: ['gemini-2.5-pro'], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    await expect(promise).rejects.toThrow(/No configured review model was attempted/);
+    await promise.catch((error) => expect(isRetryableModelError(error)).toBe(true));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // An unresolvable model is a permanent operator error; a transient deferral would hide the fix.
+  it('surfaces a permanent config error rather than deferring', async () => {
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const service = new ModelService(env);
+
+    const promise = service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'definitely-not-a-configured-model', fallbacks: [], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    await expect(promise).rejects.toThrow(/is not configured/);
+    await promise.catch((error) => expect(isRetryableModelError(error)).toBe(false));
+  });
+
   it('still tries the primary model even when the shared job budget is already near the subrequest limit', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
@@ -131,11 +208,8 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
   });
 
   it('skips remaining fallback models (instead of spending more of the shared budget) once near the subrequest limit', async () => {
-    // Google's client retries a 5xx once internally before giving up on a model, so the
-    // primary model alone can issue more than one raw fetch call; return a fresh Response for
-    // every call so retries do not reuse an already-consumed body. Use a 503/"unavailable"
-    // (a genuinely transient failure) so the near-limit skip produces a retryable deferral --
-    // a 500 "internal error" is now treated as a permanent failure and would not defer.
+    // The primary retries internally, so return a fresh Response per call (a body reads once).
+    // 503, not 500: only a genuinely transient failure produces a retryable deferral.
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(
         JSON.stringify({ error: { code: 503, message: 'The model is overloaded and currently unavailable.', status: 'UNAVAILABLE' } }),
@@ -173,10 +247,8 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
       }),
     ).rejects.toSatisfy(isRetryableModelError);
 
-    // Only the primary model was attempted (possibly with its own internal retry); the
-    // fallback model was skipped rather than risking tipping the shared invocation over
-    // Cloudflare's subrequest cap. The file is deferred for a later retry (via the
-    // RetryableModelError) instead of being burned through here.
+    // Only the primary model was attempted; the fallback was skipped rather than risking tipping
+    // the shared invocation over Cloudflare's subrequest cap, deferring the file for a later retry.
     expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
     for (const call of fetchMock.mock.calls) {
       expect(String(call[0])).toContain('/models/gemini-3.1-pro-preview:generateContent');

@@ -34,8 +34,8 @@ function quotaResponse(retryInSeconds: number, model = 'gemini-3.1-pro-preview')
 describe('quota 429 handling', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  // Google routinely asks for a 30-60s cool-off while our in-call sleep is capped at 5s. Retrying
-  // early is guaranteed to hit the same 429, so it only spends subrequests we do not have.
+  // Google asks for 30-60s while our in-call sleep caps at 5s, so retrying early only spends
+  // subrequests on a guaranteed second 429.
   it('does not retry a 429 whose cool-off is longer than we are willing to wait', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => quotaResponse(56));
 
@@ -62,9 +62,8 @@ describe('quota 429 handling', () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
   });
 
-  // The subrequest blowout: nine models x three attempts for one file, against a per-file budget
-  // of a handful. Each model has its own quota bucket so a couple of attempts are worth making,
-  // but past that the file must be deferred rather than walking the rest of the chain.
+  // The subrequest blowout: nine models x three attempts for one file. Each model has its own
+  // bucket, so a couple of attempts are worth making, but past that the file must be deferred.
   it('stops walking a long fallback chain after two quota failures and defers the file', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => quotaResponse(56));
     const env = createTestEnv();
@@ -93,9 +92,8 @@ describe('quota 429 handling', () => {
     const attempted = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(attempted.some((url) => url.includes('gemini-3.1-pro-preview'))).toBe(true);
     expect(attempted.some((url) => url.includes('gemini-2.5-pro'))).toBe(true);
-    // The point of the test: the chain stopped, so nothing past the second model was ever tried.
-    // Only ids actually seeded in GOOGLE_TEST_MODEL_IDS are asserted here. An unseeded id fails to
-    // resolve and issues no fetch regardless, so asserting on one would pass with the break removed.
+    // Only ids seeded in GOOGLE_TEST_MODEL_IDS are asserted: an unseeded id issues no fetch
+    // regardless, so asserting on one would pass even with the break removed.
     expect(attempted.some((url) => url.includes('gemini-3.1-flash-lite'))).toBe(false);
   });
 });
@@ -114,9 +112,8 @@ function reviewResponse() {
   );
 }
 
-// ONE token-metered model at the head, deliberately. With two, a file that 429s on both hits
-// MAX_QUOTA_FAILURES_PER_FILE and defers before reaching the cheaper models, which the test above
-// already pins and which would mask what these tests are about.
+// ONE token-metered model at the head: with two, a file that 429s on both hits
+// MAX_QUOTA_FAILURES_PER_FILE and defers before reaching the cheaper models, masking these tests.
 const chain = {
   ...defaultRepoConfig,
   model: {
@@ -126,11 +123,9 @@ const chain = {
   },
 };
 
-// Google's free tier meters INPUT TOKENS PER MINUTE (16,000), not requests, and states both the
-// bucket size and the cool-off in its 429 body. These tests cover the two ways that budget was
-// being burned on calls that could not succeed -- which is what starved the stronger models and,
-// because each wasted probe costs a subrequest against a budget of ~25, is what actually produced
-// the "Too many subrequests" file failures.
+// Google's free tier meters INPUT TOKENS PER MINUTE (16,000), not requests, stating both bucket
+// and cool-off in the 429 body. These cover the two ways that budget was burned on calls that
+// could not succeed -- each wasted probe costing a subrequest against a budget of ~25.
 describe('learning a provider rate limit from its own 429', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -141,9 +136,8 @@ describe('learning a provider rate limit from its own 429', () => {
     });
   }
 
-  // The behaviour that recovers subrequests: a model that has just reported a cool-off must not be
-  // re-probed by the NEXT file. The quota-failure counter was a local inside the per-file loop, so
-  // every file rediscovered the same limit at the cost of one subrequest each.
+  // A model that just reported a cool-off must not be re-probed by the NEXT file. The counter was
+  // a local inside the per-file loop, so every file rediscovered the limit for one subrequest.
   it('skips a cooling-off model for subsequent files instead of re-probing it', async () => {
     const fetchMock = googleMock(() => quotaResponse(56));
     const env = createTestEnv();
@@ -165,8 +159,8 @@ describe('learning a provider rate limit from its own 429', () => {
     expect(afterFirst).toBeGreaterThan(1);
   });
 
-  // A prompt bigger than the entire per-minute bucket can never succeed no matter how long we wait,
-  // so once the bucket size is known it must not be spent on the 429 either.
+  // A prompt bigger than the whole bucket can never succeed, so once the size is known it must
+  // not be spent on the 429 either.
   it('skips a model whose whole token bucket is smaller than the prompt', async () => {
     const fetchMock = googleMock(() => quotaResponse(1));
     const env = createTestEnv();
@@ -202,8 +196,7 @@ describe('learning a provider rate limit from its own 429', () => {
     expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
-  // Small files must still reach the stronger model once its cool-off lapses -- the whole point is
-  // to stop wasting the bucket, not to retire the model.
+  // Small files must still reach the stronger model once its cool-off lapses.
   it('returns to the primary model once its cool-off has expired', async () => {
     let meteredCalls = 0;
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

@@ -39,13 +39,7 @@ function createDbClient(env: DbEnv): DbClient {
   };
 }
 
-// WRITING JSONB: bind `JSON.stringify(value)` and cast the placeholder `$n::text::jsonb`.
-//
-// Not `$n::jsonb` -- postgres.js stores a jsonb STRING SCALAR there, so every SQL JSON operator
-// silently sees nothing. That reached five columns and 1,215 rows (migrations 007 and 008).
-//
-// And not "bind the raw value": that works for objects, but this function turns a JS ARRAY into a
-// Postgres array literal, which casts straight back to a string scalar.
+// WRITING JSONB: bind JSON.stringify(value) and cast the placeholder $n::text::jsonb, not $n::jsonb -- postgres.js otherwise stores a jsonb STRING SCALAR, and JSON operators see nothing.
 function normalizeParam(param: unknown): unknown {
   return Array.isArray(param) ? toPostgresArrayLiteral(param) : param;
 }
@@ -69,22 +63,14 @@ export function runWithDb<T>(env: DbEnv, fn: () => T): T {
   return dbStorage.run(createDbClient(env), fn);
 }
 
-// Reused clients for the no-runWithDb() fallback path below. Keyed by connection string so a caller
-// that queries outside a runWithDb() scope shares one bounded pool instead of leaking a fresh pool
-// (up to `max` connections) on every single query.
+// Keyed by connection string so a caller outside a runWithDb() scope shares one bounded pool instead of leaking a fresh pool per query.
 const fallbackClients = new Map<string, DbClient>();
 
 export function getDb(env: DbEnv) {
   const store = dbStorage.getStore();
   if (store) return store;
 
-  // Outside a runWithDb() scope. In production this never happens -- fetch, queue, scheduled, and
-  // the workflow all wrap their work in runWithDb() -- so this branch is effectively test-only (the
-  // Hono test client calls app.fetch() directly, and tests call db helpers directly). Creating a new
-  // pool per query there leaked connections across the whole test process and exhausted CI's Postgres
-  // (masked locally by Neon's pooler). Reuse one client per connection string instead. Keeping this
-  // strictly to the store-less path preserves the per-request client production relies on to satisfy
-  // Cloudflare's "no I/O across request contexts" rule.
+  // Test-only in practice (production always wraps work in runWithDb()); reuses one client per connection string to avoid leaking connections across the test process.
   const connectionString = env.HYPERDRIVE.connectionString;
   let client = fallbackClients.get(connectionString);
   if (!client) {

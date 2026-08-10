@@ -6,8 +6,6 @@ import type { RepoConfigRecord } from '@shared/schema';
 import { describeModelRoute, type ModelOption, type ModelRouteConfig } from '@client/components/features/models/model-chain';
 import { getRepoRoute, hasMeaningfulCustomStrategy, formatLastActivity, type GlobalModelConfig } from './repo-route';
 
-// One repository row in the repos list.
-
 export interface RepoRowProps {
   repo: RepoConfigRecord;
   globalConfig: GlobalModelConfig | ModelRouteConfig | null;
@@ -29,8 +27,7 @@ export function RepoRow({
   const custom = hasMeaningfulCustomStrategy(repo, globalConfig);
   const lastActivity = formatLastActivity(repo.lastJobCreatedAt);
 
-  // Flat list row (Cloudflare-dashboard style): mono repo name, tint badges,
-  // plain switch + edit on the right, no per-row card chrome.
+  // Deliberately no per-row card chrome (Cloudflare-dashboard style flat list).
   return (
     <div className="min-w-0 px-4 py-3 transition-colors hover:bg-ui-fill/30 sm:px-5">
       <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(200px,1.1fr)_minmax(220px,1.4fr)_auto] lg:items-center">

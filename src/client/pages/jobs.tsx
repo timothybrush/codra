@@ -55,7 +55,6 @@ export function JobsPage() {
   return (
     <section className="page-enter flex min-h-0 flex-1 flex-col gap-5">
 
-      {/* ── Header ─────────────────────────────────── */}
       <PageHeader
         title="Jobs"
         description="Every review job across all pull requests."
@@ -83,15 +82,9 @@ export function JobsPage() {
         />
       )}
 
-      {/* ── Table card: toolbar + table + pagination in one panel. Fills the
-          available height so the table body scrolls internally and the page /
-          content card never needs a scrollbar. ─── */}
+      {/* Fills available height so the table body scrolls internally and the page never needs its own scrollbar. */}
       <div className="ui-panel flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* Filter bar - one row of compact 36px bordered controls (search field
-            plus two searchable-looking selects), wrapping only when there is
-            genuinely no room. */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ui-line px-4 py-2.5">
-          {/* Search takes all the slack left by the two fixed-width selects. */}
           <div className="relative basis-full sm:min-w-[10rem] sm:flex-1 sm:basis-auto">
             <Search
               size={13}
@@ -162,7 +155,6 @@ export function JobsPage() {
           />
         )}
 
-        {/* ── Pagination footer ─── */}
         {total > 0 && (
           <div className="flex shrink-0 flex-col gap-2.5 border-t border-ui-line px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-ui-default dark:text-ui-subtle">

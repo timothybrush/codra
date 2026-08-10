@@ -4,13 +4,9 @@ import { getSuppressedFindings } from '@server/db/file-reviews';
 import { sendTelemetryEvent } from '../telemetry';
 import { type PersistedReviewJob } from './phase-control';
 import { bareModelId } from './retry-policy';
-// Sibling of core/review.ts -- import from that barrel, not from here. Several specs mock that
-// specifier, and workflows/review.ts imports only runReviewJob from it.
-//
-// Outcome telemetry and the cross-run suppression read.
+// Sibling of core/review.ts -- import from that barrel, not from here.
 
-// Fires the anonymous per-review telemetry event. Success/all-failed fields come in as `overrides`.
-// Token/model data comes from `done` reviews only, so failed or inherited rows don't deflate totals.
+// Success/all-failed fields come in as `overrides`. Token/model data comes from `done` reviews only, so failed or inherited rows don't deflate totals.
 export async function sendReviewTelemetry(
   env: AppBindings,
   job: PersistedReviewJob,
@@ -20,8 +16,6 @@ export async function sendReviewTelemetry(
   meta: { concurrencyLevel: string; retryCount: number },
 ) {
   try {
-    // Only aggregate token/model data from successfully completed file reviews. Failed or
-    // inherited reviews with null token counts would silently deflate the reported totals.
     const doneReviews = reviews.filter((r) => r.file_status === 'done');
 
     const cleanModels = Array.from(
@@ -59,14 +53,11 @@ export async function sendReviewTelemetry(
   }
 }
 
-// Below this cutoff a finding sits under the max_comments cap and would be truncated anyway.
-// `posted` requires both fingerprint and anchor hash to match, so an edit to the flagged line
-// re-raises it; `rejected` suppresses on fingerprint alone.
+// `posted` requires both fingerprint and anchor hash to match, so an edit to the flagged line re-raises it; `rejected` suppresses on fingerprint alone.
 export async function loadSuppressedFingerprints(env: AppBindings, jobId: string) {
   const posted = new Map<string, Set<string>>();
   const rejected = new Set<string>();
-  // v2 already contains the anchor hash, so these need no companion anchor check -- membership alone
-  // means "same file, same claim class, byte-identical line", and editing the line changes the key.
+  // v2 already contains the anchor hash, so membership alone means "same file, same claim class, byte-identical line".
   const postedV2 = new Set<string>();
   const rejectedV2 = new Set<string>();
 

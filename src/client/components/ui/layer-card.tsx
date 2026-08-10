@@ -1,10 +1,7 @@
 import * as React from 'react';
 import { cn } from '@client/lib/utils';
 
-/**
- * Elevated surface panel - a bordered card that sits above the canvas.
- * Uses the `ui-*` surface tokens defined in app.css.
- */
+/** Uses the `ui-*` surface tokens defined in app.css. */
 const LayerCard = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div

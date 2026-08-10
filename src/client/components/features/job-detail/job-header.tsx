@@ -25,8 +25,8 @@ import {
 } from './job-chips';
 import type { JobDetail } from '@shared/schema';
 
-/* Stop icon: outlined circle with a solid square inside. Lucide's CircleStop strokes the inner
-   square too, which at 14px reads as a blob - filling it keeps the stop symbol legible. */
+// Lucide's CircleStop strokes the inner square too, which reads as a blob at 14px; filling it
+// instead keeps the stop symbol legible.
 function StopIcon({ size = 14 }: { size?: number }) {
   return (
     <svg
@@ -72,13 +72,10 @@ export function JobHeader({
 
   return (
     <>
-      {/* The header is the detail page's version of a table row: one prominent
-          title, then a single line of muted status / verdict / metadata chips -
-          the same vocabulary the jobs table uses. */}
+      {/* The header is the detail page's version of a table row: same vocabulary as the jobs table. */}
       <header className="ui-font-sans flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="min-w-0 w-full">
-          {/* Breadcrumb - deliberately thin: the repo and PR live in the chip row
-              below, so this only carries the way back and the job id. */}
+          {/* Deliberately thin: the repo and PR live in the chip row below, so this only carries the way back and the job id. */}
           <div className="flex min-w-0 items-center gap-1 text-[11px] text-ui-default dark:text-ui-subtle">
             <Link to="/jobs" className="transition-colors hover:text-ui-strong">
               Jobs
@@ -101,7 +98,6 @@ export function JobHeader({
             </a>
           </h1>
 
-          {/* Identity line: status dot + verdict pill, then the metadata chips. */}
           <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
             <JobStatusLine job={job} />
 
@@ -121,8 +117,7 @@ export function JobHeader({
               </MetaChip>
             )}
 
-            {/* Branch pair is the widest and least essential chip, so - like the
-                table's secondary columns - it is capped and drops off first. */}
+            {/* Branch pair is the widest and least essential chip, so it is capped and drops off first. */}
             {job.baseRef && job.headRef && (
               <MetaChip
                 icon={GitBranch}
@@ -166,8 +161,7 @@ export function JobHeader({
             {isStopping ? <Loader2 size={13} className="animate-spin" /> : <StopIcon size={13} />}
           </Button>
 
-          {/* A single re-run control. It always restarts the review from the beginning (a fresh
-              review of every file) and works whether the job is finished, failed, or still running. */}
+          {/* Always restarts the review from the beginning (every file), regardless of the job's current status. */}
           <Button
             variant="secondary"
             size="sm"

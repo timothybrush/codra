@@ -57,13 +57,7 @@ export function findPositionForLine(file: FileDiff, lineNumber: number) {
   return undefined;
 }
 
-// `MAX_LINE_SNAP_DISTANCE` and `findClosestValidLine` used to live here, relocating a reported line
-// up to 3 lines to reach a real diff line.
-//
-// Both are gone because their only caller is gone. Findings are now anchored solely on a verbatim
-// evidence quote resolved against the diff, and a finding whose quote does not resolve is withheld
-// rather than relocated -- so there is no longer a reported line number left to snap. Reintroducing
-// a snap would mean reintroducing the line-number-first anchoring it replaced.
+// `MAX_LINE_SNAP_DISTANCE`/`findClosestValidLine` were removed: findings are now anchored on a verbatim evidence quote, and unresolved quotes are withheld rather than snapped to a nearby line.
 
 export function truncateFileDiff(file: FileDiff, maxLines: number): FileDiff {
   if (file.lineCount <= maxLines) {

@@ -1,8 +1,5 @@
-// The model-route value type and its pure helpers: normalize, compare, describe.
-//
-// Separate from model-chain.tsx so repos.tsx and settings.tsx can read and compare routes
-// without pulling in the editor UI. model-chain.tsx re-exports all of it, because those pages
-// have always imported these names from there.
+// Separate from model-chain.tsx so repos.tsx/settings.tsx can read and compare routes without
+// pulling in the editor UI; model-chain.tsx re-exports it all for backward-compat imports.
 
 export type ProviderOption = {
   value: string;
@@ -35,16 +32,9 @@ export const EMPTY_MODEL_ROUTE: ModelRouteConfig = {
   size_overrides: [],
 };
 
-/**
- * Route normalization and comparison, owned here because this module owns `ModelRouteConfig`.
- * `repos.tsx` and `settings.tsx` each had copies that drifted in opposite directions; these keep the
- * safer half of each.
- */
-/**
- * Deliberately wider than `Partial<ModelRouteConfig>`: the stored config types every field as
- * nullable and the API returns it raw, so the input type must admit nulls rather than force a cast
- * at each call site.
- */
+// `repos.tsx` and `settings.tsx` each had their own normalize/compare copies that drifted apart; this
+// keeps the safer half of each. Wider than `Partial<ModelRouteConfig>` since the API returns raw,
+// all-nullable fields.
 export type ModelRouteInput =
   | { [K in keyof ModelRouteConfig]?: ModelRouteConfig[K] | null }
   | null

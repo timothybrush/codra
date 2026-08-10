@@ -77,8 +77,7 @@ export async function upsertRepoConfig(
   );
 }
 
-// Used during sync - only creates the record if it doesn't exist.
-// Preserves all existing model overrides if the repo is already configured.
+// Only creates the record if missing, so an existing repo's model overrides are never overwritten.
 export async function syncRepoConfig(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: {
@@ -93,7 +92,6 @@ export async function syncRepoConfig(
     repo: input.repo,
   });
 
-  // Insert with null model overrides (global strategy) but DO NOTHING if already exists
   await queryRows(
     env,
     `
@@ -161,9 +159,7 @@ export async function updateRepoConfigEnabled(
   );
 }
 
-// Repo config joined to its most recent job. Shared by the list and single-record queries, which
-// differ only in their WHERE/ORDER BY -- the LATERAL join and the eleven-column projection were
-// duplicated verbatim.
+// Shared by the list and single-record queries, which differ only in their WHERE/ORDER BY.
 const REPO_CONFIG_SELECT = `
       SELECT
         r.installation_id,

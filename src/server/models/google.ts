@@ -1,22 +1,15 @@
 import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelInput, type ModelResponse } from './types';
+import { toGeminiResponseJsonSchema } from './gemini-schema';
 import { assertPublicBaseUrl } from './url-guard';
 
-/** Default max wall-clock time for a single Google AI Studio call when the caller doesn't
- * supply a diff-size-aware budget. */
+/** Fallback when the caller supplies no diff-size-aware budget. */
 const GEMINI_TIMEOUT_MS = 45_000;
-// Retry transient upstream failures (Gemini's frequent 5xx "Internal error encountered.") a
-// couple of times with backoff so a momentary blip doesn't fail an otherwise-fine review.
 const GEMINI_MAX_RETRIES = 2;
-// Headroom so reasoning models can spend tokens thinking and still emit the JSON answer instead of
-// getting truncated at the limit with an empty body.
+// Headroom so reasoning models can think and still emit the JSON answer without truncating.
 const GEMINI_MAX_OUTPUT_TOKENS = 8192;
-// Hard cap on any single in-call retry sleep. A 429 can carry a `retry-after` of 30-60s on the
-// Free tier; sleeping that long in-call would pin a model-call-gate slot and burn the chunk's
-// wall-clock budget for a retry that will just 429 again. Cap it low -- if the provider needs a
-// longer cool-off, the file is deferred and resumes in a fresh invocation (which is the real,
-// budget-resetting backoff), so a long in-call sleep buys nothing.
+// Cap on any in-call retry sleep; a longer cool-off is better served by deferring the file than by pinning a gate slot here.
 const GEMINI_MAX_RETRY_DELAY_MS = 5_000;
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -25,8 +18,7 @@ function isRetryableGeminiStatus(status: number) {
 }
 
 function defaultRetryDelayMs(attempt: number) {
-  // Snappy backoff: a transient Gemini 5xx usually clears within a second or two, and long sleeps
-  // just eat into the caller's wall-clock and subrequest budget. ~0.8s then ~1.6s for the retries.
+  // ~0.8s then ~1.6s: a transient Gemini 5xx usually clears within a second or two.
   return Math.pow(2, attempt) * 800 + Math.random() * 400;
 }
 
@@ -45,9 +37,7 @@ function retryAfterDelayMs(value: string | null) {
   return null;
 }
 
-// Google states the cool-off in the response body ("Please retry in 56.158360628s.") rather than
-// only in a `retry-after` header, so read it from there too -- otherwise a quota 429 looks
-// indefinitely retryable and we burn every attempt on it.
+// Google states the cool-off in the body ("Please retry in 56.158s.") too; without reading it a quota 429 looks indefinitely retryable.
 function requestedRetryDelayFromBody(message: string): number | null {
   const match = /retry in ([\d.]+)s/i.exec(message);
   if (!match) return null;
@@ -55,12 +45,24 @@ function requestedRetryDelayFromBody(message: string): number | null {
   return Number.isFinite(seconds) ? seconds * 1000 : null;
 }
 
+// Broad on purpose: a false negative is a chain-wide outage, a false positive one subrequest.
+function isSchemaRejection(status: number, message: string) {
+  if (status !== 400) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('responsejsonschema') ||
+    lower.includes('response_json_schema') ||
+    lower.includes('responseschema') ||
+    lower.includes('response_schema') ||
+    lower.includes('invalid json payload') ||
+    lower.includes('unknown name') ||
+    lower.includes('schema')
+  );
+}
+
 function isRetryableTransportError(error: unknown) {
   if (!(error instanceof Error)) return false;
-  // Deliberately do NOT retry timeouts: the caller already grants a diff-size-aware budget (up to
-  // 2 minutes), so a call that blows it is a genuinely slow/stuck generation -- retrying just
-  // burns more wall-clock and subrequests into the same wall. Fail fast and let the fallback chain
-  // (or a fresh-budget continuation) take over. Only genuine transport blips are worth a retry.
+  // Never retry timeouts: the caller already grants up to 2 minutes, so let the fallback chain take over instead.
   if (error.name === 'TimeoutError' || error.message.toLowerCase().includes('timed out')) return false;
   if (error.message.includes('fetch failed')) return true;
   return error instanceof TypeError;
@@ -69,14 +71,19 @@ function isRetryableTransportError(error: unknown) {
 export async function reviewWithGoogle(
   config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
   model: string,
-  input: { systemPrompt: string; userPrompt: string },
+  input: ModelInput,
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<ModelResponse> {
   const timeoutMs = config.timeoutMs ?? GEMINI_TIMEOUT_MS;
   logger.info(`Calling Google model: ${model}`);
-  
+
   assertPublicBaseUrl(config.baseUrl, config.providerName ?? 'Google');
   const prompts = jsonOnlyPrompts(input);
+  const responseJsonSchema = input.responseSchema
+    ? toGeminiResponseJsonSchema(input.responseSchema.schema)
+    : null;
+  // Latched: once the endpoint rejects the grammar, every later attempt goes without it.
+  let schemaRejected = false;
 
   const startTime = Date.now();
   const baseUrl = (config.baseUrl || DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, '');
@@ -111,7 +118,10 @@ export async function reviewWithGoogle(
               { role: 'user', parts: [{ text: prompts.user }] },
             ],
             generationConfig: {
+              // Required alongside a grammar, and the schema-less summary path needs it too.
               responseMimeType: 'application/json',
+              // See gemini-schema.ts for why not `responseSchema`.
+              ...(responseJsonSchema && !schemaRejected ? { responseJsonSchema } : {}),
               maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
               // See the note in models/types.ts on sampling. 0.9 on Gemini's 0-2 scale.
               temperature: 0.9,
@@ -131,14 +141,24 @@ export async function reviewWithGoogle(
     if (!response.ok) {
       const errorText = await response.text();
       const message = providerErrorMessage(errorText);
+
+      if (responseJsonSchema && !schemaRejected && isSchemaRejection(response.status, message)) {
+        schemaRejected = true;
+        // Inferred, not established: another cause 400s again and throws the real message below.
+        logger.warn('Gemini returned a 400 that looks like a response-grammar rejection; retrying without constrained decoding', {
+          model,
+          error: message,
+        });
+        lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+        // Attempt refunded, no sleep: the probe isn't a transient rung and the latch bounds it to one.
+        attempt--;
+        continue;
+      }
+
       const requestedDelayMs = response.status === 429
         ? retryAfterDelayMs(response.headers.get('retry-after')) ?? requestedRetryDelayFromBody(message)
         : null;
-      // A 429 whose cool-off is longer than we are willing to sleep cannot be retried usefully:
-      // we would wake up early and get the same 429, having spent another subrequest. On the Free
-      // tier Google routinely asks for 30-60s while our cap is 5s, so in-call retries were pure
-      // waste -- three attempts per model, every one of them guaranteed to fail. Give up
-      // immediately and let the caller defer the file to a fresh invocation instead.
+      // A cool-off longer than our cap can't be retried usefully; defer the file instead.
       const canHonorCoolOff = requestedDelayMs === null || requestedDelayMs <= GEMINI_MAX_RETRY_DELAY_MS;
       const isRetryable = isRetryableGeminiStatus(response.status) && canHonorCoolOff;
       const retryDelayMs = Math.min(
@@ -172,6 +192,8 @@ export async function reviewWithGoogle(
       usageMetadata?: {
         promptTokenCount?: number;
         candidatesTokenCount?: number;
+        // Billed against `maxOutputTokens` but reported separately.
+        thoughtsTokenCount?: number;
       };
     };
 
@@ -179,14 +201,21 @@ export async function reviewWithGoogle(
     const rawText = candidate?.content?.parts?.map((part) => part.text ?? '').join('')?.trim();
     if (!rawText) {
       const finishReason = candidate?.finishReason;
-      // A reasoning/"thinking" model can consume its whole output budget before emitting any
-      // answer text, returning empty parts with finishReason MAX_TOKENS (or a safety/RECITATION
-      // block). That's deterministic, so fail the file permanently rather than deferring it for a
-      // retry that would hit the same wall. A truly empty STOP response is treated as transient.
+      // A thinking model burning budget before emitting text, or a safety block, is deterministic and should fail permanently; an empty STOP is transient.
       if (finishReason && finishReason !== 'STOP') {
         throw new UnparseableModelResponseError(model, `finishReason=${finishReason}`);
       }
       throw new Error('Gemini returned an empty response.');
+    }
+
+    // A non-empty non-STOP response is only a prefix: json.ts repairs the braces and the tail findings vanish silently.
+    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+      logger.warn(`Gemini response for ${model} ended with finishReason=${candidate.finishReason}; output is likely incomplete`, {
+        // Thinking tokens bill against the same ceiling, so compare the sum.
+        outputTokens: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+        maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+        schemaDropped: schemaRejected,
+      });
     }
 
     return {
@@ -195,6 +224,7 @@ export async function reviewWithGoogle(
       outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
       modelUsed: model,
       provider: config.providerName ?? 'Google',
+      ...(schemaRejected ? { degraded: 'schema-dropped' as const } : {}),
     };
   }
 

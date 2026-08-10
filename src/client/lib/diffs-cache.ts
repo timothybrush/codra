@@ -1,18 +1,12 @@
 /**
- * Session cache for a job's per-file diffs.
- *
- * `diff_input` isn't persisted in Postgres (it is reconstructed on demand from KV/GitHub, see
- * GET /api/jobs/:id/diffs), so both the Files-changed tab and the Logs page fetch it lazily. They
- * share one key so switching between them doesn't refetch.
- *
- * One module because there were two copies and they drifted: only one carried the size guard, so
- * the Logs page hit exactly the jank the other copy documents.
+ * Session cache for a job's per-file diffs, shared by the Files-changed tab and the Logs page so
+ * switching between them doesn't refetch (`diff_input` isn't persisted in Postgres - see
+ * GET /api/jobs/:id/diffs - so both fetch it lazily).
  */
 
 const cacheKey = (jobId: string) => `codra:job-diffs:${jobId}`;
 
-// Serializing multi-MB diffs janks the main thread and evicts everything else in sessionStorage.
-// Giant PRs just refetch, since the server-side KV cache is warm.
+// Serializing multi-MB diffs janks the main thread and evicts sessionStorage; giant PRs just refetch instead.
 const MAX_CACHED_CHARS = 2_000_000;
 
 export function readDiffsCache(jobId: string): Record<string, string> | null {

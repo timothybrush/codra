@@ -7,17 +7,9 @@ describe('Webhook Handling Suite', () => {
   const env = createTestEnv();
   const app = createApp();
 
-  // This file used to mock '@server/core/github' to "avoid real JWT signing and network calls".
-  // That mock was dead: the webhook handler never constructs a GitHubClient. It verifies the
-  // signature, records the delivery, reads config from KV/Postgres and enqueues -- `loadRepoConfig`
-  // takes only `env`, and `new GitHubClient` appears solely in core/review.ts, routes/api/repos.ts
-  // and services/github.ts, none of which this path touches. Proven by giving the stub class a
-  // throwing constructor: the suite still passed 6/6, so the stub was never instantiated.
-  //
-  // Replaced with the invariant the mock was gesturing at, which is real and worth holding: handling
-  // a webhook must not call GitHub. That is what keeps the handler inside GitHub's 10s delivery
-  // timeout -- the review work happens later, in the Workflow. A spy rather than a stub, so if
-  // someone adds a GitHub call here the assertion names the URL instead of hanging on a real fetch.
+  // Invariant: handling a webhook must never call GitHub -- that's what keeps it inside GitHub's
+  // 10s delivery timeout (review work happens later, in the Workflow). Spy rather than stub so a
+  // future GitHub call surfaces the URL instead of hanging on a real fetch.
   const githubRequests: string[] = [];
   const originalFetch = globalThis.fetch;
 

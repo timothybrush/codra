@@ -3,11 +3,10 @@ import { budgetAwareFileLimit, estimatedSubrequestsPerFile } from '@server/core/
 import { TokenTracker } from '@server/core/token-tracker';
 import { REVIEW_CONCURRENCY_LIMITS, reviewConcurrencyLevels } from '@shared/schema';
 
-// Regression guard for the "concurrency slider is dead above medium" incident: the per-chunk
-// budget cap must NOT silently override the user's configured concurrency at a healthy budget.
-// These assertions exercise the REAL TokenTracker (so MAX_SUBREQUESTS / SAFE_MARGIN are in play)
-// and the REAL REVIEW_CONCURRENCY_LIMITS, so bumping SAFE_MARGIN or ESTIMATED_SUBREQUESTS_PER_FILE
-// back into a slider-defeating range fails this test.
+// Regression guard for "concurrency slider is dead above medium": the per-chunk budget cap must
+// NOT silently override the configured concurrency at a healthy budget. Exercises the REAL
+// TokenTracker and REVIEW_CONCURRENCY_LIMITS, so a slider-defeating change to SAFE_MARGIN or
+// ESTIMATED_SUBREQUESTS_PER_FILE fails this test.
 
 const maxLevel = Math.max(...reviewConcurrencyLevels.map((level) => REVIEW_CONCURRENCY_LIMITS[level]));
 
@@ -38,8 +37,8 @@ describe('budgetAwareFileLimit', () => {
   });
 
   // A nine-model chain costs far more per file than a one-model chain when the primary is
-  // rate-limited. Budgeting a flat 5 for both is what let three files start on a budget that
-  // could not cover them, and the invocation died with "Too many subrequests".
+  // rate-limited; budgeting a flat 5 for both let files start on a budget that couldn't cover
+  // them, dying with "Too many subrequests".
   it('budgets more per file for a longer fallback chain', () => {
     expect(estimatedSubrequestsPerFile(9)).toBeGreaterThan(estimatedSubrequestsPerFile(1));
   });

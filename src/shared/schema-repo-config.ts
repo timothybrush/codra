@@ -23,6 +23,9 @@ export const reviewConfigSchema = z.object({
   // provider rate limits) is shared across repos, not owned by one. Stale keys are ignored on parse.
   large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
+  // Packs small files into shared model calls, amortising the ~2,800-token preamble. Config-driven
+  // so it lands in configSnapshot and a retry re-derives the same bin plan.
+  batch_small_files: z.boolean().default(true),
   max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
   max_comments: z.number().int().min(1).max(150).default(10),
   // 'P3', not 'nit': model-flagged cosmetic findings are what gets a review bot ignored. Applies
@@ -36,11 +39,7 @@ export const reviewConfigSchema = z.object({
   // Enforced at parse time so it binds every provider. Config-driven so it lands in the job's
   // replayable snapshot, and a retried job filters against the same list it originally ran with.
   deny_claim_types: z.array(z.enum(claimTypes)).default([...DEFAULT_DENIED_CLAIM_TYPES]),
-  // The deterministic rule channel: a second finding source, no model call, still produces
-  // candidates when the LLM returns nothing.
-  //
-  // shadow_rule_ids lists rules SCORED BUT NEVER POSTED, where every rule starts: the triage filter
-  // is zero-shot, and a wrong one ships a firehose behind a filter that does nothing.
+  // Deterministic rule channel (no model call). shadow_rule_ids lists rules scored but never posted -- every rule starts there since the triage filter is zero-shot.
   rules: z
     .object({
       enabled: z.boolean().default(true),
@@ -79,6 +78,7 @@ export const repoConfigSchema = z.object({
     skip_files: ['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**'],
     large_file_threshold_lines: 200,
     max_diff_lines_per_file: 800,
+    batch_small_files: true,
     max_total_diff_chars: 150_000,
     max_comments: 10,
     min_severity: 'P3',

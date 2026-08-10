@@ -3,12 +3,9 @@ import { queryRows } from './client';
 import type { JobRow } from './jobs-mapping';
 import { markSystemActive } from './jobs-activity';
 
-// Sibling of db/jobs.ts -- import from that barrel, not from here.
-//
-// Lease claim/heartbeat/release, the no-progress continuation counter, and expired-lease recovery.
+// Import from db/jobs.ts, not here.
 
-// Lives here rather than with the other read queries because claimJobLease is its main caller;
-// keeping it in the barrel would make jobs.ts <-> jobs-leases.ts an import cycle.
+// Lives here rather than with the other read queries because claimJobLease is its main caller; keeping it in the barrel would make jobs.ts <-> jobs-leases.ts an import cycle.
 export async function getJobForProcessing(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string) {
   if (!jobId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
     return null;
@@ -133,11 +130,7 @@ export async function releaseJobLease(env: Pick<AppBindings, 'HYPERDRIVE'>, jobI
   );
 }
 
-// Records that a job is rescheduling the same phase (a continuation) and returns the resulting
-// no-progress continuation count. The counter is bumped here and cleared by
-// resetJobContinuationCount() whenever a chunk actually completes a file, so a healthy job that
-// keeps making headway stays near zero while a job that can never progress climbs toward the
-// MAX_JOB_CONTINUATIONS ceiling and is failed terminally.
+// Bumps the no-progress continuation counter for a job rescheduling the same phase; cleared by resetJobContinuationCount() whenever a chunk completes a file, so a stuck job climbs toward MAX_JOB_CONTINUATIONS.
 export async function markJobContinuationQueued(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, delaySeconds = 0) {
   const rows = await queryRows<{ continuation_count: number }>(
     env,

@@ -276,11 +276,10 @@ async function main() {
     console.log('Starting database migrations...');
     await query('BEGIN');
     try {
-      // Transaction-scoped deliberately. A session-scoped `pg_advisory_lock` leaked in production: the
-      // process died before its `finally` unlock, the connection returned to the pooler still holding the
-      // lock, and every later migrate blocked forever until pg_terminate_backend. `pg_advisory_xact_lock`
-      // is released by Postgres on COMMIT/ROLLBACK/disconnect, and `SET LOCAL` avoids the same pooled
-      // session-state leak.
+      // Transaction-scoped on purpose: a session-scoped pg_advisory_lock once leaked in production
+      // when the process died before its `finally` unlock, leaving the pooler holding it and
+      // blocking every later migrate until pg_terminate_backend. pg_advisory_xact_lock and SET LOCAL
+      // release automatically on COMMIT/ROLLBACK/disconnect.
       console.log('Acquiring advisory lock...');
       await query("SET LOCAL lock_timeout = '30s'");
       await query('SELECT pg_advisory_xact_lock($1)', [migrationLockId]);
@@ -312,8 +311,7 @@ async function main() {
 
     console.log('Database migrations are up to date.');
   } finally {
-    // No unlock needed: COMMIT/ROLLBACK above released the transaction-scoped lock, and closing the
-    // connection would release it regardless.
+    // No explicit unlock needed: COMMIT/ROLLBACK already released the transaction-scoped lock.
     await sql.end();
   }
 }

@@ -1,8 +1,7 @@
 import { foldEvidenceText } from '../fingerprint';
 import type { DiffLine, FileDiff } from '../diff';
 
-// An `evidence` string shorter than this cannot discriminate: `}`, `);` and `return` match dozens of
-// lines in any diff. Shorter quotes are marked `weak` and the finding is withheld.
+// An `evidence` string shorter than this cannot discriminate: `}`, `);` and `return` match dozens of lines in any diff. Shorter quotes are marked `weak` and the finding is withheld.
 export const MIN_DISCRIMINATING_EVIDENCE_CHARS = 8;
 
 export type EvidenceIndex = {
@@ -10,12 +9,8 @@ export type EvidenceIndex = {
   lines: { normalized: string; line: DiffLine }[];
 };
 
-// Indexes a file's diff by normalized line content, so evidence resolves in one pass per file
-// rather than findings x lines.
-//
-// Deleted lines ARE indexed but resolve to the nearest postable line: findPositionForLine refuses
-// `del` lines, so anchoring to one drops the comment, while omitting them makes the quote match
-// nothing and be excluded as a hallucination.
+// Indexes a file's diff by normalized line content, so evidence resolves in one pass per file rather than findings x lines.
+// Deleted lines ARE indexed but resolve to the nearest postable line: anchoring to a `del` line drops the comment, while omitting it makes the quote match nothing and be excluded as a hallucination.
 export function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
   const byContent = new Map<string, DiffLine[]>();
   const lines: { normalized: string; line: DiffLine }[] = [];
@@ -46,6 +41,38 @@ export function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
   return { byContent, lines };
 }
 
+// Multi-line quotes anchor to their first substantive line.
+export function foldFirstEvidenceLine(evidence: unknown): string | null {
+  if (typeof evidence !== 'string') return null;
+  return evidence.split('\n').map(foldEvidenceText).find((l) => l.length > 0) ?? null;
+}
+
+// Normalized line -> how many distinct files in the bin contain it.
+export type BinAmbiguityIndex = Map<string, number>;
+
+// Lines shared by several packed files, for the cross-bin guard in groundParsedFindings.
+export function buildBinAmbiguityIndex(files: readonly FileDiff[]): BinAmbiguityIndex {
+  const filesPerLine = new Map<string, Set<string>>();
+
+  for (const file of files) {
+    for (const hunk of file.hunks) {
+      for (const line of hunk.lines) {
+        const normalized = foldEvidenceText(line.content);
+        if (normalized.length < MIN_DISCRIMINATING_EVIDENCE_CHARS) continue;
+        const paths = filesPerLine.get(normalized);
+        if (paths) paths.add(file.path);
+        else filesPerLine.set(normalized, new Set([file.path]));
+      }
+    }
+  }
+
+  const index: BinAmbiguityIndex = new Map();
+  for (const [normalized, paths] of filesPerLine) {
+    if (paths.size > 1) index.set(normalized, paths.size);
+  }
+  return index;
+}
+
 export type EvidenceResolution =
   | { status: 'absent' }
   // Present but too short to prove anything either way.
@@ -61,8 +88,7 @@ export function resolveEvidence(
 ): EvidenceResolution {
   if (typeof evidence !== 'string') return { status: 'absent' };
 
-  // Multi-line quotes are common; the first substantive line is the one we anchor to.
-  const firstLine = evidence.split('\n').map(foldEvidenceText).find((l) => l.length > 0);
+  const firstLine = foldFirstEvidenceLine(evidence);
   if (!firstLine) return { status: 'absent' };
   if (firstLine.length < MIN_DISCRIMINATING_EVIDENCE_CHARS) return { status: 'weak' };
 
@@ -78,9 +104,7 @@ export function resolveEvidence(
   const exact = index.byContent.get(firstLine);
   if (exact && exact.length > 0) return { status: 'matched', line: nearest(exact) };
 
-  // A quote may be a fragment or carry trailing context, so accept containment either way -- but
-  // BOTH sides must be discriminating, or a fabricated quote like "useEffect(() => {" trivially
-  // contains a real but meaningless line like ") => {" (four production hallucinations did exactly this).
+  // A quote may be a fragment or carry trailing context, so accept containment either way -- but BOTH sides must be discriminating, or a fabricated quote trivially contains a real but meaningless line.
   const contained = index.lines
     .filter(({ normalized }) =>
       normalized.length >= MIN_DISCRIMINATING_EVIDENCE_CHARS

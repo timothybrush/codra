@@ -1,11 +1,8 @@
 import { parseJsonColumn } from './client';
 import { defaultRepoConfig, jobSummarySchema, repoConfigSchema, type RepoConfig } from '@shared/schema';
 
-// Sibling of db/jobs.ts -- import from that barrel, not from here: eight specs vi.mock the
-// '@server/db/jobs' specifier, and a direct sibling import silently bypasses them.
-//
-// Row shape and row->DTO mapping only. Deliberately imports NONE of the other jobs-* siblings, so
-// it stays the leaf they can all depend on.
+// Import from db/jobs.ts, not from here: eight specs vi.mock the '@server/db/jobs' specifier, and a direct sibling import silently bypasses them.
+// Deliberately imports NONE of the other jobs-* siblings, so it stays the leaf they can all depend on.
 
 export type JobRow = {
   id: string;

@@ -4,11 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 
-/**
- * Button surface for the app's design system. `primary`/`secondary` use the
- * bordered-panel look; the remaining variants are retained for existing screens
- * still on the older palette. Also powers <LinkButton> (anchor) below.
- */
+// `primary`/`secondary` use the bordered-panel look; remaining variants are legacy, kept for screens still on the older palette. Also drives <LinkButton> below.
 const buttonVariants = cva(
   'relative inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
   {
@@ -74,8 +70,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, shape = 'base', asChild = false, icon, loading, children, ...props }, ref) => {
     const classes = cn(buttonVariants({ variant, size }), shapeClass(shape, size), className);
 
-    // Base UI composition: `asChild` renders the child element itself (props
-    // merged onto it), mirroring the former Radix Slot behaviour.
+    // `asChild` renders the child itself with props merged onto it (Base UI's equivalent of the former Radix Slot).
     return useRender({
       render: asChild && React.isValidElement(children) ? children : undefined,
       defaultTagName: 'button',

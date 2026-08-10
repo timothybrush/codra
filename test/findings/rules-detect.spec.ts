@@ -5,10 +5,8 @@ import { CLAIM_TYPE_DECIDABILITY, DEFAULT_SHADOW_RULE_IDS } from '@shared/schema
 
 import { addedLinesFile } from '../mocks/fixtures';
 
-// Every rule gets a true positive AND a fixture for each false-positive route it is supposed to
-// survive. A candidate generator is only worth having if its misses are cheap and its hits are real,
-// and the routes below (a comment, a string literal, a removed line) are the three ways a regex over
-// a diff normally goes wrong.
+// Every rule gets a true positive AND a fixture for each false-positive route it must survive:
+// a comment, a string literal, a removed line -- the three ways a regex over a diff usually goes wrong.
 const fileWith = addedLinesFile;
 
 const scan = (path: string, added: string[], removed: string[] = []) =>
@@ -116,9 +114,8 @@ describe('cross-cutting suppressions', () => {
     expect(result.hits).toEqual([]);
   });
 
-  // The reformat-move case. If the identical line was also removed in this hunk, the PR moved or
-  // reindented pre-existing code rather than introducing the defect - reporting it would blame the
-  // author for something they did not write.
+  // If the identical line was also removed in this hunk, the PR moved/reindented existing code
+  // rather than introducing it -- reporting it would blame the author for someone else's line.
   it('suppresses a hit whose line was merely moved, and counts it', () => {
     const result = scan('a.ts', ['    debugger;'], ['  debugger;']);
     expect(result.hits).toEqual([]);
@@ -166,9 +163,8 @@ describe('ruleHitsToComments', () => {
     expect(comment.anchorHash).toBeTruthy();
   });
 
-  // Two hits of one rule in one file must not collide. `buildFindingFingerprint` is f(path, title)
-  // and a rule's title is a CONSTANT, so without mixing the anchor in, one row's disposition would be
-  // written for both and suppression would retire both when one posted.
+  // `buildFindingFingerprint` is f(path, title) and a rule's title is a CONSTANT, so without mixing
+  // the anchor hash in, two hits of one rule in one file would collide and share a disposition.
   it('gives two hits of the same rule in one file distinct fingerprints', () => {
     const file = fileWith('a.ts', ['  } catch (e) {}', '  } catch (err) {}']);
     const comments = ruleHitsToComments(file, scanFileForRuleHits(file, { shadowRuleIds: [] }));

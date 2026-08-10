@@ -22,9 +22,7 @@ export function DashboardPage() {
 
   const [days, setDays] = useState(14);
 
-  // Switching the range reloads the stat cards, so clear them to show skeletons
-  // while the new range loads (same as the initial page load). The recent-jobs
-  // table is range-independent, so it keeps its data.
+  // Clears stats to show skeletons while the new range loads; recent-jobs is range-independent and keeps its data.
   const changeDays = (next: number) => {
     setStats(null);
     setDays(next);
@@ -78,7 +76,6 @@ export function DashboardPage() {
 
       <OverviewStats stats={stats} />
 
-      {/* ── Activity Stream: header + table + footer in one panel ── */}
       <div className="ui-panel min-w-0 overflow-hidden">
         <div className="flex items-center justify-between gap-2 border-b border-ui-line px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">

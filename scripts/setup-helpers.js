@@ -2,9 +2,9 @@ import { exec, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Pure-ish leaves of the Cloudflare setup script: process spawning, id extraction, .dev.vars
-// reading and secret writing. None of them holds a handle open across calls, so importing this
-// module has no side effects -- the imperative provisioning flow stays in setup-cloudflare.js.
+// Pure-ish leaves of the Cloudflare setup script (process spawning, id extraction, .dev.vars
+// I/O). No handles held across calls, so importing this has no side effects; the imperative
+// provisioning flow stays in setup-cloudflare.js.
 
 export const WRANGLER_JSONC_PATH = path.join(process.cwd(), 'wrangler.jsonc');
 export const DEV_VARS_PATH = path.join(process.cwd(), '.dev.vars');
@@ -41,8 +41,7 @@ export function getEnvVars() {
       if (line.trim() && !line.startsWith('#')) {
         const [key, ...values] = line.split('=');
         if (key && values.length > 0) {
-          // Strip surrounding quotes, then unescape literal \n sequences
-          // (wrangler secrets must receive real newlines, not the two chars \ and n)
+          // Unescape literal \n: wrangler secrets need real newlines, not the two chars \ and n.
           const raw = values.join('=').trim().replace(/^"|"$/g, '');
           env[key.trim()] = raw.replace(/\\n/g, '\n');
         }

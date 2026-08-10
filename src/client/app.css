@@ -736,13 +736,15 @@
 }
 
 .dark .app-shell-content {
-  --background: oklch(18% 0.018 115);
-  --card: oklch(18% 0.018 115);
-  --muted: oklch(22% 0.02 115);
-  --popover: oklch(18% 0.018 115);
-  --secondary: oklch(26% 0.02 115);
-  --border: oklch(22% 0.02 115);
-  --input: oklch(22% 0.02 115);
+  /* Zinc, matching the light block's hue: a cool neutral (hue 286.3, low
+     chroma) rather than the warm olive cast that hue 115 gave the card. */
+  --background: oklch(18% 0.006 286.3);
+  --card: oklch(18% 0.006 286.3);
+  --muted: oklch(22% 0.006 286.3);
+  --popover: oklch(18% 0.006 286.3);
+  --secondary: oklch(26% 0.007 286.3);
+  --border: oklch(22% 0.006 286.3);
+  --input: oklch(22% 0.006 286.3);
 }
 
 /* Sidebar rows: the SharedLayoutBg pill is the sole hover affordance - the
@@ -823,32 +825,37 @@
   background: oklch(19% 0 0);
 }
 
-/* Diff-viewer syntax tokens (see src/client/lib/highlight.tsx). Muted,
-   theme-aware hues so highlighted code stays readable on the add/del tints. */
-.tok-kw   { color: oklch(48% 0.19 305); }
-.tok-str  { color: oklch(46% 0.12 150); }
-.tok-num  { color: oklch(50% 0.13 65);  }
-.tok-com  { color: oklch(58% 0.01 260); font-style: italic; }
-.tok-fn   { color: oklch(46% 0.14 260); }
-.tok-type { color: oklch(45% 0.11 200); }
-.dark .tok-kw   { color: oklch(75% 0.14 305); }
-.dark .tok-str  { color: oklch(76% 0.11 150); }
-.dark .tok-num  { color: oklch(78% 0.12 65);  }
-.dark .tok-com  { color: oklch(58% 0.01 260); }
-.dark .tok-fn   { color: oklch(76% 0.1 260);  }
-.dark .tok-type { color: oklch(78% 0.1 200);  }
+/* Diff-viewer syntax tokens (sugar-high, see src/client/lib/highlight.tsx). Muted,
+   theme-aware hues so highlighted code stays readable on the add/del tints.
+   sugar-high emits `color: var(--sh-<token type>)` per token. */
+:root {
+  --sh-keyword:     oklch(48% 0.19 305);
+  --sh-string:      oklch(46% 0.12 150);
+  --sh-class:       oklch(50% 0.13 65);
+  --sh-comment:     oklch(58% 0.01 260);
+  --sh-entity:      oklch(46% 0.14 260);
+  --sh-property:    oklch(45% 0.11 200);
+  --sh-identifier:  inherit;
+  --sh-sign:        oklch(58% 0.01 260);
+  --sh-jsxliterals: inherit;
+  --sh-break:       inherit;
+  --sh-space:       inherit;
+}
+.dark {
+  --sh-keyword:  oklch(75% 0.14 305);
+  --sh-string:   oklch(76% 0.11 150);
+  --sh-class:    oklch(78% 0.12 65);
+  --sh-comment:  oklch(58% 0.01 260);
+  --sh-entity:   oklch(76% 0.1 260);
+  --sh-property: oklch(78% 0.1 200);
+}
+.sh__token--comment { font-style: italic; }
 
 /* Diff row tints + add/del number colors (theme vars set above). */
 .diff-add    { background-color: var(--diff-add-bg); }
 .diff-del    { background-color: var(--diff-del-bg); }
 .diff-add-fg { color: var(--diff-add-fg); }
 .diff-del-fg { color: var(--diff-del-fg); }
-
-/* Markdown inline tokens (.md diffs). */
-.tok-md-head { color: oklch(46% 0.14 260); font-weight: 600; }
-.tok-strong  { color: inherit; font-weight: 700; }
-.tok-em      { color: inherit; font-style: italic; }
-.dark .tok-md-head { color: oklch(76% 0.1 260); }
 
 /* Late-arriving header/meta content eases in instead of popping. */
 @keyframes ui-fade-in {

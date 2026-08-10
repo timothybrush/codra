@@ -1,12 +1,10 @@
 import { isSupportedTimeZone } from '@shared/timezone';
 
 /**
- * Display timezone for dashboard timestamps. Storage is always absolute (TIMESTAMPTZ, emitted as
- * UTC ISO), so this is purely presentation.
- *
- * The preference lives on `account_settings.timezone` so it follows the user across devices, and is
- * mirrored into localStorage so the first paint need not wait on a fetch. The default is UTC, and
- * deliberately NOT the browser zone, so a timestamp reads the same for everyone until chosen.
+ * Display timezone for dashboard timestamps; storage is always TIMESTAMPTZ, so this is purely
+ * presentation. The preference lives on `account_settings.timezone`, mirrored into localStorage so
+ * first paint needn't wait on a fetch. Defaults to UTC, not the browser zone, so a timestamp reads
+ * the same for everyone until chosen.
  */
 
 const STORAGE_KEY = 'codra-timezone';
@@ -64,10 +62,7 @@ export function timeZoneOffsetLabel(zone: string): string {
   }
 }
 
-/**
- * Format an ISO/`Date` value in the user's display zone. Invalid input is returned
- * as-is rather than rendering "Invalid Date" into the UI.
- */
+/** Formats in the display zone. Invalid input is returned as-is, never as "Invalid Date". */
 export function formatDateTime(
   value: string | number | Date,
   options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' },
@@ -77,9 +72,7 @@ export function formatDateTime(
   try {
     return date.toLocaleString(undefined, { ...options, timeZone: resolvedTimeZone() });
   } catch {
-    // Never let a formatting-option problem escape: Intl throws a TypeError for an
-    // unknown zone AND for illegal option combinations, and retrying with the same
-    // `options` would just throw again and take the page down with it.
+    // Intl throws for an unknown zone or illegal option combo; retry without `options`.
     try {
       return date.toLocaleString(undefined, { timeZone: resolvedTimeZone() });
     } catch {
@@ -89,9 +82,8 @@ export function formatDateTime(
 }
 
 /**
- * Format a date-ONLY value (`YYYY-MM-DD`, e.g. a stats day bucket that the server
- * already resolved into the display zone). Parsed and rendered as UTC so the label
- * is the literal day given - formatting it in another zone would shift it by one.
+ * Formats a date-ONLY value (`YYYY-MM-DD`), which the server already resolved into the display
+ * zone. Parsed and rendered as UTC so the label is the literal day; another zone would shift it.
  */
 export function formatDayLabel(
   day: string,

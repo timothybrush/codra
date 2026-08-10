@@ -13,9 +13,7 @@ export async function recoverJobs(env: AppBindings) {
         jobId,
         deliveryId: crypto.randomUUID(),
         phase: 'review',
-        // The job's previous Workflow instance (keyed on jobId) is dead but still exists, so a
-        // same-id create() would be dropped as a duplicate. Force a fresh instance keyed on the new
-        // deliveryId so the recovered job actually resumes instead of climbing recovery_count.
+        // Old Workflow instance (keyed on jobId) is dead but still exists, so force a fresh instance keyed on deliveryId instead of climbing recovery_count.
         forceFreshInstance: true,
       });
     }
@@ -32,9 +30,7 @@ export async function recoverJobs(env: AppBindings) {
 }
 
 export async function completeTerminalCheckRuns(env: AppBindings) {
-  // Limit to 1 to avoid Cloudflare's 50 subrequest limit per invocation,
-  // especially when called opportunistically via waitUntil during API polling.
-  // Each job requires multiple subrequests (KV, GitHub API, Hyperdrive).
+  // Limit to 1: each job needs multiple subrequests (KV, GitHub API, Hyperdrive), close to Cloudflare's 50/invocation cap.
   const jobs = await getTerminalJobsNeedingCheckRunCompletion(env, 1);
   for (const job of jobs) {
     if (!job.check_run_id) continue;
@@ -46,8 +42,7 @@ export async function completeTerminalCheckRuns(env: AppBindings) {
       let title: string;
       let summary: string;
       if (job.status === 'done') {
-        // A completed review whose inline check-run update didn't land (e.g. finalize ran out of
-        // subrequest budget). Reconstruct the same conclusion finalize would have posted.
+        // Inline check-run update may not have landed (e.g. finalize ran out of subrequest budget); reconstruct the conclusion finalize would have posted.
         const partial = (job.error_msg ?? '').startsWith('Partial review');
         conclusion = partial ? 'failure' : (job.verdict === 'approve' ? 'success' : 'neutral');
         title = partial ? 'Review partially failed' : (job.verdict === 'approve' ? 'LGTM' : 'Comments posted');

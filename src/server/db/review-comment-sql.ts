@@ -1,16 +1,6 @@
 import type { ParsedReviewComment } from '@shared/schema';
 
-// One definition of the `review_comments` field list, shared by every site that reads or writes it.
-//
-// There were five hand-maintained copies, three INSERT column lists and two JSON projections, and
-// they drifted exactly as you would expect: `fingerprint_v2` was written on every insert and absent
-// from the dashboard's projection, so `parsedComments[].fingerprintV2` was permanently `undefined`
-// in the UI even though suppression depends on it.
-//
-// ONE EXCEPTION remains: `bulkInheritFileReviews` in file-reviews.ts hand-writes its own INSERT and
-// SELECT, because it copies rows column-to-column with two values overridden (`posted` -> FALSE,
-// `disposition` -> NULL). A column added here must be added there too, or retried jobs silently
-// inherit it as NULL.
+// One definition of the `review_comments` field list, shared by every reader/writer. Exception: `bulkInheritFileReviews` in file-reviews-bulk.ts hand-writes its own, so columns added here go there too.
 
 // Column order for INSERT INTO review_comments (...). Must match REVIEW_COMMENT_INSERT_CASTS.
 export const REVIEW_COMMENT_INSERT_COLUMNS = [
@@ -19,8 +9,7 @@ export const REVIEW_COMMENT_INSERT_COLUMNS = [
   'disposition', 'fingerprint_v2', 'source', 'rule_id',
 ] as const;
 
-// The UNNEST casts, offset so $1 stays free for the file_review_id every caller passes first.
-// Generated rather than written out so the count can never fall out of step with the column list.
+// Generated rather than written out so the cast count can never fall out of step with the column list.
 export const REVIEW_COMMENT_INSERT_CASTS = REVIEW_COMMENT_INSERT_COLUMNS
   .map((column, index) => {
     const placeholder = `$${index + 2}`;
@@ -55,8 +44,7 @@ export function reviewCommentInsertValues(comments: ParsedReviewComment[]) {
 }
 
 // The JSON_BUILD_OBJECT body used to project comments back out, keyed to the `rc` alias.
-//
-// `extraFields` is appended verbatim for projections that need more - the job-detail query adds a
+// `extraFields` is appended verbatim for projections that need more -- the job-detail query adds a
 // correlated `humanLabel` lookup, which the file-review query has no use for.
 export function reviewCommentJsonObject(extraFields = '') {
   const fields = [

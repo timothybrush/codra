@@ -2,11 +2,7 @@ import type { ClaimType, reviewSeverities } from '@shared/schema';
 
 type ReviewSeverity = typeof reviewSeverities[number];
 
-// Deterministic rules, the second finding channel. Models GENERATE at F1 0.07-0.37 but TRIAGE
-// pre-grounded candidates at 0.88-0.96, so rules propose and the model judges. A shippable rule needs
-// all four: a `diff_local` claim type (anything else is denied downstream), ADDED lines only (a `del`
-// hit reports removed code), a `pattern` on the comment/string-STRIPPED line, and cheap `triggers`
-// substrings, the sieve keeping this inside 10ms CPU.
+// Deterministic rules, the second finding channel: models GENERATE at F1 0.07-0.37 but TRIAGE pre-grounded candidates at 0.88-0.96, so rules propose and the model judges.
 export type Rule = {
   id: string;
   claimType: ClaimType;
@@ -132,8 +128,7 @@ export const RULES: readonly Rule[] = [
       + 'and move it to a secret binding.',
     triggers: ['sk-', 'AIza', 'ghp_', 'AKIA'],
     pattern: /\b(?:sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16})\b/,
-    // Disabled: the stripper removes literals, where credentials live, so only unquoted tokens fire.
-    // Needs a different scanning mode, not a different regex.
+    // Disabled: the stripper removes literals, where credentials live, so only unquoted tokens fire. Needs a different scanning mode, not a different regex.
     enabled: false,
   },
   {
@@ -151,6 +146,4 @@ export const RULES: readonly Rule[] = [
   },
 ];
 
-// NOT SHIPPED, `sql-string-concat`: the stripper deletes literals, so a safe tagged `sql` template is
-// indistinguishable from real concatenation, and this repo is built on that pattern. Telling them
-// apart needs a parse, not a regex.
+// NOT SHIPPED, `sql-string-concat`: the stripper deletes literals, so a safe tagged `sql` template is indistinguishable from real concatenation. Telling them apart needs a parse, not a regex.

@@ -17,11 +17,10 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: AppBindings, _ctx: ExecutionContext) {
-    // The cron fires every 2 minutes, but its only job is maintenance (recovering stuck jobs and
-    // finishing check runs). Touching Postgres on every tick would keep the serverless DB awake
-    // 24/7. So gate the DB work on a KV flag that is set whenever a job is created/claimed and
-    // cleared below once there is genuinely nothing left to maintain. When the flag is absent we
-    // return without ever opening a DB connection, letting Postgres suspend.
+    // The cron fires every 2 minutes but only does maintenance (recovering stuck jobs, finishing
+    // check runs). Touching Postgres every tick would keep the serverless DB awake 24/7, so gate on
+    // a KV flag set whenever a job is created/claimed and cleared once nothing is left to maintain
+    // -- when it's absent we return without ever opening a DB connection.
     try {
       const active = await env.APP_KV.get('system:active_jobs');
       if (!active) {
@@ -33,9 +32,8 @@ export default {
 
     return runWithDb(env, async () => {
       await runBestEffortJobMaintenance(env);
-      // As soon as no jobs are running/recoverable and no check runs are outstanding, drop the
-      // flag so the next tick skips Postgres entirely (instead of waiting out the 20-minute TTL).
-      // A new job re-sets the flag on insert/claim, so this only trims the idle tail.
+      // Drop the flag as soon as nothing is left to maintain, so the next tick skips Postgres
+      // instead of waiting out the 20-minute TTL; a new job re-sets it on insert/claim.
       try {
         if (!(await hasPendingMaintenanceWork(env))) {
           await clearSystemActive(env);
@@ -79,9 +77,9 @@ export default {
 
         try {
           // Recovery re-enqueues a stuck job under its original jobId; keying the instance on jobId
-          // would collide with the dead instance (instance.already_exists) and get dropped as a
-          // duplicate, so recovery sets forceFreshInstance to key the new instance on the (fresh)
-          // deliveryId. deliveryId is a UUID, matching the workflow_instance_id column type.
+          // would collide with the dead instance (instance.already_exists), so recovery sets
+          // forceFreshInstance to key the new instance on the (fresh) deliveryId -- a UUID,
+          // matching workflow_instance_id's column type.
           const id = parseResult.data.forceFreshInstance
             ? parseResult.data.deliveryId
             : (parseResult.data.jobId ?? parseResult.data.deliveryId);

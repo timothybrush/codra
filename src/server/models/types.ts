@@ -4,19 +4,17 @@ export type ModelResponse = {
   outputTokens: number;
   modelUsed: string;
   provider: string;
+  // Grammar rejected, so the call ran unconstrained but succeeded. Read by services/model.ts and `/models/:id/test`.
+  degraded?: 'schema-dropped';
 };
 
-// A JSON Schema the provider should constrain decoding to. Only providers with real grammar
-// support honor this (today: Workers AI via `response_format: json_schema`); the others ignore it
-// and rely on the prompt alone.
+// Honored only by Workers AI and Google AI Studio -- not by `vertex`, despite it serving the same Gemini models.
 export type ModelResponseSchema = {
   name: string;
   schema: Record<string, unknown>;
 };
 
-// One inference request. `responseSchema` is per-call on purpose: the file review, the
-// verification pass and the summary each need a DIFFERENT output shape, and hardcoding one of
-// them at the provider layer silently forces the others to emit the wrong object.
+// `responseSchema` is per-call on purpose: file review, verification, and summary each need a different output shape.
 export type ModelInput = {
   systemPrompt: string;
   userPrompt: string;
@@ -34,16 +32,29 @@ export class ProviderRequestError extends Error {
   }
 }
 
-// Thrown when a model responds but produces no reviewable output -- reasoning/thinking only, a
-// response truncated at the token limit, or an empty body. The file was NOT actually reviewed, so
-// rather than synthesizing a fake "inconclusive" pass we throw: the fallback chain tries the next
-// model, and if none succeed the file is honestly marked `failed`. Treated as a PERMANENT failure
-// (not transient) because the outcome is deterministic -- retrying the same model just burns quota.
+// Thrown instead of synthesizing a fake "inconclusive" pass, so the fallback chain tries the next model. Treated as PERMANENT (not transient): the outcome is deterministic, so retrying just burns quota.
 export class UnparseableModelResponseError extends Error {
   constructor(public readonly model: string, public readonly reason: string) {
     super(`Model ${model} produced no reviewable output (${reason}); the file review failed.`);
     this.name = 'UnparseableModelResponseError';
   }
+}
+
+// `details[].description` and `details[].fieldViolations[].description`, flattened and deduped.
+function errorDetailText(error: unknown): string {
+  const details = (error as Record<string, unknown> | null)?.details;
+  if (!Array.isArray(details)) return '';
+
+  const parts = new Set<string>();
+  for (const entry of details) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    for (const candidate of [e, ...(Array.isArray(e.fieldViolations) ? e.fieldViolations : [])]) {
+      const description = (candidate as Record<string, unknown> | null)?.description;
+      if (typeof description === 'string' && description.trim()) parts.add(description.trim());
+    }
+  }
+  return [...parts].join(' ');
 }
 
 export function providerErrorMessage(errorText: string) {
@@ -60,7 +71,11 @@ export function providerErrorMessage(errorText: string) {
       }
 
       if (typeof message === 'string' && message.trim()) {
-        return message.trim();
+        // Gemini puts the actionable reason in `error.details`, leaving `message` as the useless
+        // "Request contains an invalid argument." -- which made isSchemaRejection miss a grammar
+        // rejection and lose the whole model instead of retrying without the schema.
+        const detail = errorDetailText(obj.error);
+        return detail ? `${message.trim()} ${detail}` : message.trim();
       }
     }
   } catch {
@@ -70,12 +85,7 @@ export function providerErrorMessage(errorText: string) {
   return errorText.trim() || 'The provider returned an error.';
 }
 
-// SAMPLING. Temperature is deliberately not zero: measured here, a little randomness reviews better
-// than greedy decoding, which locks the model into one phrasing of one hypothesis. Each adapter sits
-// at the same relative point on its own scale (Google/Vertex/OpenAI 0-2 at 0.9; Anthropic 0-1 and
-// Cloudflare 0-5 at 0.6). One value per adapter covers generation, verification and summary; a
-// near-greedy gate was rejected because judging prose is not a lookup. Watch `droppedByVerdict` if
-// these move. The JSON-only framing is shared because copy-pasting it failed twice.
+// Temperature deliberately not zero: a little randomness reviews better than greedy decoding. Each adapter sits at the same relative point on its own scale (Google/Vertex/OpenAI 0-2 at 0.9; Anthropic 0-1 and Cloudflare 0-5 at 0.6); watch `droppedByVerdict` if these move.
 export function jsonOnlyPrompts(input: ModelInput) {
   return {
     system: `${input.systemPrompt}\n\nReturn only the JSON object. Do not include chain-of-thought, analysis, markdown, code fences, or explanatory prose.`,

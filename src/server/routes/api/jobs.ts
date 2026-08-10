@@ -14,8 +14,7 @@ import { parseUnifiedDiff } from '@server/core/diff';
 import { buildFileReviewPrompts } from '@server/prompts/file-review';
 import { GitHubService } from '@server/services/github';
 
-// Best-effort terminate, by stored workflowInstanceId or the job id fallback. .get() throws when the
-// instance is gone and .terminate() when already terminal; both are non-fatal.
+// Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.
 async function terminateJobWorkflow(env: AppBindings, job: { id: string; workflowInstanceId?: string | null }) {
   const instanceId = job.workflowInstanceId ?? job.id;
   try {
@@ -80,9 +79,7 @@ export function createJobsRouter() {
     return response;
   });
 
-  // diff_input is not persisted; rebuilt on demand when the client opens Files-changed/Raw Logs. Uses
-  // the job's KV cache while warm, then re-derives from GitHub at the job's own base/head commits
-  // (not the live PR) once the 6h TTL lapses.
+  // diff_input is not persisted; rebuilt on demand from the job's own base/head commits (not the live PR), using the KV cache while warm.
   app.get('/:id/diffs', async (c) => {
     const job = await getJobDetail(c.env, c.req.param('id'));
     if (!job) {
@@ -104,8 +101,7 @@ export function createJobsRouter() {
       return c.json({ diffs: {} });
     }
 
-    // Reconstructs the prompt the MODEL SAW, so it must include the PR description: passing null
-    // rendered a prompt silently different from the real one, in a view meant for debugging exactly that.
+    // Must include the PR description: this reconstructs the prompt the model actually saw.
     let prDescription: string | null = null;
     try {
       prDescription = (await github.getPullRequest(job.owner, job.repo, job.prNumber)).body ?? null;
@@ -132,8 +128,7 @@ export function createJobsRouter() {
     return response;
   });
 
-  // Shared by re-run and rerun-from-start: fresh job, supersede older queued/running ones, enqueue
-  // prepare. inherit=true links retryOfJobId and reuses `done` file reviews; false reviews everything.
+  // Shared by re-run and rerun-from-start; inherit=true links retryOfJobId and reuses `done` file reviews, false reviews everything.
   async function startReplacementJob(c: Context<AppEnv>, rawSource: NonNullable<Awaited<ReturnType<typeof getJobForProcessing>>>, options: { inherit: boolean }) {
     const source = mapJob(rawSource);
     let configSnapshot;
@@ -206,7 +201,6 @@ export function createJobsRouter() {
     return c.json({ job }, 202);
   });
 
-  // Stop an ongoing job: terminate its workflow and mark it 'cancelled'.
   app.post('/:id/stop', async (c) => {
     const id = c.req.param('id');
     const raw = await getJobForProcessing(c.env, id);
@@ -223,9 +217,7 @@ export function createJobsRouter() {
     return c.json({ job: updated ? mapJob(updated) : job }, 200);
   });
 
-  // Human verdict on one finding: the only ground-truth path. The previous one (a human deleting an
-  // inline GitHub comment) nobody used, so `comment_feedback` sat empty and accuracy meant hand-audits.
-  // WRONG suppresses repository-wide; RIGHT suppresses nothing and is purely measurement.
+  // Human verdict on one finding: WRONG suppresses repository-wide, RIGHT suppresses nothing and is purely measurement.
   app.put('/:id/findings/:fingerprint/label', async (c) => {
     const jobId = c.req.param('id');
     const fingerprint = c.req.param('fingerprint');
@@ -263,7 +255,6 @@ export function createJobsRouter() {
     return c.body(null, 204);
   });
 
-  // Delete a job, cascading to reviews and comments. Stops the workflow first.
   app.delete('/:id', async (c) => {
     const id = c.req.param('id');
     const raw = await getJobForProcessing(c.env, id);

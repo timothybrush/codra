@@ -1,19 +1,8 @@
 import type { JobSummary } from '@shared/schema';
 
-/**
- * Shared job status and duration formatting.
- *
- * These lived twice - exported from `job-chips.tsx` and privately re-implemented in
- * `jobs-table.tsx` - and the copies had already diverged: the table's `statusLabel` dropped the
- * underscore replacement and its dot map omitted the file/step statuses. Neither divergence was
- * reachable today, which is exactly why it went unnoticed for so long.
- */
+/** Shared job status/duration formatting - keep it here, not duplicated per-component (previous copies diverged). */
 
-/**
- * Dot tone per status. Covers job statuses plus the file- and step-level vocabulary, which reuses
- * the same words. `pending` means "not reached yet", so it stays neutral rather than borrowing
- * queued's amber.
- */
+/** Dot tone per status. `pending` means "not reached yet", so it stays neutral rather than borrowing queued's amber. */
 export const STATUS_DOT: Record<string, string> = {
   done: 'bg-success',
   running: 'bg-info',
@@ -30,11 +19,7 @@ export function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
 }
 
-/**
- * Whole seconds/minutes/hours, no decimals, so a status chip or table cell stays narrow.
- * `formatPreciseDuration` in lib/utils.ts is the deliberately different variant that shows one
- * decimal below a minute - use that where sub-second precision matters.
- */
+/** Whole seconds/minutes/hours, no decimals; `formatPreciseDuration` in lib/utils.ts shows sub-second precision instead. */
 export function formatRunDuration(ms: number) {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -53,10 +38,7 @@ export function jobDuration(job: Pick<JobSummary, 'startedAt' | 'finishedAt'>) {
   return formatRunDuration(end - start);
 }
 
-/**
- * Compact "16m ago" / "15h ago" / "3d ago". Deliberately terser than Intl.RelativeTimeFormat's
- * "16 minutes ago" so a table column stays narrow and the row reads like a deployment list.
- */
+/** Compact "16m ago" / "15h ago" / "3d ago" - terser than Intl.RelativeTimeFormat so a table column stays narrow. */
 export function formatRelativeDate(value: string | Date | null | undefined) {
   if (!value) return '-';
   const time = new Date(value).getTime();

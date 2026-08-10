@@ -8,15 +8,10 @@ import type { ModelResponse } from '../models/types';
 import type { ResolvedModelConfig } from '@server/db/model-configs';
 import { COMPACT_REVIEW_PROMPT_LINE_CAP, type ModelReviewContext } from './model-review-file';
 
-// Sibling of services/model.ts -- import from that barrel, not from here. Four specs vi.mock that
-// specifier.
-//
-// The Cloudflare async-batch path: submit a file for batched review, then poll for it. Separate from
-// the synchronous fallback-chain flow in model-review-file.ts because it is a different lifecycle --
-// submit and poll happen in different Worker invocations, with the request id carried in the DB.
+// Import from services/model.ts, not here -- four specs vi.mock that specifier.
+// Separate from the synchronous flow in model-review-file.ts because submit and poll happen in different Worker invocations, with the request id carried in the DB.
 
-// Submits to the Workers AI async batch queue, or returns null when unusable for the primary
-// model, in which case the caller falls back to synchronous reviewFile.
+// Returns null when unusable for the primary model, in which case the caller falls back to synchronous reviewFile.
 export async function submitReviewBatch(ctx: ModelReviewContext, params: {
   file: any;
   prTitle: string | null;
@@ -60,8 +55,7 @@ export async function submitReviewBatch(ctx: ModelReviewContext, params: {
     );
     return { requestId, model: resolved.modelName };
   } catch (error) {
-    // Non-fatal: the caller reviews synchronously instead. Remember the model so sibling files
-    // this invocation don't each pay the failed probe.
+    // Non-fatal: remember the model so sibling files this invocation don't each pay the failed probe.
     ctx.asyncUnsupportedModels.add(resolved.modelName);
     logger.warn(`Async batch submit unavailable for ${resolved.modelName}; using synchronous review`, {
       error: error instanceof Error ? error.message : String(error),
@@ -70,8 +64,7 @@ export async function submitReviewBatch(ctx: ModelReviewContext, params: {
   }
 }
 
-// Poll a previously submitted async batch review. Returns 'pending' while still queued/running,
-// 'done' with the parsed review once complete, or 'failed' if the poll or parse errored.
+// Returns 'pending' while still queued/running, 'done' with the parsed review, or 'failed' if the poll or parse errored.
 export async function pollReviewBatch(ctx: ModelReviewContext, params: { model: string; requestId: string; file: any; config: RepoConfig }): Promise<
   | { status: 'pending' }
   | { status: 'done'; response: ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>; reviewedLineCount: number; wasPromptTruncated: boolean; userPrompt: string } }

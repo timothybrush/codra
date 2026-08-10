@@ -63,11 +63,12 @@ describe('ModelService: diff chunking', () => {
       totalLineCount: 500,
     });
 
-    // A 900-line file with the configured 800-line cap is split into two chunks (800 + 100)
-    // and each chunk is reviewed in its own model call instead of the tail being truncated away.
+    // 900 lines at the 800-line cap: two chunks, each its own model call.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const body of requestBodies) {
       expect(body.generationConfig.maxOutputTokens).toBe(8192);
+      // Proves the review grammar survives reviewFile -> callResolvedModel -> adapter.
+      expect(body.generationConfig.responseJsonSchema).toBeDefined();
     }
     const firstPrompt = requestBodies[0].contents[0].parts[0].text as string;
     expect(firstPrompt).toContain('const value799 = 799;');
@@ -80,12 +81,8 @@ describe('ModelService: diff chunking', () => {
     expect(response.wasPromptTruncated).toBe(false);
   });
 
-  // The chunk cap was a flat 4, so at the default 800 lines/chunk no file was ever reviewed past line
-  // 3,200 and nothing said so. src/server/core/review.ts changed 3,749 lines in PR #55.
-  //
-  // The raise to 8 is opportunistic on purpose: chunks past the 4th are only taken while the invocation
-  // still has budget to spare, because one runaway file starving its concurrent peers is a failure mode
-  // this codebase has already been bitten by.
+  // A flat cap of 4 silently dropped everything past line 3,200. The raise to 8 is opportunistic:
+  // chunks past the 4th run only on spare budget, so one runaway file can't starve its peers.
 
   describe('the opportunistic chunk tail', () => {
     const okResponse = () => new Response(
@@ -132,7 +129,7 @@ describe('ModelService: diff chunking', () => {
       // A fresh tracker has the full safe budget, so the tail is affordable.
       const service = new ModelService(env, new TokenTracker());
 
-      // 3,749 lines at the 800-line cap is 5 chunks -- the fifth is exactly what the old cap dropped.
+      // 3,749 lines at the 800-line cap is 5 chunks; the old cap dropped the fifth.
       const response = await reviewHugeFile(service, 3_749);
 
       expect(fetchMock).toHaveBeenCalledTimes(5);
@@ -151,7 +148,7 @@ describe('ModelService: diff chunking', () => {
 
       const response = await reviewHugeFile(service, 3_749);
 
-      // Four chunks reviewed, the fifth yielded -- and reported as truncated rather than as clean.
+      // Four reviewed, the fifth yielded and reported as truncated rather than clean.
       expect(fetchMock).toHaveBeenCalledTimes(4);
       expect(response.reviewedLineCount).toBe(3_200);
       expect(response.wasPromptTruncated).toBe(true);
@@ -163,7 +160,7 @@ describe('ModelService: diff chunking', () => {
       await saveTestProviderApiKey(env);
       const service = new ModelService(env, new TokenTracker());
 
-      // 20,000 lines is 25 chunks; the hard cap must bind, and the result must admit it was truncated.
+      // 20,000 lines is 25 chunks: the hard cap must bind and report truncation.
       const response = await reviewHugeFile(service, 20_000);
 
       expect(fetchMock).toHaveBeenCalledTimes(8);
@@ -222,9 +219,7 @@ describe('ModelService: diff chunking', () => {
       compactPrompt: true,
     });
 
-    // compactPrompt lowers the per-call cap to COMPACT_REVIEW_PROMPT_LINE_CAP (400), so the
-    // 900-line file is split into three chunks (400 + 400 + 100) rather than the two chunks
-    // the full 800-line cap would produce -- the first chunk stops exactly at the compact cap.
+    // compactPrompt lowers the per-call cap to 400, so 900 lines becomes three chunks, not two.
     expect(requestBodies.length).toBe(3);
     const firstPrompt = requestBodies[0].contents[0].parts[0].text as string;
     expect(firstPrompt).toContain('const value399 = 399;');

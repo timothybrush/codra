@@ -10,10 +10,7 @@ const emailSchema = z.object({
   email: z.string().trim().email().max(254),
 }).strict();
 
-// Both fields are optional so the client can PATCH either independently, but at
-// least one must be present. `timezone: null` means "follow the browser"; a string
-// must be a zone the runtime's Intl actually knows, so we never persist a value
-// that would later throw at format time.
+// Fields are independently optional (at least one required); timezone null means "follow the browser", else must be an Intl-known zone.
 const accountUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   timezone: z.string().trim().min(1).max(64).refine(isSupportedTimeZone, {
@@ -42,8 +39,7 @@ export function createAuthApiRouter() {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Return the durable record, self-healing for sessions created before the
-    // account_settings table existed (or before this feature shipped).
+    // Self-heals for sessions created before the account_settings table existed.
     let account = await getAccountSettings(c.env, sessionUser.githubUserId);
     if (!account) {
       account = await upsertAccountSettings(c.env, {

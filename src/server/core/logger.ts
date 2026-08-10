@@ -22,13 +22,7 @@ const storage = new AsyncLocalStorage<Record<string, any>>();
 const JWT = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g;
 const BEARER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 
-// Scrubs secrets OUT OF a string rather than discarding the whole string.
-//
-// The previous test was `str.split('.').length === 3`, i.e. "contains exactly two periods". That is
-// not a JWT test: it deleted every message that happened to have two dots -- which is exactly the
-// shape of "...failed for x/y/z.ts; retrying later. Last error: Vertex AI timed out after 40000ms" --
-// while a 429 message (8 dots) and every stack trace (5+ dots) sailed through untouched. So it
-// destroyed the diagnostics it hit and protected nothing: the same text survived in `stack`.
+// Scrubs secrets OUT OF a string rather than discarding the whole string. The previous test, "contains exactly two periods", deleted messages with two dots (e.g. file paths) while missing real JWTs, protecting nothing.
 function scrubString(value: string): string {
   return value.replace(JWT, '[REDACTED_JWT]').replace(BEARER, (m) => `${m.split(/\s+/)[0]} [REDACTED]`);
 }
@@ -39,8 +33,7 @@ function redact(obj: any): any {
     return typeof obj === 'string' ? scrubString(obj) : obj;
   }
   if (Array.isArray(obj)) return obj.map(redact);
-  // Error instances do not expose name/message/stack as own enumerable properties, so
-  // Object.entries() returns [] and they serialize to {}. Normalize first, then scrub.
+  // Error instances don't expose name/message/stack as own enumerable properties, so Object.entries() would serialize them to {}.
   if (obj instanceof Error) {
     return {
       name: obj.name,
@@ -70,9 +63,7 @@ class Logger {
 
   private log(level: string, message: string, data?: any) {
     const store = storage.getStore() || {};
-    // `message` and both context objects go through redaction too. Scrubbing only `data` left three
-    // unscrubbed paths to the same log line, which is how a "redacted" field could sit beside the
-    // identical text in an unredacted one.
+    // `message` and both context objects go through redaction too: scrubbing only `data` left unscrubbed paths to the same log line.
     const output = {
       timestamp: new Date().toISOString(),
       level,

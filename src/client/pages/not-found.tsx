@@ -6,10 +6,8 @@ export function NotFoundPage() {
   return (
     <div className="min-h-svh flex flex-col items-center justify-center bg-background p-6">
       <div className="relative text-center max-w-md animate-fade-up">
-        {/* Subtle background glow */}
         <div className="absolute inset-0 -z-10 bg-primary/5 blur-[100px] rounded-full" />
-        
-        {/* Icon with ghosting effect */}
+
         <div className="relative mb-8 inline-flex items-center justify-center">
           <div className="absolute inset-0 animate-ping opacity-20 text-primary">
             <Ghost size={80} />

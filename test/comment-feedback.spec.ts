@@ -56,12 +56,7 @@ describe('feedback webhooks', () => {
   const env = createTestEnv();
   const app = createApp();
 
-  // This suite used to mock '@server/core/github' to avoid real JWT signing and network calls. That
-  // mock was dead -- the webhook handler never constructs a GitHubClient (proven by giving the stub a
-  // throwing constructor: the suite still passed). Same dead mock as the one removed from
-  // test/api/webhook-handling.spec.ts, and replaced the same way: with the invariant it was gesturing
-  // at, which is real and worth holding -- recording feedback must not call GitHub, because it runs
-  // inside GitHub's webhook delivery timeout.
+  // Invariant: recording feedback must not call GitHub, since it runs inside the webhook delivery timeout.
   const githubRequests: string[] = [];
   const originalFetch = globalThis.fetch;
 

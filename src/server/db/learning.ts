@@ -2,11 +2,7 @@ import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
 import type { ClaimType } from '@shared/schema';
 
-// The learning loop: reads over findings a human has already judged.
-//
-// They share one discipline - **report only over the LABELLED subset, always with n**. The
-// absence of a label is not a signal. Treating unlabelled findings as correct is how "P3 has never
-// been posted" looked decisive when it was really measuring sort order.
+// Reads over findings a human has already judged: report only over the LABELLED subset, always with n. The absence of a label is not a signal.
 
 export type RejectedExemplar = {
   title: string;
@@ -16,15 +12,7 @@ export type RejectedExemplar = {
   path: string;
 };
 
-// Findings a human rejected in this repository, for injection as negative few-shot exemplars.
-//
-// Retrieval is the best measured lever for small models: RAG at 20 shots took F1 36.35 → 74.05 on
-// this task, beating a fine-tuned Gemini, and the gains are consistently LARGER on smaller models -
-// which is this whole chain.
-//
-// Claim-type-keyed rather than embedding-based on purpose. There is no vector store here, and the
-// claim type is already the axis precision varies along, so it is the cheapest useful retrieval key.
-// Served by the `(repository_id, fingerprint)` index from migration 005 (now folded into 003_grounding.sql).
+// Findings a human rejected, injected as negative few-shot exemplars: retrieval measurably improves small models here (F1 36.35 -> 74.05 at 20 shots). Claim-type-keyed since there's no vector store.
 export async function getRejectedExemplars(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   input: { repositoryId: number; claimTypes?: readonly ClaimType[]; limit?: number },
@@ -52,8 +40,7 @@ export async function getRejectedExemplars(
   );
 }
 
-// The repository a job belongs to. Exemplars are repository-scoped - what one team rejects is not
-// evidence about another - and the job row is the only place that link is available mid-review.
+// Exemplars are repository-scoped -- what one team rejects isn't evidence about another.
 export async function getRepositoryIdForJob(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   jobId: string,

@@ -8,6 +8,7 @@ import {
   reviewSeverities,
 } from '@shared/schema';
 import { renderDiffSnippet } from '@server/prompts/verify';
+import { logger } from '../logger';
 import { z } from 'zod';
 import { findPositionForLine, getValidPositions, type DiffLine, type FileDiff } from '../diff';
 import {
@@ -22,7 +23,26 @@ import {
   looksLikeExternalVersionClaim,
 } from '../claim-checks';
 import { parseRawPayload } from './json';
-import { type EvidenceIndex, buildEvidenceIndex, resolveEvidence } from './evidence';
+import {
+  type BinAmbiguityIndex,
+  type EvidenceIndex,
+  buildEvidenceIndex,
+  foldFirstEvidenceLine,
+  resolveEvidence,
+} from './evidence';
+
+// Tolerates the prefix noise models add to paths (`./src/a.ts`, `b/src/a.ts`, `/src/a.ts`).
+export function samePath(a: string, b: string): boolean {
+  const strip = (p: string) => p.trim().replace(/^\.\//, '').replace(/^[ab]\//, '').replace(/^\//, '');
+  return strip(a) === strip(b);
+}
+
+export type BinAmbiguity = {
+  index: BinAmbiguityIndex;
+  // Path of the entry enclosing the finding being grounded.
+  filePath: string;
+  stats: { ambiguousAcrossBin: number };
+};
 
 function withSuggestion(body: string, codeSuggestion?: string) {
   if (!codeSuggestion) return body;
@@ -34,9 +54,7 @@ function withSuggestion(body: string, codeSuggestion?: string) {
   return `${cleanBody}\n\n\`\`\`suggestion\n${cleanSuggestion}\n\`\`\``;
 }
 
-  // Relabels an `other` finding when its vocabulary is unmistakable, so the denylist can see it. NOT
-  // done for react_missing_cleanup/resource_leak/null_or_undefined_deref: that vocabulary appears in
-  // legitimate `other` findings, so the regex would launder ALLOWED findings into the denied bucket.
+// Relabels an `other` finding when its vocabulary is unmistakable, so the denylist can see it. Deliberately excludes react_missing_cleanup/resource_leak/null_or_undefined_deref: that vocabulary also appears in legitimate `other` findings.
 const CLAIM_TYPE_REPAIRS: ReadonlyArray<{ pattern: RegExp; claimType: ClaimType }> = [
   { pattern: /dependenc(?:y|ies)\s+array|exhaustive[- ]deps/i, claimType: 'react_hook_missing_deps' },
   { pattern: /redos|catastrophic backtrack|exponential backtrack/i, claimType: 'redos_regex' },
@@ -46,7 +64,7 @@ function repairClaimType(claimType: ClaimType, title: string, body: string, onRe
   if (claimType !== 'other') return claimType;
   const text = `${title}\n${body}`;
 
-    // Version claims arrive labelled `other`. Measured: every one in the corpus has been false.
+  // Version claims arrive labelled `other`, and every one in the corpus has been false.
   if (looksLikeExternalVersionClaim(title, body)) {
     onRepair();
     return 'external_version_claim';
@@ -63,21 +81,20 @@ function repairClaimType(claimType: ClaimType, title: string, body: string, onRe
 
 type RawFinding = z.infer<typeof fileReviewModelOutputSchema>['findings'][number];
 
-// Dropped finding for the off-diff list. No `tag` only for the position-validation drop, which has
-// never carried a reason prefix.
+// Dropped finding for the off-diff list. Only the position-validation drop omits `tag`.
 type Withheld = { title: string; body: string; tag?: string };
 
 function formatWithheld(w: Withheld): string {
   return w.tag ? `- **[${w.tag}] ${w.title}:** ${w.body}` : `- **${w.title}:** ${w.body}`;
 }
 
-// Stage 2: resolve the evidence quote against the diff; only a match is good enough, on every
-// provider. unmatched = discriminating but absent from the diff, weak = under 8 normalized chars,
-// absent = no quote at all.
+// Stage 2: resolve the evidence quote against the diff; only a match passes, on every provider.
+// unmatched = discriminating but absent, weak = under 8 normalized chars, absent = no quote.
 function groundFindingInEvidence(
   finding: RawFinding,
   evidenceIndex: EvidenceIndex,
   evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number },
+  ambiguity?: BinAmbiguity,
 ): { diffLine: DiffLine } | { withheld: Withheld } {
   const reportedLine = finding.code_location.line || finding.code_location.line_range?.start;
 
@@ -92,8 +109,24 @@ function groundFindingInEvidence(
     return { withheld: { title: finding.title, body: finding.body, tag: `unverified:${evidence.status}` } };
   }
 
-  // Anchor comes from the matched quote; `code_location.line` only disambiguates repeated lines. The
-  // old snap-to-reported-line fallback was unreachable behind the guard above and is gone.
+  // Batch path only: a quote shared across packed files PLUS a mismatched claimed path means a misfiled finding. Either signal alone is ordinary.
+  if (ambiguity) {
+    const firstLine = foldFirstEvidenceLine(finding.evidence);
+    const claimedPath = finding.code_location.absolute_file_path?.trim();
+    const ambiguousAcrossBin = firstLine ? (ambiguity.index.get(firstLine) ?? 0) > 1 : false;
+    if (ambiguousAcrossBin && claimedPath && !samePath(claimedPath, ambiguity.filePath)) {
+      ambiguity.stats.ambiguousAcrossBin += 1;
+      return {
+        withheld: {
+          title: finding.title,
+          body: finding.body,
+          tag: 'unverified:ambiguous-across-bin',
+        },
+      };
+    }
+  }
+
+  // Anchor comes from the matched quote; `code_location.line` only disambiguates repeated lines.
   return { diffLine: evidence.line };
 }
 
@@ -123,7 +156,7 @@ function validateFindingShape(finding: RawFinding): { severity: typeof reviewSev
     3: 'P3',
     4: 'nit',
   };
-  // Missing priority falls back to P3: dropping a genuine P0 over an unranked score is a bad trade.
+  // Missing priority falls back to P3 rather than dropping a possible P0.
   const severity = finding.priority !== undefined
     ? priorityMap[finding.priority] || 'P3'
     : 'P3';
@@ -135,7 +168,7 @@ function validateFindingShape(finding: RawFinding): { severity: typeof reviewSev
       prev = current;
       current = current
         .replace(/^(?:[^\w\s]+|(?:QUALITY|SECURITY|BUG|PERFORMANCE|CORRECTNESS|P[0-3]|NIT)\b)+/giu, '')
-        .replace(/\n\s*/g, ' ') // Flatten newlines in titles/snippets
+        .replace(/\n\s*/g, ' ')
         .trim();
     }
     return current;
@@ -152,9 +185,7 @@ function validateFindingShape(finding: RawFinding): { severity: typeof reviewSev
   return { severity, title, body };
 }
 
-// Stage 5: resolve the claim type, then enforce the denylist and pinned-SHA refutation. Counts are
-// updated BEFORE the deny check; reversed, denied types vanish from the tally and a working denylist
-// looks identical to an idle one.
+// Stage 5: resolve the claim type, then enforce the denylist and pinned-SHA refutation. Counts update BEFORE the deny check, or a working denylist would tally identically to an idle one.
 function applyClaimGate(
   finding: RawFinding,
   title: string,
@@ -164,7 +195,7 @@ function applyClaimGate(
   claimTypeCounts: Record<string, number>,
   deniedClaimCounts: Record<string, number>,
 ): { claimType: ClaimType } | { withheld: Withheld } {
-  // Coerce to 'other' rather than throw: a Zod rejection discards every finding over one bad label.
+  // Coerce to 'other' rather than throw: a Zod rejection discards the whole file over one bad label.
   const claimType = repairClaimType(toClaimType(finding.claim_type), title, body, () => {
     claimTypeCounts.__repaired = (claimTypeCounts.__repaired ?? 0) + 1;
   });
@@ -176,7 +207,7 @@ function applyClaimGate(
     return { withheld: { title, body, tag: `claim-denied:${claimType}` } };
   }
 
-  // A full commit SHA pin refutes a version claim outright; the runner never reads the trailing comment.
+  // A full commit SHA pin refutes a version claim outright.
   if (isVersionClaimRefutedByPin({ title, body, anchorContent })) {
     deniedClaimCounts.version_claim_on_pinned_sha = (deniedClaimCounts.version_claim_on_pinned_sha ?? 0) + 1;
     return { withheld: { title, body, tag: 'refuted:pinned-sha' } };
@@ -185,8 +216,7 @@ function applyClaimGate(
   return { claimType };
 }
 
-// Stage 6: assemble the persisted comment. Absence-check stats are SHADOW: counted, never acted on.
-// Promote to a drop only once `refuted` is non-zero on real claims AND the gold set still passes.
+// Stage 6: assemble the persisted comment. Absence-check stats are SHADOW: counted, never acted on. Promote to a drop only once `refuted` is non-zero on real claims and the gold set passes.
 function buildParsedComment(params: {
   file: FileDiff;
   line: number;
@@ -214,8 +244,7 @@ function buildParsedComment(params: {
     }
   }
 
-  // Omitted score records as 0, never `undefined`: the gate fires on typeof==='number', so an omission
-  // used to sail past a threshold a reported 0.1 would have failed.
+  // Never `undefined`: the gate fires on typeof==='number', so an omission would sail past it.
   const confidenceScore = typeof finding.confidence_score === 'number'
     ? finding.confidence_score
     : 0;
@@ -246,16 +275,17 @@ function buildParsedComment(params: {
   });
 }
 
-// Provider-independent by design. These were once gated on a Cloudflare-only flag, so on the Google
-// chain the evidence gate never fired and a missing confidence_score bypassed min_confidence.
-export function parseFileReviewResponse(
-  raw: string,
-  file: FileDiff,
-  options?: {
-    // Rejected outright. Enforced here, not in the grammar: four of five providers ignore the schema.
-    deniedClaimTypes?: readonly ClaimType[];
-  },
-): {
+// One file's worth of extracted output, so the batch path can hand-build it per file instead of going through the single-file `parseRawPayload`.
+export type FileReviewPayload = z.infer<typeof fileReviewModelOutputSchema>;
+
+export type GroundingOptions = {
+  // Rejected outright. Enforced here, not in the grammar: only Workers AI and Google AI Studio honor the schema.
+  deniedClaimTypes?: readonly ClaimType[];
+  // Batch path only.
+  ambiguity?: BinAmbiguity;
+};
+
+export type GroundedFileReview = {
   comments: ParsedReviewComment[];
   verdict: 'approve' | 'comment';
   fileSummary: string;
@@ -265,12 +295,16 @@ export function parseFileReviewResponse(
   claimTypeCounts: Record<string, number>;
   // Denied per type; these also appear in `claimTypeCounts`.
   deniedClaimCounts: Record<string, number>;
-    // Absence-check funnel, SHADOW-ONLY. Three counters so refuted:0 stays distinguishable from a check
-    // that never fires.
+  // Absence-check funnel, shadow-only; three counters keep refuted:0 distinct from "never fired".
   absenceCheckStats: { absenceShaped: number; identifierExtracted: number; refuted: number };
-} {
-  const parsed = parseRawPayload(raw);
+};
 
+// Grounding is per file, never per response: the indexes come from one `FileDiff`. Split out of `parseFileReviewResponse` so batches can reuse it per file.
+export function groundParsedFindings(
+  parsed: FileReviewPayload,
+  file: FileDiff,
+  options?: GroundingOptions,
+): GroundedFileReview {
   const validPositions = getValidPositions(file);
   const evidenceIndex = buildEvidenceIndex(file);
   const evidenceStats = { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 };
@@ -283,7 +317,7 @@ export function parseFileReviewResponse(
 
   const comments = (parsed.findings || [])
     .map((finding): ParsedReviewComment | null => {
-      const grounded = groundFindingInEvidence(finding, evidenceIndex, evidenceStats);
+      const grounded = groundFindingInEvidence(finding, evidenceIndex, evidenceStats, options?.ambiguity);
       if ('withheld' in grounded) {
         orphanedComments.push(formatWithheld(grounded.withheld));
         return null;
@@ -308,19 +342,37 @@ export function parseFileReviewResponse(
         return null;
       }
 
-      return buildParsedComment({
-        file,
-        line: anchored.line,
-        position: anchored.position,
-        severity,
-        title,
-        body,
-        claimType: gated.claimType,
-        anchorContent,
-        finding,
-        presenceIndex,
-        absenceCheckStats,
-      });
+      // Contained per finding: under batching, propagating would discard the rest of the bin.
+      try {
+        return buildParsedComment({
+          file,
+          line: anchored.line,
+          position: anchored.position,
+          severity,
+          title,
+          body,
+          claimType: gated.claimType,
+          anchorContent,
+          finding,
+          presenceIndex,
+          absenceCheckStats,
+        });
+      } catch (error) {
+        // ZodError only: a wider catch would swallow systemic failures.
+        if (!(error instanceof z.ZodError)) throw error;
+
+        orphanedComments.push(formatWithheld({
+          title: finding.title,
+          body: finding.body,
+          tag: 'unverified:unassemblable',
+        }));
+        logger.warn('Dropped a finding that could not be assembled', {
+          path: file.path,
+          title: finding.title,
+          error: error.message,
+        });
+        return null;
+      }
     })
     .filter((comment): comment is ParsedReviewComment => Boolean(comment));
 
@@ -344,5 +396,16 @@ export function parseFileReviewResponse(
   };
 }
 
+// Provider-independent by design: gating these on a Cloudflare-only flag once disabled the evidence gate and min_confidence on the Google chain.
+export function parseFileReviewResponse(
+  raw: string,
+  file: FileDiff,
+  options?: GroundingOptions,
+): GroundedFileReview {
+  return groundParsedFindings(parseRawPayload(raw), file, options);
+}
+
 
 export { dedupeFindings } from './dedupe';
+export { parseRawBatchPayload, type RawBatchPayload } from './json-batch';
+export { parseBatchReviewResponse, type BatchParseStats, type BatchReviewResult } from './batch';

@@ -1,9 +1,4 @@
-// Deterministic refutation of absence-shaped claims, after a model reported a parameter was never
-// passed while the line passing it sat two lines below.
-//
-// SOUNDNESS, binding on every change: `refuted` asserts only that "X does not appear" is FALSE.
-// `unknown` asserts nothing, and there is no `confirmed` verdict, since a check that can confirm
-// findings manufactures them. Losing a refutation is free; a wrong one silences a real defect.
+// SOUNDNESS, binding on every change: `refuted` asserts only that "X does not appear" is FALSE. There is no `confirmed` verdict, since a check that can confirm findings manufactures them. Losing a refutation is free; a wrong one silences a real defect.
 import type { DiffLine, FileDiff } from './diff';
 import { normalizeDiffText } from './fingerprint';
 
@@ -13,8 +8,7 @@ const PROXIMITY_WINDOW_LINES = 25;
 // Shorter than this and an identifier is too generic to carry a refutation.
 const MIN_IDENTIFIER_LENGTH = 3;
 
-// Anchored on verbs, not bare "missing": that also matches undecidable claims like "missing error
-// handling".
+// Anchored on verbs, not bare "missing": that also matches undecidable claims like "missing error handling".
 const ABSENCE_PATTERNS: readonly RegExp[] = [
   /\b(?:never|not|no longer)\s+(?:being\s+)?(?:passed|provided|supplied|forwarded|included|used|called|invoked|awaited|checked|set|declared|defined|imported)\b/i,
   /\bdoes not\s+(?:pass|include|call|use|await|check|set|import)\b/i,
@@ -51,8 +45,7 @@ export function looksLikeExternalVersionClaim(title: string, body: string): bool
   return VERSION_CLAIM_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-// A step pinned to a full SHA resolves by SHA, and the trailing `# v7.0.0` is never read, so "v7.0.0
-// does not exist" is not a defect there. Two P0s were posted against this shape while CI was green.
+// A step pinned to a full SHA resolves by SHA, and the trailing `# v7.0.0` is never read, so "v7.0.0 does not exist" is not a defect there.
 export function isVersionClaimRefutedByPin(input: { title: string; body: string; anchorContent: string }): boolean {
   if (!looksLikeExternalVersionClaim(input.title, input.body)) return false;
   return FULL_SHA_PATTERN.test(input.anchorContent);
@@ -92,9 +85,7 @@ export function commentSyntaxFor(path: string): CommentSyntax {
   return { line: ['//'], block: true };
 }
 
-// Strips comments and strings so prose cannot refute a claim about code. Returns `null` when
-// unscannable, biasing to `unknown`. Do NOT add cross-line state without a desync test: dropping real
-// code silently is worse than giving up. `${...}` interiors are kept, since interpolation is code.
+// Returns `null` when unscannable, biasing to `unknown`. Do NOT add cross-line state without a desync test: dropping real code silently is worse than giving up.
 export function stripCommentsAndStrings(input: string, syntax: CommentSyntax): string | null {
   let out = '';
   let i = 0;
@@ -227,8 +218,7 @@ function extractIdentifier(sentence: string): { identifier: string } | 'none' | 
   );
 
   if (candidates.size === 0) return 'none';
-  // Two plausible identifiers means we cannot tell which one the claim is about, and refuting the
-  // wrong one is unsound.
+  // Two plausible identifiers means we cannot tell which one the claim is about, and refuting the wrong one is unsound.
   if (candidates.size > 1) return 'ambiguous';
   return { identifier: [...candidates][0] };
 }
@@ -249,8 +239,7 @@ export function checkAbsenceClaim(input: {
   const sentences = absenceSentences(text);
   if (sentences.length === 0) return { status: 'unknown', reason: 'not_absence_shaped' };
 
-  // Tried per sentence: the TITLE usually gives the shape, the BODY the identifier. Ambiguity
-  // short-circuits rather than hunting for a tidier sentence, which is how an unsound refutation happens.
+  // Tried per sentence: TITLE usually gives the shape, BODY the identifier; ambiguity short-circuits rather than hunting for a tidier sentence.
   let identifier: string | undefined;
   for (const sentence of sentences) {
     const extracted = extractIdentifier(sentence);
@@ -274,8 +263,7 @@ export function checkAbsenceClaim(input: {
 
   if (occurrences.length === 0) return { status: 'unknown', reason: 'not_present' };
 
-  // Proximity: without it "X is not passed to f()" is refuted by an unrelated X hundreds of lines
-  // away. The motivating false positive had its answer two lines below the cited code.
+  // Proximity: without it "X is not passed to f()" is refuted by an unrelated X hundreds of lines away.
   const anchorHunk = input.anchorLine !== undefined ? input.index.hunkByLine.get(input.anchorLine) : undefined;
   const nearby = occurrences.find((entry) => {
     if (anchorHunk !== undefined && entry.hunkIndex === anchorHunk) return true;

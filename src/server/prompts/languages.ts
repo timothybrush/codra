@@ -27,14 +27,8 @@ const LANGUAGE_GUIDELINES: LanguageGuideline[] = [
       'Flag incorrect exception handling or resource handling (files/sockets not closed).',
     ],
   },
-  // A React entry with ['tsx', 'jsx'] and a hook-dependency guideline used to live here. Those
-  // extensions are ALSO in the TypeScript entry above, so every .tsx file matched twice and
-  // getLanguageForFile merged both personas and both guideline sets.
-  //
-  // The effect was measurable: hook-dependency findings ran 10x concentrated in .tsx (3.7% of files
-  // vs 0.36% for .ts) while findings-per-file stayed flat, and that claim family posted 0 of 28.
-  // The checklist did not make the model find more, it dictated what it "found". Removed rather
-  // than reworded, since the base prompt already covers correctness for these files.
+  // A React entry with a hook-dependency guideline used to live here, but its extensions overlapped the TypeScript entry above.
+  // Effect was measurable: hook-dependency findings ran 10x concentrated in .tsx with 0 of 28 posted -- the checklist dictated what the model "found" rather than helping it find more. Removed rather than reworded.
   {
     language: 'CSS/SCSS/Less',
     persona: 'a frontend engineer',
@@ -86,9 +80,7 @@ export function getLanguageForFile(path: string): LanguageGuideline | undefined 
   
   if (matches.length === 0) return undefined;
 
-  // On an overlap, take the single most specific entry rather than merging. Merging stacked two
-  // personas and two checklists onto one file, which is how .tsx ended up being told to hunt for
-  // hook-dependency bugs. Narrower extension list == more specific.
+  // On an overlap, take the single most specific entry rather than merging: merging is how .tsx ended up being told to hunt for hook-dependency bugs. Narrower extension list == more specific.
   if (matches.length > 1) {
     return matches.reduce((best, candidate) =>
       candidate.extensions.length < best.extensions.length ? candidate : best,

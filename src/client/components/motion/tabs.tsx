@@ -20,8 +20,7 @@ function useTabs() {
   return ctx;
 }
 
-// Weighty spring for the active-tab indicator: a touch of overshoot so it
-// settles with life instead of snapping.
+// A touch of overshoot so the active-tab indicator settles with life instead of snapping.
 const transition: Transition = {
   type: 'spring',
   stiffness: 170,
@@ -56,10 +55,8 @@ export function Tabs({
   return (
     <MotionConfig transition={reduce ? { duration: 0 } : transition}>
       <TabsCtx.Provider value={{ value: current, setValue, layoutId, variant }}>
-        {/* layoutRoot: the indicator's layoutId measures in page coordinates, so
-            inside fixed/scrolled containers it would replay scroll offsets as
-            movement. The pill only ever travels within the list, so scoping
-            projection to the Tabs wrapper is always correct. */}
+        {/* layoutRoot: the indicator's layoutId measures in page coordinates, so without this
+            it would replay scroll offsets as movement inside fixed/scrolled containers. */}
         <motion.div layoutRoot className={className}>
           {children}
         </motion.div>
@@ -121,8 +118,7 @@ export function TabsTrigger({
     );
   }
 
-  // Pill slides a max-contrast primary pill; segment uses a neutral raised surface
-  // (matching the app's ui-* tokens) so it reads like a standard segmented control.
+  // Segment uses a neutral raised surface (vs. pill's max-contrast) so it reads as a standard segmented control.
   const isSegment = variant === 'segment';
   const radius = variant === 'pill' ? 'rounded-full' : 'rounded-[5px]';
   const indicatorBg = isSegment ? 'bg-ui-base shadow-sm ring-1 ring-ui-line' : 'bg-primary';

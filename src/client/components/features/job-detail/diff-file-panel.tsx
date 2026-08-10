@@ -6,22 +6,18 @@ import { highlightLine, langForPath } from '@client/lib/highlight';
 import { cn } from '@client/lib/utils';
 import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
 import { CommentCard } from './comment-card';
-// One expandable file panel in the diff view, and the single diff row it repeats. Holds the
-// row-height and preview-size constants because they only mean anything here.
 
 export const LARGE_DIFF_ROWS = 300;
 
-/* Longer diffs render only the first PREVIEW_ROWS lines behind a "Show full diff" control, so a huge
-   PR never dumps tens of thousands of rows into the DOM. Files carrying review comments are never
-   truncated, since their anchors must stay visible. */
+// Longer diffs render only the first PREVIEW_ROWS lines behind a "Show full diff" control, so a huge
+// PR never dumps tens of thousands of rows into the DOM. Files with comments are never truncated.
 export const PREVIEW_ROWS = 150;
 
-/* Row height used to estimate a panel's rendered size before it first paints. */
+// Estimated row height, used to size a panel before it first paints.
 export const DIFF_ROW_PX = 20;
 
-/* Offscreen panels skip layout and paint; the placeholder height keeps the scrollbar honest. A
-   per-file estimate from the diff's own line count keeps page height stable while scrolling instead
-   of "growing" as panels come into view. */
+// Offscreen panels skip layout/paint; this placeholder height keeps the scrollbar and page height
+// stable instead of the page "growing" as panels come into view.
 export function panelCvStyle(open: boolean, lineEstimate: number): CSSProperties {
   const body = open ? Math.min(lineEstimate, PREVIEW_ROWS) * DIFF_ROW_PX + 140 : 0;
   return {
@@ -55,8 +51,7 @@ export function DiffLine({ row, lang }: { row: DiffRow; lang: ReturnType<typeof 
     );
   }
 
-  // Single line-number column: new-file number for additions/context, old-file
-  // number for deletions.
+  // Single line-number column: new-file number for additions/context, old-file number for deletions.
   const num = row.newNo ?? row.oldNo;
 
   return (
@@ -88,16 +83,14 @@ export const NO_ROWS: DiffRow[] = [];
 
 export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChange, onToggleViewed }: FileDiffProps) {
   const lang = useMemo(() => langForPath(file.filePath), [file.filePath]);
-  // Header stats come from a cheap line scan; the full row parse only happens once
-  // the panel is actually open - collapsed files cost almost nothing.
+  // Header stats come from a cheap line scan; the full row parse only happens once the panel opens.
   const { adds, dels } = useMemo(() => diffStats(file.diffInput), [file.diffInput]);
   const rows = useMemo(
     () => (open && file.diffInput ? parsePromptDiff(file.diffInput) : NO_ROWS),
     [open, file.diffInput],
   );
 
-  // GitHub-style truncation: long diffs render a preview with a "Show full diff"
-  // control. Files with review comments always render fully (anchors must show).
+  // Files with review comments always render fully, since their anchors must stay visible.
   const truncatable = rows.length > LARGE_DIFF_ROWS && file.parsedComments.length === 0;
   const [showFull, setShowFull] = useState(false);
   const visibleRows = useMemo(
@@ -106,8 +99,7 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
   );
   const hiddenLines = rows.length - visibleRows.length;
 
-  // Anchor comments to their new-file line and split the diff into segments:
-  // runs of rows, interrupted by comment blocks. Unmatched comments fall to the end.
+  // Unmatched comments (no new-file line, or line not in the visible rows) fall to the end.
   const { segments, unanchored } = useMemo(() => {
     const byLine = new Map<number, ParsedReviewComment[]>();
     const rest: ParsedReviewComment[] = [];
@@ -149,7 +141,6 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
 
   return (
     <div className="ui-panel min-w-0 overflow-hidden scroll-mt-4">
-      {/* File header */}
       <div className={cn('flex items-center gap-3 px-3 py-2.5 sm:px-4', open && 'border-b border-ui-line')}>
         <button
           type="button"
@@ -204,7 +195,6 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
         </label>
       </div>
 
-      {/* Diff body */}
       {open && (
         <div className="min-w-0">
           {rows.length === 0 ? (
@@ -212,9 +202,8 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
               {diffsLoading ? 'Loading diff…' : 'Diff unavailable for this file.'}
             </p>
           ) : (
-            // Comments split the diff into independently-scrollable row segments so
-            // comment cards stay at panel width instead of stretching to the widest
-            // code line inside one shared horizontal scroller.
+            // Each segment scrolls independently, so comment cards stay at panel width instead of
+            // stretching to the widest code line in a shared scroller.
             segments.map((segment, i) =>
               segment.type === 'rows' ? (
                 <div key={i} className="thin-scroll overflow-x-auto">
@@ -236,7 +225,6 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
             )
           )}
 
-          {/* GitHub-style truncation footer for long diffs */}
           {hiddenLines > 0 && (
             <div className="ui-well flex items-center justify-center gap-3 border-t border-ui-line px-4 py-2.5">
               <p className="text-xs text-ui-subtle">
@@ -263,7 +251,6 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
             </div>
           )}
 
-          {/* Error + comments that didn't match a diff line */}
           {file.fileStatus === 'failed' && file.errorMessage && (
             <div
               className="mx-3 mb-3 rounded-md border p-3 sm:mx-4"

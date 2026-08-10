@@ -6,11 +6,10 @@ import { parseUnifiedDiff, type FileDiff } from '../diff';
 import { ruleHitsToComments, scanFileForRuleHits, type RuleScanStats } from '../rules/detect';
 import type { RejectedExemplar } from '@server/prompts/file-review';
 import { GitHubService } from '../../services/github';
-import { isRetryableModelError, ModelService } from '../../services/model';
+import { isRetryableModelError, ModelService, nextChainIndexOf } from '../../services/model';
 import { type PersistedReviewJob, FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from './phase-control';
 import { isSubrequestBudgetError, retryableModelFailureDelaySeconds } from './retry-policy';
-// Sibling of the core/review barrel; import from there, not here. One file end to end: rule scan,
-// model review, persist.
+// Sibling of the core/review barrel; import from there, not here. One file end to end: rule scan, model review, persist.
 
 // Persists an async-batch poll result, clearing the bookkeeping columns.
 export async function persistCompletedReview(
@@ -56,8 +55,7 @@ export async function persistCompletedReview(
   });
 }
 
-// Terminal 'failed' upsert, one place for several near-identical ones. `clearAsync` wipes batch
-// bookkeeping on queued rows.
+// Terminal 'failed' upsert, one place for several near-identical ones. `clearAsync` wipes batch bookkeeping on queued rows.
 export async function persistFailedFileReview(
   env: AppBindings,
   jobId: string,
@@ -69,8 +67,7 @@ export async function persistFailedFileReview(
     durationMs?: number | null;
     errorMessage: string;
     clearAsync?: boolean;
-    // Deterministic findings when the MODEL review failed: the file is marked failed and still
-    // contributes what a regex could establish.
+    // Deterministic findings when the MODEL review failed: the file is marked failed and still contributes what a regex could establish.
     parsedComments?: ParsedReviewComment[];
   },
 ) {
@@ -93,8 +90,7 @@ export async function persistFailedFileReview(
   });
 }
 
-// Rule channel over one file: comments for live rules, stats including shadow hits. Never throws, so
-// a bad regex cannot fail a completed review.
+// Rule channel over one file: comments for live rules, stats including shadow hits. Never throws, so a bad regex cannot fail a completed review.
 export function scanRuleChannel(
   file: FileDiff,
   config: RepoConfig,
@@ -164,8 +160,7 @@ export async function reviewAndPersistFile(
       overallCorrectness: response.parsed.overallCorrectness,
       confidenceScore: response.parsed.confidenceScore,
       errorMessage: null,
-      // Dropped in the parser, so never rows. Without this, finalize cannot tell "found nothing" from
-      // "everything withheld".
+      // Dropped in the parser, so never rows. Without this, finalize cannot tell "found nothing" from "everything withheld".
       withheldCounts: {
         evidence: (response.parsed.evidenceStats?.unmatched ?? 0)
           + (response.parsed.evidenceStats?.absent ?? 0)
@@ -174,8 +169,7 @@ export async function reviewAndPersistFile(
       },
     });
 
-    // The only per-file grounding view: unmatched/absent/weak climbing on one model is the earliest
-    // signal its output stopped being usable.
+    // The only per-file grounding view: unmatched/absent/weak climbing on one model is the earliest signal its output stopped being usable.
     logger.info(`File review parsed: ${file.path}`, {
       jobId: job.id,
       model: response.modelUsed,
@@ -186,10 +180,10 @@ export async function reviewAndPersistFile(
       // Shadow only. `refuted` at 0 while `absenceShaped` climbs means extraction, not the idea, is broken.
       absenceCheck: response.parsed.absenceCheckStats,
       ruleChannel: ruleScan.stats,
+      // Ran unconstrained because the provider refused the grammar; otherwise the only trace is a single adapter warn on the first file.
+      degraded: response.degraded,
     });
 
-    // Both were computed and consumed by nobody, which made truncation silent. Routine warnings mean the
-    // chunk cap, not the model, is why findings are missing.
     if (response.wasPromptTruncated) {
       logger.warn(`Reviewed only part of ${file.path}; findings from the remainder are missing.`, {
         jobId: job.id,
@@ -203,8 +197,7 @@ export async function reviewAndPersistFile(
     const modelId = config.model?.main ?? 'unconfigured';
     const modelProvider = await resolveFailureModelProvider();
 
-    // Subrequest pressure clears next invocation, so it is not a per-file outage; the job-level
-    // continuation ceiling bounds a wedged job.
+    // Subrequest pressure clears next invocation, so it is not a per-file outage; the job-level continuation ceiling bounds a wedged job.
     if (isSubrequestBudgetError(error)) {
       logger.warn(`File review deferred for ${file.path}; subrequest budget will retry in a fresh invocation`, {
         error: errorMessage,
@@ -216,8 +209,7 @@ export async function reviewAndPersistFile(
       throw error;
     }
 
-    // Transient outages count against the file, so one unrecoverable file becomes a partial review
-    // instead of blocking the job forever.
+    // Transient outages count against the file, so one unrecoverable file becomes a partial review instead of blocking the job forever.
     if (isRetryableModelError(error)) {
       const failureCount = await recordRetryableFileReviewFailure(env, job.id, {
         filePath: file.path,
@@ -227,6 +219,8 @@ export async function reviewAndPersistFile(
         diffInput: null,
         durationMs: Date.now() - startedAt,
         errorMessage,
+        // Progress down the chain, not a repeated outage: the retry resumes at the next model.
+        countsAsAttempt: nextChainIndexOf(error) === null,
       });
 
       if (failureCount >= MAX_RETRYABLE_FILE_REVIEW_FAILURES) {

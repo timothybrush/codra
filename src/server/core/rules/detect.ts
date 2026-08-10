@@ -5,9 +5,7 @@ import { buildAnchorHash, buildFindingFingerprint, buildFindingFingerprintV2, no
 import { CLAIM_TYPE_CATEGORY } from '@shared/schema';
 import { RULES, type Rule } from './table';
 
-// Hard cap on added lines scanned per file. A 10ms CPU budget is the binding constraint, not memory,
-// and a 4,000-line file is exactly where a regex sweep would blow it. Reported as `truncated` rather
-// than silently applied.
+// Cap on added lines scanned per file: the binding constraint is the 10ms CPU budget, not memory. Reported as `truncated` rather than silently applied.
 const MAX_RULE_SCAN_ADDED_LINES = 600;
 
 export type RuleHit = {
@@ -47,10 +45,7 @@ function ruleApplies(rule: Rule, ext: string) {
   return !rule.extensions || rule.extensions.includes(ext);
 }
 
-// Scans a file's added lines for deterministic rule hits.
-//
-// Costs zero subrequests and no model call, which is the point: this channel still produces findings
-// when the LLM returns nothing, and when the file's review fails outright.
+// Zero subrequests and no model call: this channel still produces findings when the LLM returns nothing or the file's review fails outright.
 export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {}): RuleScanResult {
   const stats: RuleScanStats = {
     addedLinesScanned: 0,
@@ -78,14 +73,12 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
     && ruleApplies(rule, ext));
   if (active.length === 0) return { hits, stats };
 
-  // One flat sieve over every active rule's triggers. `indexOf` on a handful of short substrings is
-  // orders of magnitude cheaper than running the regexes, and it rejects >95% of real lines.
+  // One flat sieve over every active rule's triggers: cheap substring checks reject >95% of lines before regexes run.
   const triggers = [...new Set(active.flatMap((rule) => rule.triggers))];
   const syntax = commentSyntaxFor(file.path);
 
   for (const hunk of file.hunks) {
-    // Same discipline as buildPresenceIndex: a hit on a removed line is a report about code the PR
-    // deleted. Collected per hunk so reformat-move suppression can compare within the same window.
+    // Same discipline as buildPresenceIndex: collected per hunk so reformat-move suppression can compare within the same window.
     const removed = new Set(
       hunk.lines.filter((l) => l.kind === 'del').map((l) => normalizeDiffText(l.content)),
     );
@@ -134,14 +127,8 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
   return { hits, stats };
 }
 
-// Turns rule hits into the same `ParsedReviewComment` shape the LLM channel produces, so everything
-// downstream - suppression, verification, the cap, the dashboard - treats them uniformly.
-//
-// The fingerprint deliberately includes the anchor hash. `buildFindingFingerprint(path, title)` is
-// f(path, title) and a rule's title is a CONSTANT, so two hits of one rule in one file would collide
-// on a single identity: one row's disposition would be written for both, and suppression would retire
-// both when one posted. Mixing the anchor in keeps them distinct - and this changes no existing hash,
-// because no LLM finding takes this path.
+// Turns rule hits into the same `ParsedReviewComment` shape the LLM channel produces, so downstream stages treat them uniformly.
+// The fingerprint deliberately includes the anchor hash: a rule's title is a CONSTANT, so two hits of one rule in one file would otherwise collide on a single fingerprint identity.
 export function ruleHitsToComments(file: FileDiff, result: RuleScanResult): ParsedReviewComment[] {
   return result.hits
     .filter((hit) => !hit.shadow)

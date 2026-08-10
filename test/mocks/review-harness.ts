@@ -21,10 +21,8 @@ export function makeRunAndDrain(env: AppBindings) {
         const result = await runReviewJob(env, currentMessage);
         if (result.action === 'next_phase') {
           currentMessage = { ...currentMessage, phase: result.phase };
-          // Phase and chunk transitions yield long enough to hibernate into a fresh invocation,
-          // which schedules the next delivery into the future (last_queue_message_at). In-process
-          // we do not actually wait, so backdate it to simulate the delay elapsing; otherwise the
-          // next claim reports 'busy'.
+          // Phase transitions schedule the next delivery into the future (last_queue_message_at).
+          // We don't actually wait in-process, so backdate it or the next claim reports 'busy'.
           const jobId = (currentMessage as { jobId?: string }).jobId;
           const repo = (currentMessage as { payload?: { repository?: { name?: string } } }).payload?.repository?.name;
           if (jobId) {

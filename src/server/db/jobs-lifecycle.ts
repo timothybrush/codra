@@ -3,9 +3,7 @@ import { queryRows } from './client';
 import type { JobRow } from './jobs-mapping';
 import { markSystemActive } from './jobs-activity';
 
-// Sibling of db/jobs.ts -- import from that barrel, not from here.
-//
-// Terminal-state writes (complete/fail/cancel/delete) and step patches.
+// Import from db/jobs.ts, not from here.
 
 export async function updateJobCheckRun(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string, checkRunId: number) {
   await queryRows(
@@ -42,11 +40,7 @@ export async function completeJob(
       UPDATE jobs
       SET status = 'done',
           finished_at = now(),
-          -- NOTE: check_run_completed_at is intentionally NOT set here. It's set only once the
-          -- GitHub check run has actually been updated (markJobCheckRunCompleted, called after the
-          -- best-effort updateCheckRun in finalize). That way, if finalize couldn't update the
-          -- check run (e.g. subrequest budget spent on a huge PR), it stays NULL and the maintenance
-          -- sweep (completeTerminalCheckRuns) reconciles it -- the check run always ends 'completed'.
+          -- check_run_completed_at is intentionally NOT set here -- only once markJobCheckRunCompleted confirms GitHub's check run actually updated; otherwise completeTerminalCheckRuns reconciles it later.
           lease_owner = NULL,
           lease_expires_at = NULL,
           verdict = $2,
@@ -128,10 +122,7 @@ export async function failJob(env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>, j
   await markSystemActive(env);
 }
 
-// Stop an ongoing (queued/running) job at the user's request: mark it terminal as 'cancelled',
-// clear the lease (so lease-recovery won't requeue it) and mark any running steps failed. Returns
-// true if a job was actually transitioned (false if it was already terminal). The caller is
-// responsible for terminating the Cloudflare Workflow instance.
+// Clears the lease so recovery won't requeue it. Returns false if already terminal; caller must terminate the Cloudflare Workflow instance separately.
 export async function cancelJob(env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>, jobId: string): Promise<boolean> {
   const rows = await queryRows<{ id: string }>(
     env,
@@ -164,9 +155,7 @@ export async function cancelJob(env: Pick<AppBindings, 'HYPERDRIVE' | 'APP_KV'>,
   return rows.length > 0;
 }
 
-// Permanently delete a job. file_reviews and review_comments cascade automatically (ON DELETE
-// CASCADE); child retry jobs have their retry_of_job_id nulled (ON DELETE SET NULL). Returns true
-// if a row was deleted.
+// file_reviews/review_comments cascade automatically; child retry jobs have retry_of_job_id nulled instead of being deleted.
 export async function deleteJob(env: Pick<AppBindings, 'HYPERDRIVE'>, jobId: string): Promise<boolean> {
   const rows = await queryRows<{ id: string }>(
     env,
@@ -238,7 +227,6 @@ export async function updateJobStep(
   const finishedAt = update.status === 'done' || update.status === 'failed' ? now : (update.finishedAt ?? null);
   const error = update.error ?? null;
 
-  // Single query that either updates existing step or appends a new one
   await queryRows(
     env,
     `
@@ -252,15 +240,9 @@ export async function updateJobStep(
               WHEN s->>'name' = $2
               THEN s || jsonb_build_object(
                 'status', $3::text,
-                -- Preserve the FIRST start time. A phase (e.g. "Reviewing Files") re-enters
-                -- 'running' once per hibernated chunk; overwriting startedAt each time would make
-                -- the displayed duration reflect only the last chunk (~seconds) instead of the full
-                -- multi-minute wall-clock. Keep the existing start; only seed it when absent.
+                -- Preserve the FIRST start time: a phase re-enters 'running' once per hibernated chunk, so seed it only when absent to keep the true multi-minute wall-clock.
                 'startedAt', COALESCE(s->>'startedAt', $4::text),
-                -- 'running' clears any stale finish (step is back in progress). Otherwise keep the
-                -- FIRST finish already recorded for this run -- so re-marking a step 'done' (e.g.
-                -- finalize defensively re-confirming "Reviewing Files") doesn't push the timestamp
-                -- later and inflate the displayed duration. A re-run resets it via the 'running' clear.
+                -- 'running' clears any stale finish; otherwise keep the FIRST finish so re-marking 'done' doesn't inflate the displayed duration.
                 'finishedAt', CASE WHEN $3::text = 'running' THEN NULL ELSE COALESCE(s->>'finishedAt', $5::text) END,
                 'error', COALESCE($6::text, s->>'error')
               )

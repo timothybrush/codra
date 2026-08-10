@@ -18,21 +18,31 @@ import {
 } from '@server/db/jobs';
 import { extractReviewRequest } from './request';
 
-// Re-exported so routes/api/jobs.ts and review-resilience.spec.ts keep their existing specifiers.
+// Re-exports below keep existing '@server/core/review' specifiers working for routes and specs.
 export { getDiffFiles, getOrFetchRawDiffForCompletedJob } from './diff-cache';
 
-// Re-exported so chunk-concurrency.spec.ts keeps importing these from '@server/core/review'.
 export { budgetAwareFileLimit, estimatedSubrequestsPerFile } from './budget';
 
-// Re-exported so the specs and gold set keep importing these from '@server/core/review'.
+export {
+  BIN_DIFF_CHAR_BUDGET,
+  BIN_MAX_FILES,
+  BIN_TARGET_DIFF_LINES,
+  PACKABLE_MAX_DIFF_LINES,
+  narrowUnit,
+  planReviewUnits,
+  unitFiles,
+  type LedgerEntry,
+  type ReviewUnit,
+} from './pack';
+
+export { proportionalSplit } from './bin-runner';
+
 export { verifyFindings, type VerifyDrop, type VerifyOutcome } from '../finding-gates';
 
-// Re-exported so `routes/webhook.ts` and the specs keep importing it from '@server/core/review'.
 export { extractReviewRequest, type ReviewRequest } from './request';
 
-// Re-exported so workflows/review.ts can floor its inter-phase sleep at the same constant the phases
-// use. It must not import phase-control directly (eslint barrel guard), and a smaller floor there
-// silently un-hibernates every transition.
+// workflows/review.ts floors its inter-phase sleep here; the eslint barrel guard stops it
+// importing phase-control directly.
 export { FRESH_INVOCATION_YIELD_SECONDS } from './phase-control';
 
 import { GitHubService } from '../../services/github';
@@ -59,15 +69,12 @@ import { runPreparePhase } from './prepare';
 import { runReviewPhase } from './phase';
 import { runFinalizePhase } from './finalize';
 
-// Re-exported: NextPhaseError and failJobAndCheckRun are part of this module's frozen public surface
-// (workflows/review.ts and the specs import them from '@server/core/review').
 export { NextPhaseError, failJobAndCheckRun };
 
 export type ReviewJobRunResult =
   | { action: 'ack' }
   | { action: 'retry'; delaySeconds: number }
-  // jobId is resolved (mention-triggered jobs carry none in the queue message). freshInstance
-  // starts a fresh Workflow instance: set on a subrequest deferral or the move into finalize.
+  // jobId is resolved (mention-triggered jobs carry none). freshInstance starts a new Workflow instance: set on a subrequest deferral or the move into finalize.
   | { action: 'next_phase'; phase: 'prepare' | 'review' | 'finalize'; delaySeconds: number; jobId?: string; freshInstance?: boolean };
 
 export async function runReviewJob(env: AppBindings, message: ReviewJobMessage): Promise<ReviewJobRunResult> {
@@ -76,8 +83,7 @@ export async function runReviewJob(env: AppBindings, message: ReviewJobMessage):
     return { action: 'ack' };
   }
 
-  // Admission only: a job already 'running' returns before markJobContinuationQueued, so
-  // re-gating it here would retry forever and its lease would go stale.
+  // Admission only: re-gating a job already 'running' would retry forever and stale its lease.
   if (resolved.job.status === 'queued') {
     const { concurrencyLevel } = await getReviewSettings(env);
     const maxConcurrentJobs = REVIEW_CONCURRENCY_LIMITS[concurrencyLevel];
@@ -105,8 +111,7 @@ export async function runReviewJob(env: AppBindings, message: ReviewJobMessage):
 
   const job = mapJob(claim.row);
 
-  // Bind to the ACTUAL Workflow instance id so stop/delete/rerun terminate the right one. Webhook
-  // jobs key their instance on deliveryId, so the earlier bind step cannot. Idempotent.
+  // Bind the Workflow instance id so stop/delete/rerun hit the right one; webhook jobs key theirs on deliveryId, so the earlier bind step cannot. Idempotent.
   if (message.workflowInstanceId && job.workflowInstanceId !== message.workflowInstanceId) {
     try {
       await setJobWorkflowInstance(env, job.id, message.workflowInstanceId);
@@ -142,8 +147,7 @@ export async function runReviewJob(env: AppBindings, message: ReviewJobMessage):
 
     if (error instanceof NextPhaseError) {
       await releaseJobLease(env, job.id, leaseOwner);
-      // Finalize needs a fresh instance for a clean budget; other phase transitions stay in this
-      // instance and rely on step.sleep hibernation to reset it.
+      // Finalize needs a fresh instance for a clean budget; other transitions hibernate instead.
       return { action: 'next_phase', phase: error.phase, delaySeconds: error.delaySeconds, jobId: job.id, freshInstance: error.phase === 'finalize' };
     }
 
@@ -157,11 +161,9 @@ export async function runReviewJob(env: AppBindings, message: ReviewJobMessage):
       return continueOrFailWedgedJob(env, job, github, leaseOwner, phase, delaySeconds, 'transient model/provider failures');
     }
 
-    // Not a job failure: every phase is idempotent enough to resume on a fresh budget. Prepare and
-    // review skip persisted files; finalize re-derives and is guarded against double-posting.
+    // Not a job failure: every phase is idempotent enough to resume on a fresh budget.
     if (isSubrequestBudgetError(error)) {
-      // A fresh Worker invocation is what fixes budget exhaustion -- but only a long-enough sleep
-      // actually hibernates the workflow into one. Yield long enough to force that hibernation.
+      // Only a long-enough sleep hibernates the workflow into the fresh invocation this needs.
       const record = error && typeof error === 'object' ? error as { retryAfterSeconds?: unknown } : null;
       const delaySeconds = typeof record?.retryAfterSeconds === 'number'
         ? record.retryAfterSeconds
@@ -181,8 +183,7 @@ export async function runReviewJob(env: AppBindings, message: ReviewJobMessage):
   }
 }
 
-// Records a same-phase continuation and enforces MAX_JOB_CONTINUATIONS. Completing any file resets
-// the counter, so only a genuinely wedged job reaches the ceiling and is failed terminally.
+// Records a same-phase continuation and enforces the ceiling. Completing any file resets the counter, so only a genuinely wedged job gets there.
 async function continueOrFailWedgedJob(
   env: AppBindings,
   job: PersistedReviewJob,
@@ -194,21 +195,18 @@ async function continueOrFailWedgedJob(
 ): Promise<ReviewJobRunResult> {
   const continuationCount = await markJobContinuationQueued(env, job.id, delaySeconds);
 
-  // Finalize's low ceiling fails fast instead of looping ~20 min against the review-sized one;
-  // every other phase keeps the generous ceiling because it makes real per-file progress.
+  // Finalize fails fast instead of looping ~20 min; other phases make real per-file progress.
   const ceiling = phase === 'finalize' ? MAX_FINALIZE_CONTINUATIONS : MAX_JOB_CONTINUATIONS;
 
   if (continuationCount > ceiling) {
     if (phase === 'review') {
-      // Must RETURN the transition, not call enqueueJobPhase(): that throws, and this runs inside
-      // runReviewJob's catch, so the throw would escape uncaught instead of becoming a result.
+      // Must RETURN the transition: enqueueJobPhase() throws, and this runs inside a catch.
       logger.error(`Review job exceeded the continuation ceiling; degrading to a partial review: ${job.owner}/${job.repo} PR #${job.prNumber}`, {
         phase,
         continuationCount,
         reason,
       });
-      // A file still awaiting an async batch would otherwise finalize as an empty 'successful'
-      // review. Mark it failed first, mirroring the async-poll degrade path.
+      // A file still awaiting an async batch would otherwise finalize as an empty 'successful'.
       const stillPending = (await getFileReviewsForJobs(env, [job.id])).filter(isAwaitingAsyncReview);
       for (const review of stillPending) {
         await persistFailedFileReview(env, job.id, {
@@ -219,11 +217,9 @@ async function continueOrFailWedgedJob(
           clearAsync: true,
         });
       }
-      // Finalize needs its own continuation budget: the counter is already past the ceiling (that
-      // is what triggered this degrade), so its first budget miss would fail the job terminally.
+      // Finalize needs its own continuation budget: the counter is already past the ceiling.
       await resetJobContinuationCount(env, job.id);
       await releaseJobLease(env, job.id, leaseOwner);
-      // Finalize on a fresh instance/budget -- this instance is the one that hit the wall.
       return { action: 'next_phase', phase: 'finalize', delaySeconds: FRESH_INVOCATION_YIELD_SECONDS, jobId: job.id, freshInstance: true };
     } else {
       const message = `Review could not make progress after ${continuationCount} continuation attempts (${reason}). Failing the job to avoid an endless retry loop; re-run it once the underlying provider issue clears.`;
@@ -239,10 +235,9 @@ async function continueOrFailWedgedJob(
   }
 
   await releaseJobLease(env, job.id, leaseOwner);
-  // A subrequest-limit deferral means THIS instance is saturated, so resume in a fresh one; a
-  // transient model/provider deferral is not budget-related and stays in this instance.
+  // A subrequest-limit deferral saturated THIS instance; a transient model deferral did not.
   const freshInstance = reason.includes('subrequest');
-  return { action: 'next_phase', phase, delaySeconds, jobId: job.id, freshInstance }; // Resume same phase
+  return { action: 'next_phase', phase, delaySeconds, jobId: job.id, freshInstance };
 }
 
 async function resolveQueuedJob(

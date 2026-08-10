@@ -1,8 +1,6 @@
 import { logger } from '@server/core/logger';
 
 // Sibling of core/github.ts -- import from that barrel, not from here.
-
-// Default timeout for every GitHub API call (30 s).
 export const GITHUB_TIMEOUT_MS = 30_000;
 
 export class GitHubError extends Error {
@@ -17,9 +15,7 @@ export class GitHubError extends Error {
   }
 }
 
-// GitHub's unified-diff media type refuses any diff over 20,000 lines with 406 `too_large`. Matched
-// narrowly: any other 406, or any other status, must still surface as a real failure rather than
-// quietly taking the slower rebuild path.
+// GitHub's unified-diff media type refuses any diff over 20,000 lines with 406 `too_large`; matched narrowly so any other 406/status still surfaces as a real failure.
 export function isDiffTooLargeError(error: unknown): boolean {
   return error instanceof GitHubError
     && error.status === 406
@@ -74,10 +70,7 @@ export function repoApiPath(owner: string, repo: string) {
 }
 
 // The authenticated-request surface the extracted diff-fetch and review-post helpers need.
-//
-// An implementation detail of GitHubClient, NOT new public API: the class keeps `request` and
-// `requestAndCheck` private and hands one of these to the free functions. Adding methods here does
-// not widen what @server/core/github exports.
+// An implementation detail of GitHubClient, NOT new public API: `request`/`requestAndCheck` stay private on the class, which hands one of these to the free functions.
 export type GitHubRequestContext = {
   request(path: string, init?: RequestInit, accept?: string): Promise<Response>;
   requestAndCheck(path: string, init?: RequestInit, accept?: string): Promise<Response>;

@@ -6,8 +6,7 @@ import type {
 } from '@shared/github';
 import type { RepoConfig } from '@shared/schema';
 
-// Turns a GitHub webhook into a normalized review request, or null when the event should not start
-// a review. Pure: no env, no I/O, so it is the one part of the review pipeline testable in isolation.
+// Pure (no env/I/O) so the webhook-to-review-request mapping stays testable in isolation.
 function shouldTriggerFromPullRequest(action: PullRequestWebhookPayload['action'], config: RepoConfig['review']) {
   return (config.on as string[]).includes(action);
 }

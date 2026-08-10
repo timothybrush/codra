@@ -28,6 +28,9 @@ import { listProviderModels } from '@server/models/catalog';
 import { ProviderRequestError, type ModelInput } from '@server/models/types';
 import { buildReviewResponseSchema } from '@server/prompts/file-review';
 
+// Per-attempt budget for "Test connection": a person is waiting, and a retry ladder multiplies it.
+const PREFLIGHT_TIMEOUT_MS = 15_000;
+
 const apiFormatSchema = z.enum(llmApiFormats);
 const positiveIntegerSchema = z.number().int().positive().finite();
 const modelIdSchema = z.string().trim().min(1);
@@ -111,8 +114,7 @@ function providerCanBeEnabled(apiFormat: z.infer<typeof apiFormatSchema>, encryp
   return apiFormat === 'cloudflare-workers-ai' || Boolean(encryptedApiKey);
 }
 
-/** Unlike the other formats, Vertex has no universal default base URL -- it embeds the caller's
- * GCP project ID and region -- so it must be supplied explicitly rather than falling back. */
+// Vertex embeds the caller's GCP project ID and region in the URL, so it must be supplied explicitly rather than falling back.
 function requiresExplicitBaseUrl(apiFormat: z.infer<typeof apiFormatSchema>, baseUrl: string | null | undefined) {
   return apiFormat === 'vertex' && !baseUrl;
 }
@@ -337,10 +339,7 @@ export function createModelsRouter() {
     if (!config.providerEnabled) return jsonError('Provider is disabled.', 400);
 
     try {
-      // Exercise the real review grammar, not a toy `{"ok":true}` prompt. On providers with
-      // constrained decoding this is the only preflight that proves the model can actually honor
-      // a strict json_schema -- without it, "Test connection" goes green for models that then
-      // fail every single review.
+      // Exercises the real review grammar so this preflight actually proves the model can honor a strict json_schema.
       const input: ModelInput = {
         systemPrompt: 'You are validating connectivity. Return only the JSON object.',
         userPrompt: 'Return an empty review: no findings, overall_correctness "patch is correct".',
@@ -357,7 +356,8 @@ export function createModelsRouter() {
         
         switch (config.apiFormat) {
           case 'gemini':
-            response = await reviewWithGoogle({ apiKey, baseUrl: config.baseUrl, providerName: config.providerName }, config.modelName, input);
+            // Four attempts worst case, so the 45s default would be 180s -- past Cloudflare's 524.
+            response = await reviewWithGoogle({ apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs: PREFLIGHT_TIMEOUT_MS }, config.modelName, input);
             break;
           case 'vertex':
             response = await reviewWithVertex({ apiKey, baseUrl: config.baseUrl, providerName: config.providerName }, config.modelName, input);
@@ -383,6 +383,13 @@ export function createModelsRouter() {
         provider: response.provider,
         inputTokens: response.inputTokens,
         outputTokens: response.outputTokens,
+        // Reported, not swallowed: a plain `ok: true` would claim more than this verified.
+        ...(response.degraded === 'schema-dropped'
+          ? {
+              degraded: response.degraded,
+              warning: 'Connected, but this endpoint rejected the response grammar. Reviews will run without constrained decoding.',
+            }
+          : {}),
       });
     } catch (error) {
       return jsonError(

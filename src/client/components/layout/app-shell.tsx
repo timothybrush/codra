@@ -2,7 +2,7 @@ import { Outlet, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { SharedLayoutBg } from '@client/components/motion/shared-layout-bg';
 import { api } from '@client/lib/api';
-import { LayoutDashboard, AlignLeft, GitBranch, BarChart2, Sun, Moon, Activity, Settings, Star, X } from 'lucide-react';
+import { LayoutDashboard, AlignLeft, GitBranch, BarChart2, Sun, Moon, Activity, Settings, Star, X, ArrowUpRight } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import { useTheme } from '@client/lib/theme';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
@@ -33,11 +33,7 @@ export function AppShell() {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto-hide scrollbars app-wide: every scroll container shows its thumb only
-  // while actively scrolling, then fades it back out. Scroll events don't
-  // bubble, so we listen in the capture phase at the document level and flag
-  // whatever just scrolled with `data-scrolling` (the global CSS keys off it),
-  // clearing it ~700ms after scrolling stops.
+  // Scroll events don't bubble, so listen in the capture phase at the document level and flag whatever scrolled with `data-scrolling` (global CSS keys off it), clearing it ~700ms after scrolling stops.
   useEffect(() => {
     const timers = new WeakMap<Element, number>();
     const onScroll = (e: Event) => {
@@ -57,7 +53,6 @@ export function AppShell() {
   return (
     <div className="flex h-svh overflow-hidden bg-background">
 
-      {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div
           className="fixed inset-0 z-30 bg-background/60 backdrop-blur-md lg:hidden"
@@ -65,17 +60,15 @@ export function AppShell() {
         />
       )}
 
-      {/* ── SIDEBAR ─────────────────────────────────── */}
       <aside
         className={cn(
           'dashboard-sidebar ui-font-sans',
           'fixed bottom-3 left-3 top-3 z-40 flex flex-col',
-          // Mobile drawer: solid card floating over the page.
+          // Mobile: solid floating card.
           'rounded-xl border border-ui-line bg-background text-ui-default',
           'shadow-[0_6px_20px_-8px_oklch(0%_0_0/0.14)]',
           'dark:shadow-[0_8px_24px_-10px_oklch(0%_0_0/0.42)]',
-          // Desktop: flat - the sidebar IS the page background; the content card
-          // on the right carries the surface instead (Jasper/Mixpanel style).
+          // Desktop: flat - the sidebar IS the page background; the content card carries the surface instead.
           'lg:rounded-none lg:border-transparent lg:bg-transparent lg:shadow-none',
           'lg:dark:bg-transparent lg:dark:shadow-none',
           'transition-transform duration-300 ease-[var(--ease-out-expo)]',
@@ -87,13 +80,12 @@ export function AppShell() {
         )}
       >
 
-        {/* ── Header ──────────────────────────────── */}
-        <div className="relative flex shrink-0 items-center justify-between px-3 pb-3 pt-4">
+        {/* `pl-4` aligns the logo with the nav rows, section label, and account block below. */}
+        <div className="relative flex shrink-0 items-center justify-between px-2 py-4">
 
-          {/* Logo */}
           <Link
             to="/dashboard"
-            className="flex min-w-0 items-center gap-2.5 rounded-md p-1 -m-1 transition-opacity duration-150 hover:opacity-75 lg:ml-1.5"
+            className="flex min-w-0 items-center rounded-md pl-4 transition-opacity duration-150 hover:opacity-75"
             aria-label="Codra dashboard"
             onClick={() => setMobileMenuOpen(false)}
           >
@@ -104,18 +96,18 @@ export function AppShell() {
             />
           </Link>
 
-          {/* Controls: theme toggle (all sizes) + close (mobile) */}
-          <div className="ml-auto flex items-center gap-1.5">
+          {/* Ghost, not boxed: a bordered control would read as a heavy chip on a flat rail. */}
+          <div className="ml-auto flex items-center gap-0.5">
             <button
               onClick={toggleTheme}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-ui-line bg-ui-base text-ui-default transition-colors hover:bg-ui-fill"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill/60 hover:text-ui-strong"
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
             </button>
             <button
               onClick={() => setMobileMenuOpen(false)}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-ui-line bg-ui-base text-ui-default transition-colors hover:bg-ui-fill lg:hidden"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-ui-subtle transition-colors hover:bg-ui-fill/60 hover:text-ui-strong lg:hidden"
               aria-label="Close menu"
             >
               <X size={16} />
@@ -123,25 +115,18 @@ export function AppShell() {
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="mx-3 h-px bg-ui-line" />
-
-        {/* ── Nav ─────────────────────────────────── */}
-        <nav className="flex-1 overflow-visible px-2 py-3">
-          <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle">
+        <nav className="flex-1 overflow-visible px-2 pb-3">
+          <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-ui-subtle dark:text-ui-subtle/65">
             Menu
           </p>
 
-          {/* SharedLayoutBg provides the animated hover pill. Uses SidebarNavItem
-             (hook-based active state) instead of NavLink render props -
-             cloneElement can't wrap a render function as children. */}
+          {/* SidebarNavItem uses hook-based active state (not NavLink render props) since SharedLayoutBg's cloneElement can't wrap a render function. */}
           <SharedLayoutBg
             className="gap-1"
             pillClassName="rounded-md bg-ui-fill/50"
           >
             {links.map(({ to, label, end, icon }) => (
-              /* Plain div is the direct child SharedLayoutBg clones - it injects
-                 the pill + z-10 wrapper into a real DOM element. */
+              /* SharedLayoutBg clones this div to inject the pill + z-10 wrapper. */
               <div key={to}>
                 <SidebarNavItem
                   to={to}
@@ -155,39 +140,38 @@ export function AppShell() {
           </SharedLayoutBg>
         </nav>
 
-        {/* Divider */}
-        <div className="mx-3 h-px bg-ui-line" />
+        {/* One inset rule separates navigation from account/meta; the header divider is gone since free-floating hairlines read as stray marks on a transparent rail. */}
+        <div className="mx-4 h-px shrink-0 bg-ui-line" />
 
-        {/* ── Footer ──────────────────────────────── */}
-        <div className="shrink-0 space-y-1 p-2 pt-3">
+        <div className="shrink-0 space-y-0.5 p-2 pt-2">
 
-          {/* GitHub star - quiet row, same treatment as nav items */}
+          {/* Tertiary: sits a step quieter than navigation and gains an external-link cue on hover. */}
           <a
             href="https://github.com/devarshishimpi/codra"
             target="_blank"
             rel="noopener noreferrer"
             className={cn(
               'dashboard-sidebar-action',
-              'group relative flex h-10 w-full items-center gap-3 rounded-md pl-4 pr-3.5',
-              'text-[13px] font-medium text-ui-default hover:text-ui-strong dark:text-ui-subtle dark:hover:text-ui-default',
+              'group relative flex h-9 w-full items-center gap-3 rounded-md pl-4 pr-3.5',
+              'text-[13px] text-ui-subtle hover:text-ui-strong',
+              'dark:text-ui-subtle/65 dark:hover:text-ui-default',
               'transition-colors duration-200 ease-[var(--ease-out-quart)]',
               'hover:bg-ui-fill/50',
             )}
           >
             <Star size={15} strokeWidth={2} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Star on GitHub</span>
+            <ArrowUpRight
+              size={13}
+              className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            />
           </a>
 
-          {/* Account */}
           {sessionUser && <AccountMenu user={sessionUser} />}
         </div>
-
-        <div className="h-1 shrink-0" />
       </aside>
 
-      {/* ── MAIN - the content card. The shell is fixed-height and never scrolls;
-          the card fills the viewport and hands scrolling to the page inside
-          (the jobs table scrolls its own body, so the card stays put). ── */}
+      {/* The shell is fixed-height and never scrolls; the card fills the viewport and hands scrolling to the page inside (the jobs table scrolls its own body, so the card stays put). */}
       <main
         className={cn(
           'app-shell-content',
@@ -200,8 +184,7 @@ export function AppShell() {
         )}
       >
 
-        {/* Mobile topbar - same ui-* tokens and control sizing as the sidebar
-            header, so the two read as one system when the drawer is open. */}
+        {/* Same ui-* tokens and control sizing as the sidebar header, so the two read as one system when the drawer is open. */}
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-ui-line px-4 lg:hidden">
           <button
             className="-ml-2 rounded-md p-2 text-ui-default transition-colors hover:bg-ui-fill hover:text-ui-strong"
@@ -219,11 +202,7 @@ export function AppShell() {
           </button>
         </header>
 
-        {/* Scroll region: full-width so its (auto-hiding) scrollbar sits at the
-            card's inner edge. Pages that fill the height (jobs) scroll their own
-            body and leave this untouched; shorter pages that overflow fall back
-            to scrolling here - always inside the card, never the window. The
-            inner wrapper centres content to the max width. */}
+        {/* Full-width so its auto-hiding scrollbar sits at the card's inner edge; pages that fill height (jobs) scroll their own body, shorter pages fall back to scrolling here - always inside the card, never the window. */}
         <div className="auto-hide-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="mx-auto flex h-full w-full max-w-screen-2xl flex-col px-4 py-6 md:px-6 md:py-8 lg:px-8">
             <Outlet />

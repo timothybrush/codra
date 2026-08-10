@@ -233,7 +233,6 @@ export function ReposPage() {
         />
       ) : (
         <div className="ui-panel min-w-0 overflow-hidden">
-          {/* Filter toolbar */}
           <div className="flex flex-col gap-2 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center">
             <div className="relative min-w-0 flex-1">
               <Search
@@ -280,7 +279,6 @@ export function ReposPage() {
             </div>
           </div>
 
-          {/* Rows */}
           <div className="divide-y divide-ui-line/60">
             {filteredRepos.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-ui-subtle">

@@ -92,9 +92,8 @@ dbDescribe('cross-run finding suppression', () => {
     });
   });
 
-  // The retry API and mention-triggered re-reviews both reuse the SAME head commit. Without the
-  // commit_sha guard a manual re-review would match everything the previous run posted and produce
-  // an empty, summary-only review.
+  // Retries and mention-triggered re-reviews reuse the SAME head commit; without the commit_sha
+  // guard a manual re-review would match everything the previous run posted.
   it('does not suppress a re-review of the same commit', async () => {
     const repo = uniqueName('suppress-samesha');
     const commit = sha('5');
@@ -223,8 +222,7 @@ dbDescribe('cross-run finding suppression', () => {
       });
     });
 
-    // Marking a finding CORRECT must never suppress it. Doing so would train the system to stop
-    // reporting exactly the findings that worked -- the same reasoning that protects 'resolved'.
+    // Same reasoning as 'resolved': marking a finding CORRECT must never suppress it.
     it('does not suppress a finding a human marked right', async () => {
       await runWithDb(env, async () => {
         const { job, repositoryId } = await seedRepo('right');

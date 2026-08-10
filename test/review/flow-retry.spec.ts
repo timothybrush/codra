@@ -16,10 +16,8 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
 
-// `global_settings` is a singleton, so a suite that READS it races the suites that write it
-// (api-auth and review-max-files) once files run in parallel. Unique row names cannot isolate a
-// single-row key/value table. This suite only needs some fixed concurrency, not the stored one, so
-// pin it to the schema default. The two suites that genuinely test the table take an advisory lock.
+// `global_settings` is a singleton, so reading it races the suites that write it once files run in
+// parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
@@ -35,15 +33,13 @@ vi.mock('@server/services/github', async () => {
 });
 
 vi.mock('@server/services/model', async () => {
-  const { makeModelServiceMock, isRetryableModelErrorMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock };
+  const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
+  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 dbDescribe('Review flow: retries, inheritance and continuations', () => {
-  // Tripwire: proves the mock above is actually reached by this suite's consumer.
-  // If a future refactor rewires runReviewJob to import getOtherRunningJobsCount from a
-  // sibling module instead of the @server/db/jobs barrel, this mock silently stops applying
-  // and every test here would still pass while asserting nothing about concurrency admission.
+  // Tripwire: if a refactor rewires runReviewJob past the @server/db/jobs barrel, the mock stops
+  // applying and every test here still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();

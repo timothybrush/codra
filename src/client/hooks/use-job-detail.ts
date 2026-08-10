@@ -4,9 +4,7 @@ import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import type { JobDetail } from '@shared/schema';
 
-/* Session-scoped cache so revisiting a job paints instantly from the last
-   payload while the network refresh runs in the background. Job detail carries
-   every file's full diff, so writes are best-effort (quota is swallowed). */
+/* Job detail carries every file's full diff, so cache writes are best-effort (quota is swallowed). */
 function jobCacheKey(id: string) {
   return `codra:job:${id}`;
 }
@@ -24,7 +22,7 @@ function writeJobCache(id: string, job: JobDetail) {
   try {
     sessionStorage.setItem(jobCacheKey(id), JSON.stringify(job));
   } catch {
-    /* quota exceeded / unavailable - skip */
+    // best-effort
   }
 }
 
@@ -84,12 +82,8 @@ export function useJobDetail(id: string) {
     pollTimeout.current = window.setTimeout(() => fetchJob(true), delay);
   };
 
-  /**
-   * `fetchJob` and `schedulePolling` are mutually recursive, so neither can be memoized without the
-   * other and both get a new identity every render. Holding them in refs gives the effects below a
-   * stable thing to call, which is what lets their dependency arrays be honest about what actually
-   * triggers them rather than being silenced.
-   */
+  // `fetchJob` and `schedulePolling` are mutually recursive and get a new identity every render;
+  // holding them in refs gives the effects below a stable thing to call.
   const fetchJobRef = useRef(fetchJob);
   const schedulePollingRef = useRef(schedulePolling);
   useEffect(() => {
@@ -114,8 +108,7 @@ export function useJobDetail(id: string) {
     return () => stopPolling();
   }, [id]);
 
-  // Only the two fields `getPollDelay` reads. `latestJob.current` is not assigned here because
-  // `fetchJob` already sets it on every successful response, and those are the only writes to `job`.
+  // Only the two fields `getPollDelay` reads; `fetchJob` already keeps `latestJob.current` in sync.
   useEffect(() => {
     schedulePollingRef.current();
   }, [job?.status, job?.nextRetryAt]);

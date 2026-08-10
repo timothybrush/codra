@@ -4,12 +4,11 @@ import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
 
 
+import { buildReviewResponseSchema } from '@server/prompts/file-review';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
 import { defaultRepoConfig } from '@shared/schema';
 
-// The transient-failure retry ladder: which errors are retried inline, how Retry-After is honoured,
-// and which exhausted runs are reported to the queue as retryable rather than as a permanent file
-// failure. Chain fallback and provider-unavailable marking live in model-service-fallbacks.spec.ts.
+// The retry ladder: inline retries, Retry-After, and which exhausted runs report as retryable.
 describe('ModelService: transient failures and the retry ladder', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -86,8 +85,7 @@ describe('ModelService: transient failures and the retry ladder', () => {
     }
   });
 
-  // The counterpart: a cool-off we cannot honour is not worth a retry. Waking early just earns
-  // the same 429 and spends another subrequest out of the invocation's 50.
+  // A cool-off we cannot honour isn't worth a retry: waking early earns the same 429.
 
   it('gives up immediately on a Retry-After longer than the in-call sleep cap', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -121,6 +119,116 @@ describe('ModelService: transient failures and the retry ladder', () => {
     ).rejects.toThrow('parser exploded after response');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // A 400 matches no transient pattern, so a grammar-rejecting endpoint fails permanently.
+  describe('response-grammar rejection', () => {
+    function geminiOk() {
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}' }] }, finishReason: 'STOP' }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    function gemini400(message: string) {
+      return new Response(
+        JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT', message } }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    const withGrammar = { systemPrompt: 'system', userPrompt: 'user', responseSchema: buildReviewResponseSchema(10) };
+
+    it('drops the grammar and retries once when Gemini rejects responseJsonSchema', async () => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(gemini400('Unknown name "responseJsonSchema" at \'generation_config\': Cannot find field.'))
+        .mockResolvedValueOnce(geminiOk());
+
+      const response = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-pro-preview', withGrammar);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).generationConfig.responseJsonSchema).toBeDefined();
+      expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).generationConfig.responseJsonSchema).toBeUndefined();
+      expect(response.rawText).toContain('"findings"');
+      // Surfaced so the "Test connection" preflight cannot call a grammar-incapable endpoint working.
+      expect(response.degraded).toBe('schema-dropped');
+
+      // The probe is not spent on an unrelated 400, nor when there was no grammar to drop.
+      for (const [message, input] of [
+        ['API key not valid. Please pass a valid API key.', withGrammar],
+        ['Invalid value at generation_config.schema.', { systemPrompt: 'system', userPrompt: 'user' }],
+      ] as Array<[string, any]>) {
+        vi.restoreAllMocks();
+        const guarded = vi.spyOn(globalThis, 'fetch').mockResolvedValue(gemini400(message));
+        await expect(
+          reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-pro-preview', input),
+        ).rejects.toThrow(/400/);
+        expect(guarded).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    // Observed in production: Gemini 3.x sends a generic top-level message and puts the real reason
+// in `details`. Without reading it the grammar rejection looked like an unrelated 400 and the model
+    // was dropped from the chain entirely.
+    it('reads the rejection reason out of error.details, not just the message', async () => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(
+          JSON.stringify({
+            error: {
+              code: 400,
+              status: 'INVALID_ARGUMENT',
+              message: 'Request contains an invalid argument.',
+              details: [{
+                '@type': 'type.googleapis.com/google.rpc.BadRequest',
+                fieldViolations: [{
+                  description: 'The specified schema produces a constraint that has too many states for serving.',
+                }],
+              }],
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        ))
+        .mockResolvedValueOnce(geminiOk());
+
+      const response = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-pro-preview', withGrammar);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).generationConfig.responseJsonSchema).toBeUndefined();
+      expect(response.degraded).toBe('schema-dropped');
+    });
+
+    it('gives the attempt back for the probe, but only once', async () => {
+      // The probe isn't a transient rung: without the give-back, a ladder spent on 5xx could never
+      // drop the schema. The latch stops it looping.
+      const gemini500 = () => new Response(JSON.stringify({ error: { code: 500, message: 'Internal error encountered.' } }), { status: 500, headers: { 'content-type': 'application/json' } });
+      const ladderSpent = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(gemini500())
+        .mockResolvedValueOnce(gemini500())
+        .mockResolvedValueOnce(gemini400('Unknown name "responseJsonSchema" at \'generation_config\'.'))
+        .mockResolvedValueOnce(geminiOk());
+
+      const response = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-pro-preview', withGrammar);
+
+      expect(ladderSpent).toHaveBeenCalledTimes(4);
+      expect(JSON.parse(String(ladderSpent.mock.calls[3]?.[1]?.body)).generationConfig.responseJsonSchema).toBeUndefined();
+      expect(response.degraded).toBe('schema-dropped');
+
+      // mockImplementation, not mockResolvedValue: a retried call cannot re-read one Response body.
+      vi.restoreAllMocks();
+      const persistent = vi.spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => gemini400('Invalid JSON payload received. Unknown name "responseJsonSchema".'));
+
+      await expect(
+        reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-pro-preview', withGrammar),
+      ).rejects.toThrow(/400/);
+
+      // Two, not three and not unbounded: one with the grammar, one without, then throw.
+      expect(persistent).toHaveBeenCalledTimes(2);
+    });
+
   });
 
   it('does not spend an extra queue slice retrying the same Cloudflare model inline', async () => {
@@ -175,11 +283,7 @@ describe('ModelService: transient failures and the retry ladder', () => {
   });
 
   it('classifies an exhausted run of Google 5xx failures as retryable (not a permanent file failure)', async () => {
-    // A sustained upstream 5xx outage across every configured model must be deferred and retried on
-    // a fresh budget, not marked permanently failed. Regression guard for isTransientModelFailure
-    // dropping 5xx / "internal error" detection.
-    // Fresh Response per call -- a Response body can only be read once, so a shared instance would
-    // make the 2nd+ fetch fail on an already-consumed body instead of on the 500 under test.
+    // A sustained 5xx outage defers rather than fails. Fresh Response per call: a body reads once.
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(
         JSON.stringify({ error: { code: 500, message: 'Internal error encountered.', status: 'INTERNAL' } }),
@@ -234,6 +338,7 @@ describe('ModelService: transient failures and the retry ladder', () => {
             ignore_drafts: true,
             mention_trigger: '@codra-app',
             skip_files: [],
+            batch_small_files: false,
             large_file_threshold_lines: 200,
             max_diff_lines_per_file: 800,
             max_total_diff_chars: 150_000,

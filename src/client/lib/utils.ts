@@ -23,8 +23,7 @@ export function fmtStat(n: number): { value: string; unit: string } {
 
 export function formatPreciseDuration(ms: number | null | undefined): string {
   if (ms == null) return '';
-  // Sub-minute: show one decimal second so sub-second work (e.g. a 724ms file review) reads as
-  // "0.7s" rather than flooring to a misleading "0s".
+  // Sub-minute: show one decimal so e.g. a 724ms review reads as "0.7s" rather than "0s".
   if (ms < 60_000) {
     return `${(ms / 1000).toFixed(1)}s`;
   }

@@ -13,8 +13,7 @@ function pemToArrayBuffer(pem: string) {
   const base64 = pem
     .replace(/-----BEGIN (RSA )?PRIVATE KEY-----/g, '')
     .replace(/-----END (RSA )?PRIVATE KEY-----/g, '')
-    // Handle literal \n escape sequences (e.g. when the key is stored as a
-    // single-line string with \n instead of real newlines in wrangler secrets)
+    // Handles literal \n escape sequences from wrangler secrets stored as single-line strings.
     .replace(/\\n/g, '')
     .replace(/\s+/g, '');
 
@@ -60,8 +59,7 @@ export async function createGitHubJwt(appId: string, privateKeyPem: string) {
   return `${header}.${payload}.${signatureString}`;
 }
 
-// Headers for the three app-level (JWT-authenticated) endpoints, as opposed to the installation
-// -token requests GitHubClient.request builds.
+// Headers for the three app-level (JWT-authenticated) endpoints, as opposed to installation-token requests.
 async function appJwtHeaders(env: AppAuthEnv) {
   const jwt = await createGitHubJwt(env.GITHUB_APP_ID, env.APP_PRIVATE_KEY);
   return {
@@ -103,15 +101,12 @@ export async function writeCachedInstallationToken(
   await env.APP_KV.put(installationCacheKey(installationId), JSON.stringify(record), { expirationTtl: ttl });
 }
 
-// Mints a fresh installation token. Deliberately NOT wrapped in withRetry: the caller
-// (GitHubClient.getInstallationToken) wraps mint + KV-write + memo in one withRetry, as it always
-// has. Retrying here too would nest the ladders into 9 attempts.
+// Deliberately NOT wrapped in withRetry here: the caller (GitHubClient.getInstallationToken) wraps mint + KV-write + memo in one withRetry, so retrying here too would nest the ladders into 9 attempts.
 export async function fetchInstallationToken(
   env: AppAuthEnv,
   installationId: string,
 ): Promise<InstallationTokenCacheRecord> {
-  // Signed OUTSIDE withTimeout, as it always was: the 30s budget is for the network call, and
-  // folding key import + signing into it would silently shorten the window for the request.
+  // Signed OUTSIDE withTimeout: the 30s budget is for the network call, not key import + signing.
   const headers = await appJwtHeaders(env);
   const response = await withTimeout('GitHub installation token', GITHUB_TIMEOUT_MS, (signal) =>
     fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {

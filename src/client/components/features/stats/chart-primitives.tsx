@@ -4,8 +4,6 @@ import { LayerCard } from '@client/components/ui/layer-card';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { cn, fmtNumber } from '@client/lib/utils';
 import { formatDayLabel } from '@client/lib/timezone';
-// Shared chart chrome for the stats page: palette, tooltip, shells, legend, gradients, ticks,
-// and the loading skeletons that mirror each shell.
 
 export const CHART = {
   primary: '#65a30d',
@@ -22,19 +20,15 @@ export const CHART = {
   quietDark: '#64748b',
 };
 
-// Per-row accents for the segmented tick meters (reference: white / orange /
-// cyan / blue / purple rhythm).
+// Per-row accents for the segmented tick meters (white / orange / cyan / blue / purple rhythm).
 export const TICK_COLORS_DARK = ['#e4e4e7', '#fb923c', '#22d3ee', '#3b82f6', '#a78bfa'];
 
 export const TICK_COLORS_LIGHT = ['#3f3f46', '#ea580c', '#0891b2', '#2563eb', '#7c3aed'];
 
 export const MONO_STACK = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
-/**
- * The server buckets days in the account's display zone and returns plain
- * `YYYY-MM-DD` strings, so the label must be rendered verbatim - parsing it in the
- * viewer's local zone used to shift it a day for negative UTC offsets.
- */
+// Rendered verbatim, not re-parsed: parsing these server-bucketed `YYYY-MM-DD` strings in the
+// viewer's local zone used to shift the date by a day for negative UTC offsets.
 export function formatDay(value: string) {
   return formatDayLabel(value);
 }
@@ -75,7 +69,6 @@ export function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-/** Faint dot-grid texture behind chart content (reference dashboard look). */
 export function CardDots() {
   return (
     <div

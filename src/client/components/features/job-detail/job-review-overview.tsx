@@ -40,14 +40,12 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
 
   return (
     <div className="ui-panel ui-font-sans min-w-0 overflow-hidden">
-      {/* Header */}
       <div className="flex flex-col items-start justify-between gap-3 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:gap-0 sm:px-5">
         <div className="flex items-center gap-2">
           <ClipboardList size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Review overview</h2>
         </div>
-        {/* Correctness and confidence read as chips, like a table row's trailing
-            metadata: neutral border, colour only in the leading icon. */}
+        {/* Correctness and confidence read as chips: neutral border, colour only in the leading icon. */}
         <div className="flex items-center gap-3">
           {job.overallCorrectness && (() => {
             const incorrect = job.overallCorrectness.toLowerCase().includes('incorrect');
@@ -71,8 +69,7 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
         </div>
       </div>
 
-      {/* Summary - the markdown's own leading/trailing block margins are zeroed so
-          the card padding alone controls the gap (they used to stack on top of it). */}
+      {/* Markdown's own leading/trailing block margins are zeroed so the card padding alone controls the gap. */}
       <div className="px-4 pb-4 pt-3 sm:px-5">
         <div className="prose max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins}>
@@ -81,7 +78,6 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
         </div>
       </div>
 
-      {/* Severity Triage */}
       <div className="ui-well border-t border-ui-line px-4 py-3 sm:px-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p className="text-xs leading-none text-ui-default dark:text-ui-subtle">Priority triage</p>

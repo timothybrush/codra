@@ -26,9 +26,8 @@ const SPRING_LAYOUT = {
 export interface SharedLayoutBgProps {
   children: ReactNode;
   className?: string;
-  /** Tailwind class applied to the moving pill. */
   pillClassName?: string;
-  /** Horizontal inset of the pill relative to each row (px). Default 8. */
+  /** Horizontal inset of the pill relative to each row (px). */
   inset?: number;
 }
 

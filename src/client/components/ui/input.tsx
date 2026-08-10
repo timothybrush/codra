@@ -15,7 +15,6 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   size?: InputSize;
 }
 
-/** Text input surface for the app's design system. */
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, size = 'base', ...props }, ref) => (
     <input

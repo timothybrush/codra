@@ -16,38 +16,48 @@ import {
   uniqueModels,
 } from './model-support';
 import { ModelRateLimitBook } from './model-rate-limits';
+import { ModelChainProgressStore } from './model-chain-progress';
 import { type ModelChainContext, generateSummary, verifyFindings } from './model-chain-runner';
-import { type ModelReviewContext, reviewFile } from './model-review-file';
+import { type ModelReviewContext, reviewFile, reviewFiles } from './model-review-file';
+// Re-exported so test doubles can be typed against the real batched-review shape.
+export type { BatchReviewOutcome } from './model-review-file';
 import { pollReviewBatch, submitReviewBatch } from './model-review-batch';
 
 // Re-exported: core/review.ts and two specs import these from '@server/services/model'.
-export { RetryableModelError, isRetryableModelError } from './model-support';
+export { RetryableModelError, isRetryableModelError, nextChainIndexOf } from './model-support';
+
+// Re-exported so the batch-prompt budget test asserts against these constants, not a copy.
+export { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from './model-support';
+// Re-exported so its unit spec can reach it without a sibling import (no-restricted-imports).
+export { ModelChainProgressStore } from './model-chain-progress';
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
 export class ModelService {
-  // resolveModel() runs once per file AND per fallback model; uncached, that is a counted
-  // subrequest each time. Memoized per instance. Caches the in-flight PROMISE, so concurrent
-  // calls for the same model await one request instead of each firing their own.
+  // Caches the in-flight PROMISE (not just the result), so concurrent calls for a model await one request.
   private readonly resolvedModelCache = new Map<string, Promise<ResolvedModelConfig | null>>();
 
-  // Rate-limit learning plus the connection/token gates. See model-rate-limits.ts -- keyed by
-  // MODEL, not provider.
+  // Rate-limit learning plus the connection/token gates, keyed by MODEL, not provider.
   private readonly rateLimits = new ModelRateLimitBook();
 
-  // Provider-unavailable markers live in KV and every read is a counted subrequest. They can't
-  // flip set-to-unset within one invocation, so cache per instance instead of re-reading KV.
+  // Provider-unavailable markers live in KV and can't flip set-to-unset within one invocation, so cache them per instance.
   private readonly providerUnavailableCache = new Map<string, Promise<boolean>>();
 
-  // Models proven this invocation not to support async batching. The first file probes; if it
-  // fails, every later file in the chunk skips straight to the synchronous path instead of
-  // paying for another failed submit attempt.
+  // Models proven this invocation not to support async batching, so later files skip the probe.
   private readonly asyncUnsupportedModels = new Set<string>();
+
+  // Same idea for constrained decoding: `(provider, model, grammar)` triples that were refused, keyed by grammar so one oversized bin doesn't disable the single-file grammar too.
+  private readonly schemaUnsupportedModels = new Set<string>();
+
+  // How far down the chain each file already got, so a deferral resumes instead of replaying.
+  private readonly chainProgress: ModelChainProgressStore;
 
   constructor(
     private env: AppBindings,
     private tracker?: TokenTracker,
     private options: { jobId?: string } = {},
-  ) {}
+  ) {
+    this.chainProgress = new ModelChainProgressStore(env, options.jobId, tracker);
+  }
 
   private providerUnavailableKey(providerId: string) {
     return this.options.jobId ? `jobs:${this.options.jobId}:provider-unavailable:${providerId}` : null;
@@ -109,7 +119,6 @@ export class ModelService {
     let selectedModel = modelCfg?.main ? normalizeModel(modelCfg.main) : null;
     let fallbackModels = (modelCfg?.fallbacks || []).map(normalizeModel);
 
-    // Apply size overrides based on total PR lines
     if (modelCfg?.size_overrides && modelCfg.size_overrides.length > 0) {
       const sortedOverrides = [...modelCfg.size_overrides].sort((a, b) => a.max_lines - b.max_lines);
       const matched = sortedOverrides.find(o => thresholdBase <= o.max_lines);
@@ -134,12 +143,10 @@ export class ModelService {
     const normalized = normalizeModel(model);
     let pending = this.resolvedModelCache.get(normalized);
     if (!pending) {
-      // Cache the DB answer -- including a null "not configured" result -- so a missing or
-      // repeatedly-used model isn't re-queried for every file in the chunk.
+      // Cache the DB answer, including a null "not configured", so it isn't re-queried per file.
       pending = getResolvedModelConfig(this.env, normalized);
       this.resolvedModelCache.set(normalized, pending);
-      // A failed lookup (e.g. a transient DB error) shouldn't poison the cache for the rest of
-      // the invocation -- drop it so the next call retries instead of rejecting immediately.
+      // Don't let a transient DB error poison the cache; drop it so the next call retries.
       pending.catch(() => this.resolvedModelCache.delete(normalized));
     }
     const resolved = await pending;
@@ -168,8 +175,7 @@ export class ModelService {
     // Reports queue time so a caller budgeting wall clock can exclude it.
     onGateWait?: (waitedMs: number) => void,
   ): Promise<ModelResponse> {
-    // Resolve credentials BEFORE taking a gate slot, so slow KV/crypto work never occupies one;
-    // the provider's timeout starts only inside the gated call.
+    // Resolve credentials BEFORE taking a gate slot, so slow KV/crypto work never occupies one.
     if (config.apiFormat === 'cloudflare-workers-ai') {
       return this.rateLimits.runGated(config, onGateWait, () =>
         reviewWithCloudflare(this.env, config.modelName, input, this.tracker, config.providerName, { timeoutMs }),
@@ -178,14 +184,23 @@ export class ModelService {
 
     if (config.apiFormat === 'gemini') {
       const apiKey = await this.decryptApiKey(config);
-      return this.rateLimits.runGated(config, onGateWait, () =>
-        reviewWithGoogle(
+      const schemaKey = `${config.providerId}|${config.modelName}|${input.responseSchema?.name ?? 'none'}`;
+      const response = await this.rateLimits.runGated(config, onGateWait, () => {
+        // Read inside the gate: hoisted, the opening wave would all see "not yet known" and probe.
+        const gatedInput = this.schemaUnsupportedModels.has(schemaKey)
+          ? { ...input, responseSchema: undefined }
+          : input;
+        return reviewWithGoogle(
           { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
           config.modelName,
-          input,
+          gatedInput,
           this.tracker,
-        ),
-      );
+        );
+      });
+      if (response.degraded === 'schema-dropped') {
+        this.schemaUnsupportedModels.add(schemaKey);
+      }
+      return response;
     }
 
     if (config.apiFormat === 'vertex') {
@@ -232,18 +247,24 @@ export class ModelService {
     return this.callResolvedModel(await this.resolveModel(model), input, timeoutMs);
   }
 
-  // Extends chainCtx() with the review flow's extra per-invocation state. See model-review-file.ts.
+  // chainCtx() plus the review flow's extra per-invocation state.
   private reviewCtx(): ModelReviewContext {
     return {
       ...this.chainCtx(),
       env: this.env,
       rateLimits: this.rateLimits,
       asyncUnsupportedModels: this.asyncUnsupportedModels,
+      chainProgress: this.chainProgress,
     };
   }
 
   async reviewFile(params: Parameters<typeof reviewFile>[1]) {
     return reviewFile(this.reviewCtx(), params);
+  }
+
+  // Several small files in one call; `batch.missing` files must not be recorded as reviewed.
+  async reviewFiles(params: Parameters<typeof reviewFiles>[1]) {
+    return reviewFiles(this.reviewCtx(), params);
   }
 
   async submitReviewBatch(params: Parameters<typeof submitReviewBatch>[1]) {
@@ -254,8 +275,7 @@ export class ModelService {
     return pollReviewBatch(this.reviewCtx(), params);
   }
 
-  // Hands the extracted flows the private model-chain surface without making it public. Built per
-  // call; it holds no state of its own.
+  // Hands the extracted flows the private model-chain surface. Built per call; holds no state.
   private chainCtx(): ModelChainContext {
     return {
       selectModel: (params) => this.selectModel(params),

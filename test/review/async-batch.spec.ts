@@ -15,10 +15,8 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
 
-// `global_settings` is a singleton, so a suite that READS it races the suites that write it
-// (api-auth and review-max-files) once files run in parallel. Unique row names cannot isolate a
-// single-row key/value table. This suite only needs some fixed concurrency, not the stored one, so
-// pin it to the schema default. The two suites that genuinely test the table take an advisory lock.
+// `global_settings` is a singleton, so reading it races the suites that write it once files run in
+// parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
@@ -37,7 +35,7 @@ vi.mock('@server/services/github', async () => {
 // pending, the second completes. reviewFile must NOT be called on the async path.
 const pollCalls = { count: 0 };
 const reviewFileSpy = vi.fn();
-vi.mock('@server/services/model', () => {
+vi.mock('@server/services/model', async () => {
   class MockModelService {
     async submitReviewBatch() {
       return { requestId: 'req-async-1', model: '@cf/moonshotai/kimi-k2.6' };
@@ -61,15 +59,14 @@ vi.mock('@server/services/model', () => {
     async reviewFile() { reviewFileSpy(); throw new Error('sync reviewFile should not be called on the async path'); }
     async generateSummary() { return { modelUsed: 'm', provider: 'p', rawText: '{"summary":"s"}', inputTokens: 1, outputTokens: 1 }; }
   }
-  return { ModelService: MockModelService, isRetryableModelError: (e: unknown) => Boolean(e && typeof e === 'object' && (e as any).retryable === true) };
+  const { nextChainIndexOfMock } = await import('../mocks/services');
+  return { ModelService: MockModelService, isRetryableModelError: (e: unknown) => Boolean(e && typeof e === 'object' && (e as any).retryable === true), nextChainIndexOf: nextChainIndexOfMock };
 });
 
 
 dbDescribe('Async batch review flow', () => {
-  // Tripwire: proves the mock above is actually reached by this suite's consumer.
-  // If a future refactor rewires runReviewJob to import getOtherRunningJobsCount from a
-  // sibling module instead of the @server/db/jobs barrel, this mock silently stops applying
-  // and every test here would still pass while asserting nothing about concurrency admission.
+  // Tripwire: if runReviewJob ever stops importing getOtherRunningJobsCount from the
+  // @server/db/jobs barrel, this mock silently stops applying and every test here still passes.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();
@@ -107,9 +104,8 @@ dbDescribe('Async batch review flow', () => {
       const jobId = job!.id;
 
       // Phase 2: first review invocation -> submits the async batch, persists a 'pending' row.
-      // Prepare now enqueues review with FRESH_INVOCATION_YIELD_SECONDS so the phases land in
-      // separate invocations with separate subrequest budgets, so this transition is delay-gated
-      // exactly like the polls below and needs the same simulated elapse.
+      // Prepare enqueues review with FRESH_INVOCATION_YIELD_SECONDS, so this transition is
+      // delay-gated exactly like the polls below and needs the same simulated elapse.
       await simulateScheduledDelayElapsed(jobId);
       const submitResult = await runReviewJob(env, { jobId, phase: 'review' } as any);
       expect(submitResult).toMatchObject({ action: 'next_phase', phase: 'review' });

@@ -1,13 +1,11 @@
 import { NavLink, useMatch, useResolvedPath } from 'react-router-dom';
 import { type ComponentType } from 'react';
 import { cn } from '@client/lib/utils';
-// One sidebar link: icon, label, active state and the collapsed-rail tooltip.
 
 /**
- * A sidebar nav item that resolves active state via hooks instead of
- * NavLink's render-prop pattern, so SharedLayoutBg's cloneElement receives
- * plain JSX children rather than a function. Colours track the app's ui-*
- * / --primary tokens so the sidebar reads as the same system as the rest.
+ * Resolves active state via hooks instead of NavLink's render-prop pattern,
+ * so SharedLayoutBg's cloneElement receives plain JSX children rather than a
+ * function.
  */
 export function SidebarNavItem({
   to,
@@ -33,8 +31,7 @@ export function SidebarNavItem({
       onClick={onClick}
       className={cn(
         'dashboard-sidebar-action',
-        // `relative` anchors this row's own accent bar + skimmer overlay; the
-        // rest of the sidebar rows are positioned the same way.
+        // `relative` anchors this row's own accent bar + skimmer overlay; the rest of the sidebar rows are positioned the same way.
         'group relative flex h-10 w-full items-center gap-3 rounded-md pl-4 pr-3.5 text-[13px] font-medium',
         'outline-none transition-[color,background-color] duration-200 ease-[var(--ease-out-quart)]',
         'focus-visible:ring-2 focus-visible:ring-ring',
@@ -43,7 +40,6 @@ export function SidebarNavItem({
           : 'text-ui-default hover:text-ui-strong dark:text-ui-subtle dark:hover:text-ui-default',
       )}
     >
-      {/* Active accent bar (brand) */}
       <span
         className={cn(
           'absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--btn-primary-bg)]',
@@ -52,8 +48,7 @@ export function SidebarNavItem({
         )}
       />
 
-      {/* Skimmer shine - a brand-tinted light beam that sweeps across when the
-          selected row is hovered (CSS in app.css). Only rendered when active. */}
+      {/* Skimmer shine: brand-tinted light beam that sweeps on hover (CSS in app.css); only rendered when active. */}
       {isActive && (
         <span
           className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-md"
@@ -65,12 +60,16 @@ export function SidebarNavItem({
         </span>
       )}
 
-      {/* Icon */}
-      <span className="relative z-10 flex shrink-0 items-center justify-center">
+      {/* Muted a step below the label when inactive, matching icon chips elsewhere; dark mode has no mid tone between `ui-subtle` and `ui-default`, so the step comes from alpha, otherwise icon and label render at the identical grey. */}
+      <span
+        className={cn(
+          'relative z-10 flex shrink-0 items-center justify-center transition-colors duration-200',
+          !isActive && 'text-ui-subtle group-hover:text-ui-default dark:text-ui-subtle/65 dark:group-hover:text-ui-subtle',
+        )}
+      >
         <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
       </span>
 
-      {/* Label */}
       <span className="relative z-10 min-w-0 flex-1 truncate">
         {label}
       </span>

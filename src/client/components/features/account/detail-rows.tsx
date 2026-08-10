@@ -3,10 +3,7 @@ import { cn } from '@client/lib/utils';
 import { LayerCard } from '@client/components/ui/layer-card';
 import { Text } from '@client/components/ui/text';
 import { Skeleton } from '@client/components/shared/skeleton';
-// The labelled key/value rows the account page is built from, plus the click-to-reveal
-// wrapper used for values that should not sit on screen by default.
 
-/* ── A captioned group of key/value rows ──────────────────────────────────── */
 export function DetailGroup({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
@@ -18,7 +15,6 @@ export function DetailGroup({ caption, children }: { caption: string; children: 
   );
 }
 
-/* ── A value that stays blurred until clicked, with a hover tooltip ───────── */
 export function RevealOnClick({ label, children }: { label: string; children: React.ReactNode }) {
   const [revealed, setRevealed] = useState(false);
   const hint = revealed ? 'Click to hide' : 'Click to reveal';
@@ -43,8 +39,7 @@ export function RevealOnClick({ label, children }: { label: string; children: Re
         {children}
       </button>
 
-      {/* Tooltip - shown on hover/focus of the group. `pointer-events-none` so it
-          can never sit between the cursor and the button underneath it. */}
+      {/* `pointer-events-none` so the tooltip can never sit between the cursor and the button underneath it. */}
       <span
         role="tooltip"
         className={cn(
@@ -62,7 +57,6 @@ export function RevealOnClick({ label, children }: { label: string; children: Re
   );
 }
 
-/* ── One key/value detail row ─────────────────────────────────────────────── */
 export function DetailRow({
   label,
   mono,
@@ -79,7 +73,6 @@ export function DetailRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3">
-      {/* Label is secondary: near-black in light, recessed in dark. */}
       <Text variant="body" size="sm" bold as="span" className="shrink-0 text-[13px] dark:text-ui-subtle">
         {label}
       </Text>
