@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { Clock } from 'lucide-react';
 import { Select } from '@client/components/ui/select';
+import { DEFAULT_STATS_DAYS } from '@client/hooks/use-stats-range';
 import { cn } from '@client/lib/utils';
 
 interface TimeRangeSelectProps {
@@ -18,7 +19,10 @@ const timeRanges = [
 ];
 
 export function TimeRangeSelect({ value, onValueChange, className, triggerStyle }: TimeRangeSelectProps) {
-  const selectedRange = timeRanges.find((r) => r.value === value) || timeRanges[1];
+  const selectedRange =
+    timeRanges.find((r) => r.value === value) ??
+    timeRanges.find((r) => r.value === DEFAULT_STATS_DAYS) ??
+    timeRanges[0];
 
   return (
     <Select

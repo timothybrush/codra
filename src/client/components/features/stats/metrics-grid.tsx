@@ -20,6 +20,7 @@ import {
   ChartTooltip,
   GraphShell,
   LegendChip,
+  MeterList,
   MONO_STACK,
   TICK_COLORS_DARK,
   TICK_COLORS_LIGHT,
@@ -43,6 +44,9 @@ export function MetricsGrid({
   const quietColor = isDark ? CHART.quietDark : CHART.quiet;
   const dashColor = isDark ? 'rgba(228,228,231,0.75)' : 'rgba(63,63,70,0.65)';
   const tickColors = isDark ? TICK_COLORS_DARK : TICK_COLORS_LIGHT;
+  // Long ranges arrive pre-combined into multi-day buckets; say so, since each point is a sum, not a day.
+  const bucketDays = stats.trendBucketDays ?? 1;
+  const bucketNote = bucketDays > 1 ? <span className="text-xs text-ui-subtle">{bucketDays}-day totals</span> : null;
   const repoMax = Math.max(...stats.topRepos.map((repo) => repo.jobs), 1);
   const modelMax = Math.max(...stats.models.map((model) => model.calls), 1);
 
@@ -57,12 +61,13 @@ export function MetricsGrid({
     axisLine: false,
     tick: { fontFamily: MONO_STACK, fill: axisColor },
   } as const;
-  // minTickGap thins labels by available space, not a fixed stride, since the trend array can have far fewer points than `days`.
+  // `equidistantPreserveStart` drops labels on a fixed stride (every 2nd, every 3rd, ...) sized to the
+  // available width, so the dates stay evenly spaced instead of jumping by uneven gaps.
   const xAxisProps = {
     dataKey: 'day',
     tickFormatter: formatDay,
-    interval: 'preserveStartEnd' as const,
-    minTickGap: 24,
+    interval: 'equidistantPreserveStart' as const,
+    minTickGap: 12,
   };
 
   const STATUS_COLOR: Record<string, string> = {
@@ -85,6 +90,7 @@ export function MetricsGrid({
             <>
               <LegendChip color={amber} label="Reviews" />
               <LegendChip color={dashColor} dashed label="Comments" />
+              {bucketNote}
             </>
           }
         >
@@ -129,6 +135,7 @@ export function MetricsGrid({
             <>
               <LegendChip color="#3b82f6" label="Output tokens" />
               <LegendChip hatched label="Input tokens" />
+              {bucketNote}
             </>
           }
         >
@@ -140,8 +147,9 @@ export function MetricsGrid({
                 <XAxis {...axisProps} {...xAxisProps} />
                 <YAxis {...axisProps} width={46} tickFormatter={formatCompact} />
                 <Tooltip content={<ChartTooltip />} cursor={{ fill: cursorColor }} />
-                <Bar dataKey="outputTokens" name="output" stackId="tokens" fill="url(#blueBar)" radius={[2, 2, 2, 2]} />
-                <Bar dataKey="inputTokens" name="input" stackId="tokens" fill="url(#hatchGray)" radius={[4, 4, 0, 0]} />
+                {/* Capped so a short range (or a heavily bucketed one) doesn't render a handful of slab-wide bars. */}
+                <Bar dataKey="outputTokens" name="output" stackId="tokens" fill="url(#blueBar)" radius={[2, 2, 2, 2]} maxBarSize={44} />
+                <Bar dataKey="inputTokens" name="input" stackId="tokens" fill="url(#hatchGray)" radius={[4, 4, 0, 0]} maxBarSize={44} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -200,8 +208,8 @@ export function MetricsGrid({
         </GraphShell>
 
         <GraphShell title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />}>
-          <div className="space-y-3.5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-            {stats.topRepos.slice(0, 8).map((repo, i) => (
+          <MeterList visible={4}>
+            {stats.topRepos.map((repo, i) => (
               <TickMeter
                 key={`${repo.owner}/${repo.repo}`}
                 label={repo.repo}
@@ -211,12 +219,12 @@ export function MetricsGrid({
                 valueLabel={repo.jobs.toLocaleString()}
               />
             ))}
-          </div>
+          </MeterList>
         </GraphShell>
 
         <GraphShell title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />}>
-          <div className="space-y-3.5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-            {stats.models.slice(0, 8).map((model, i) => (
+          <MeterList visible={5}>
+            {stats.models.map((model, i) => (
               <TickMeter
                 key={model.modelUsed}
                 label={modelName(model.modelUsed)}
@@ -226,7 +234,7 @@ export function MetricsGrid({
                 valueLabel={model.calls.toLocaleString()}
               />
             ))}
-          </div>
+          </MeterList>
         </GraphShell>
       </div>
     </div>

@@ -11,6 +11,7 @@ import { Button } from '@client/components/ui/button';
 import { PageHeader } from '@client/components/layout/page-header';
 import { OverviewStats } from '@client/components/features/stats/overview-stats';
 import { usePolling } from '@client/hooks/use-polling';
+import { useStatsRange } from '@client/hooks/use-stats-range';
 import { LoadError } from '@client/components/shared/load-error';
 
 export function DashboardPage() {
@@ -20,7 +21,7 @@ export function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useStatsRange();
 
   // Clears stats to show skeletons while the new range loads; recent-jobs is range-independent and keeps its data.
   const changeDays = (next: number) => {

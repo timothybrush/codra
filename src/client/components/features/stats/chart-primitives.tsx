@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { Children, type ReactNode } from 'react';
 import { Activity, Boxes, Coins, FolderGit2, ShieldCheck } from 'lucide-react';
 import { LayerCard } from '@client/components/ui/layer-card';
 import { Skeleton } from '@client/components/shared/skeleton';
@@ -33,6 +33,12 @@ export function formatDay(value: string) {
   return formatDayLabel(value);
 }
 
+/** Bucketed trend points cover a span; label them `Jul 1 – Jul 7` rather than just the start day. */
+export function formatDayRange(day: string, endDay?: string) {
+  if (!endDay || endDay === day) return formatDay(day);
+  return `${formatDay(day)} – ${formatDay(endDay)}`;
+}
+
 export function formatCompact(value: number) {
   return value >= 1000 ? fmtNumber(value) : value.toLocaleString();
 }
@@ -44,13 +50,13 @@ export function modelName(model: string) {
 export function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
 
+  const endDay: string | undefined = payload[0]?.payload?.endDay;
+  const heading =
+    typeof label === 'string' && label.includes('-') ? formatDayRange(label, endDay) : label;
+
   return (
     <div className="rounded-md bg-ui-base px-3 py-2.5 text-xs shadow-lg ring ring-ui-line">
-      {label && (
-        <p className="mb-2 font-semibold text-ui-strong">
-          {typeof label === 'string' && label.includes('-') ? formatDay(label) : label}
-        </p>
-      )}
+      {label && <p className="mb-2 font-semibold text-ui-strong">{heading}</p>}
       <div className="space-y-1.5">
         {payload.map((item: any) => (
           <div key={item.dataKey ?? item.name} className="flex min-w-32 items-center gap-2">
@@ -174,6 +180,31 @@ export function ChartDefs({ isDark }: { isDark: boolean }) {
   );
 }
 
+/**
+ * Caps a meter list at `visible` rows and scrolls the rest, so a long tail (dozens of models)
+ * can't stretch the card and throw off the others sharing its grid row. The cap is a pixel
+ * max-height derived from the fixed row/gap metrics below, which is why `TickMeter` pins its
+ * own height.
+ */
+const METER_ROW_PX = 20;
+const METER_GAP_PX = 14;
+
+export function MeterList({ visible, children }: { visible: number; children: ReactNode }) {
+  // Only the overflowing case gets the cap and the scrollbar gutter, so short lists keep even padding.
+  const scrolls = Children.count(children) > visible;
+
+  return (
+    <div className="px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+      <div
+        className={cn('space-y-3.5', scrolls && 'overflow-y-auto pr-3')}
+        style={scrolls ? { maxHeight: visible * METER_ROW_PX + (visible - 1) * METER_GAP_PX } : undefined}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** Segmented tick meter (reference "cost allocation" bars). */
 export function TickMeter({
   label,
@@ -192,7 +223,7 @@ export function TickMeter({
   const filled = value > 0 ? Math.max(1, Math.round((value / Math.max(max, 1)) * SEGMENTS)) : 0;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex h-5 items-center gap-3">
       <span className="w-28 shrink-0 truncate text-[13px] font-medium text-ui-default" title={label}>
         {label}
       </span>
@@ -222,11 +253,11 @@ export function GraphCardSkeleton({ title, icon, className = '' }: { title: stri
   );
 }
 
-export function GraphBarCardSkeleton({ title, icon, className = '' }: { title: string; icon?: ReactNode; className?: string }) {
+export function GraphBarCardSkeleton({ title, icon, rows = 5, className = '' }: { title: string; icon?: ReactNode; rows?: number; className?: string }) {
   return (
     <GraphShell title={title} icon={icon} className={className}>
       <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: rows }).map((_, i) => (
           <div key={i} className="flex items-center gap-3">
             <Skeleton height={12} width={90} />
             <Skeleton height={14} width="100%" />
@@ -247,8 +278,8 @@ export function MetricsGridSkeleton() {
       </div>
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
         <GraphBarCardSkeleton title="Job Health" icon={<ShieldCheck size={14} strokeWidth={2} />} />
-        <GraphBarCardSkeleton title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />} />
-        <GraphBarCardSkeleton title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />} />
+        <GraphBarCardSkeleton title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />} rows={4} />
+        <GraphBarCardSkeleton title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />} rows={5} />
       </div>
     </div>
   );

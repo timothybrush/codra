@@ -327,15 +327,20 @@ export const statsSchema = z.object({
     outputTokens: z.number().int(),
     comments: z.number().int(),
   }),
+  // One point per bucket, not per day: long ranges are collapsed server-side so the chart stays legible.
   trend: z.array(
     z.object({
       day: z.string(),
+      /** Last day covered by the bucket (equal to `day` when bucketing is daily). */
+      endDay: z.string(),
       jobs: z.number().int(),
       inputTokens: z.number().int(),
       outputTokens: z.number().int(),
       comments: z.number().int(),
     }),
   ),
+  /** Days rolled up into each `trend` point. 1 = daily. */
+  trendBucketDays: z.number().int().positive(),
   verdicts: z.array(
     z.object({
       verdict: z.enum(reviewVerdicts).nullable(),

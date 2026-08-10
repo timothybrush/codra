@@ -4,6 +4,7 @@ import { PageHeader } from '@client/components/layout/page-header';
 import { LoadError } from '@client/components/shared/load-error';
 import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
 import { usePolling } from '@client/hooks/use-polling';
+import { useStatsRange } from '@client/hooks/use-stats-range';
 import { api } from '@client/lib/api';
 import type { StatsPayload } from '@shared/schema';
 
@@ -17,7 +18,7 @@ export function StatsPage() {
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useStatsRange();
   const isDark = useIsDarkMode();
 
   // Switching the range reloads every metric; clear current data first so skeletons show while it loads.
