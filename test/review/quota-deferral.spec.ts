@@ -196,6 +196,46 @@ describe('learning a provider rate limit from its own 429', () => {
     expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
+  // The book used to be in-memory on ModelService, so it died with the invocation. A job runs up to
+  // 20 continuations, and each fresh invocation re-paid a full-prompt 429 to re-learn a cool-off the
+  // previous one had already been told about -- the single largest source of wasted input tokens.
+  it('carries a cool-off to the next invocation of the same job', async () => {
+    const fetchMock = googleMock(() => quotaResponse(56));
+    // MemoryKV persists across ModelService instances, standing in for a continuation handoff.
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
+
+    const first = new ModelService(env, undefined, { jobId: 'job-continuation' });
+    await first.reviewFile({ ...params, file });
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('pro-preview'))).toBe(true);
+
+    // A brand-new service, as a fresh invocation would build.
+    fetchMock.mockClear();
+    const next = new ModelService(env, undefined, { jobId: 'job-continuation' });
+    await next.reviewFile({ ...params, file: { ...file, path: 'src/second.ts' } });
+
+    // The metered model is never probed again: no 429, no wasted prompt.
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((url) => url.includes('pro-preview'))).toBe(false);
+    expect(fetchMock.mock.calls).toHaveLength(1);
+  });
+
+  it('keeps a cool-off scoped to its own job and model', async () => {
+    const fetchMock = googleMock(() => quotaResponse(56));
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
+
+    await new ModelService(env, undefined, { jobId: 'job-a' }).reviewFile({ ...params, file });
+
+    // An unrelated job must not inherit it: each Gemini model meters per project, but a stale
+    // cool-off leaking across jobs would silently narrow coverage with no re-probe path.
+    fetchMock.mockClear();
+    await new ModelService(env, undefined, { jobId: 'job-b' }).reviewFile({ ...params, file });
+
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((url) => url.includes('pro-preview'))).toBe(true);
+  });
+
   // Small files must still reach the stronger model once its cool-off lapses.
   it('returns to the primary model once its cool-off has expired', async () => {
     let meteredCalls = 0;

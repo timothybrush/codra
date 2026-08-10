@@ -13,8 +13,9 @@ const GEMINI_MAX_OUTPUT_TOKENS = 8192;
 const GEMINI_MAX_RETRY_DELAY_MS = 5_000;
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
+// 429 is handled separately: it is retryable only when the provider names a cool-off we can wait out.
 function isRetryableGeminiStatus(status: number) {
-  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || status === 524;
+  return status === 408 || status === 500 || status === 502 || status === 503 || status === 504 || status === 524;
 }
 
 function defaultRetryDelayMs(attempt: number) {
@@ -84,6 +85,14 @@ export async function reviewWithGoogle(
     : null;
   // Latched: once the endpoint rejects the grammar, every later attempt goes without it.
   let schemaRejected = false;
+  // The caller latches per (provider, model, grammar) off this flag. Marking the error too means a
+  // schema-dropped attempt that then fails still teaches the caller, instead of re-probing next call.
+  const fail = (error: unknown): never => {
+    if (schemaRejected && typeof error === 'object' && error !== null) {
+      Object.defineProperty(error, 'schemaDropped', { value: true, configurable: true });
+    }
+    throw error;
+  };
 
   const startTime = Date.now();
   const baseUrl = (config.baseUrl || DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, '');
@@ -135,7 +144,7 @@ export async function reviewWithGoogle(
         delayBeforeAttemptMs = defaultRetryDelayMs(attempt);
         continue;
       }
-      throw error;
+      return fail(error);
     }
 
     if (!response.ok) {
@@ -158,9 +167,11 @@ export async function reviewWithGoogle(
       const requestedDelayMs = response.status === 429
         ? retryAfterDelayMs(response.headers.get('retry-after')) ?? requestedRetryDelayFromBody(message)
         : null;
-      // A cool-off longer than our cap can't be retried usefully; defer the file instead.
-      const canHonorCoolOff = requestedDelayMs === null || requestedDelayMs <= GEMINI_MAX_RETRY_DELAY_MS;
-      const isRetryable = isRetryableGeminiStatus(response.status) && canHonorCoolOff;
+      // An unstated 429 cool-off is ~60s by construction on a per-minute bucket, so backing off ~1s
+      // buys a second 429 and a second full prompt re-send. Only a stated, short cool-off is retryable.
+      const isRetryable = response.status === 429
+        ? requestedDelayMs !== null && requestedDelayMs <= GEMINI_MAX_RETRY_DELAY_MS
+        : isRetryableGeminiStatus(response.status);
       const retryDelayMs = Math.min(
         GEMINI_MAX_RETRY_DELAY_MS,
         requestedDelayMs ?? defaultRetryDelayMs(attempt),
@@ -181,7 +192,7 @@ export async function reviewWithGoogle(
       }
 
       logger.error(`Gemini request failed with ${response.status}`, logData);
-      throw new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+      return fail(new ProviderRequestError(config.providerName ?? 'Google', response.status, message));
     }
 
     const durationMs = Date.now() - startTime;
@@ -203,9 +214,9 @@ export async function reviewWithGoogle(
       const finishReason = candidate?.finishReason;
       // A thinking model burning budget before emitting text, or a safety block, is deterministic and should fail permanently; an empty STOP is transient.
       if (finishReason && finishReason !== 'STOP') {
-        throw new UnparseableModelResponseError(model, `finishReason=${finishReason}`);
+        return fail(new UnparseableModelResponseError(model, `finishReason=${finishReason}`));
       }
-      throw new Error('Gemini returned an empty response.');
+      return fail(new Error('Gemini returned an empty response.'));
     }
 
     // A non-empty non-STOP response is only a prefix: json.ts repairs the braces and the tail findings vanish silently.
@@ -228,5 +239,5 @@ export async function reviewWithGoogle(
     };
   }
 
-  throw lastError;
+  return fail(lastError);
 }

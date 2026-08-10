@@ -141,9 +141,10 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
     }
 
     // Skip a call known to fail rather than pay a subrequest to be told.
-    const skipReason = ctx.rateLimits.skipReason(resolved.modelName, estimatedPromptTokens);
+    const skipReason = await ctx.rateLimits.skipReason(resolved.modelName, estimatedPromptTokens);
     if (skipReason) {
       logger.info(`Skipping ${currentModel} for ${label}: ${skipReason}`);
+      ctx.tracker?.recordSkippedCall(resolved.modelName, skipReason);
       continue;
     }
 
@@ -165,9 +166,20 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       const parsed = params.parse(response.rawText);
       // Terminal for these labels; drop the memo so a job retry starts from the primary again.
       await Promise.all(progressLabels.map((key) => ctx.chainProgress.clear(key)));
+      // The common shape is "primary 429s, fallback answers": the file succeeds, so nothing below
+      // runs, yet a cool-off was just paid for in full and the next invocation would re-pay it.
+      // No-ops unless a 429 actually landed, so the healthy path stays free.
+      await ctx.chainProgress.flushPending();
       return { ...response, userPrompt, parsed };
     } catch (error) {
       lastError = error;
+      // The prompt was transmitted in full and bought nothing; the only site that sees every failed
+      // attempt across both the single-file and batched paths.
+      ctx.tracker?.recordFailedAttempt(
+        resolved.modelName,
+        estimatedPromptTokens,
+        isGoogleRateLimitError(error) ? 'rate-limited' : 'error',
+      );
       if (isTransientModelFailure(error)) {
         sawTransientFailure = true;
         lastTransientError = error;
@@ -211,6 +223,8 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
         error: error instanceof Error ? error.message : String(error),
         rateLimited,
         quotaFailures,
+        // Not `...Tokens`: logger.ts redacts any key containing "token".
+        estimatedWastedInput: estimatedPromptTokens,
         willTryFallback: !outOfQuotaBudget && modelIndex < modelsToTry.length - 1,
       });
 
@@ -239,6 +253,10 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       // per member out of the 50-subrequest budget.
       await Promise.all(progressLabels.map((key) => ctx.chainProgress.advance(key, attemptedFailedThrough)));
       Object.defineProperty(error, 'nextChainIndex', { value: attemptedFailedThrough, configurable: true });
+    } else {
+      // A quota deferral advances no chain progress (a 429 means "same model, later"), so nothing
+      // above would have flushed the cool-off this file just paid a full prompt to learn.
+      await ctx.chainProgress.flushPending();
     }
     throw error;
   }

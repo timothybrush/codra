@@ -36,6 +36,13 @@ export function nextChainIndexOf(error: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
+// Set by the Gemini adapter on any error it throws after dropping the response grammar, so the
+// caller latches the (provider, model, grammar) triple even when that schema-less attempt also
+// failed. Lives here rather than on the barrel for the same reason as `nextChainIndexOf` above.
+export function isSchemaDroppedError(error: unknown): boolean {
+  return (error as { schemaDropped?: unknown } | null)?.schemaDropped === true;
+}
+
 // Calls that may queue on a serialized model before further files route elsewhere; deeper queues have cost files their per-file chain budget while waiting.
 export const MAX_METERED_QUEUE_DEPTH = 2;
 

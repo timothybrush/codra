@@ -12,6 +12,7 @@ import { logger } from '../core/logger';
 import { getResolvedModelConfig, type ResolvedModelConfig } from '@server/db/model-configs';
 import { decryptLlmApiKey } from '@server/core/llm-crypto';
 import {
+  isSchemaDroppedError,
   normalizeModel,
   uniqueModels,
 } from './model-support';
@@ -37,7 +38,9 @@ export class ModelService {
   private readonly resolvedModelCache = new Map<string, Promise<ResolvedModelConfig | null>>();
 
   // Rate-limit learning plus the connection/token gates, keyed by MODEL, not provider.
-  private readonly rateLimits = new ModelRateLimitBook();
+  // Backed by chainProgress so learned cool-offs outlive the invocation; assigned in the constructor
+  // because it depends on it.
+  private readonly rateLimits: ModelRateLimitBook;
 
   // Provider-unavailable markers live in KV and can't flip set-to-unset within one invocation, so cache them per instance.
   private readonly providerUnavailableCache = new Map<string, Promise<boolean>>();
@@ -57,6 +60,7 @@ export class ModelService {
     private options: { jobId?: string } = {},
   ) {
     this.chainProgress = new ModelChainProgressStore(env, options.jobId, tracker);
+    this.rateLimits = new ModelRateLimitBook(this.chainProgress);
   }
 
   private providerUnavailableKey(providerId: string) {
@@ -185,18 +189,26 @@ export class ModelService {
     if (config.apiFormat === 'gemini') {
       const apiKey = await this.decryptApiKey(config);
       const schemaKey = `${config.providerId}|${config.modelName}|${input.responseSchema?.name ?? 'none'}`;
-      const response = await this.rateLimits.runGated(config, onGateWait, () => {
-        // Read inside the gate: hoisted, the opening wave would all see "not yet known" and probe.
-        const gatedInput = this.schemaUnsupportedModels.has(schemaKey)
-          ? { ...input, responseSchema: undefined }
-          : input;
-        return reviewWithGoogle(
-          { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
-          config.modelName,
-          gatedInput,
-          this.tracker,
-        );
-      });
+      let response: ModelResponse;
+      try {
+        response = await this.rateLimits.runGated(config, onGateWait, () => {
+          // Read inside the gate: hoisted, the opening wave would all see "not yet known" and probe.
+          const gatedInput = this.schemaUnsupportedModels.has(schemaKey)
+            ? { ...input, responseSchema: undefined }
+            : input;
+          return reviewWithGoogle(
+            { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
+            config.modelName,
+            gatedInput,
+            this.tracker,
+          );
+        });
+      } catch (error) {
+        // Latch on failure too: the probe already proved the grammar is refused, and without this a
+        // schema-dropped attempt that then 429s re-pays the 400 plus a full prompt on the next call.
+        if (isSchemaDroppedError(error)) this.schemaUnsupportedModels.add(schemaKey);
+        throw error;
+      }
       if (response.degraded === 'schema-dropped') {
         this.schemaUnsupportedModels.add(schemaKey);
       }

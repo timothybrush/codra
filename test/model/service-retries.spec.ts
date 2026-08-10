@@ -102,6 +102,51 @@ describe('ModelService: transient failures and the retry ladder', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  // The free-tier buckets are per-minute, so an unstated cool-off is ~60s by construction. Backing
+  // off ~0.8s then ~1.6s bought two more 429s and two more full prompt transmissions for nothing.
+  it('gives up immediately on a 429 that states no cool-off at all', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: 429, message: 'Resource has been exhausted.' } }),
+        { status: 429, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    await expect(
+      reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-pro-preview', { systemPrompt: 'system', userPrompt: 'user' }),
+    ).rejects.toThrow(/429/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries a 5xx with no Retry-After, which is a genuinely transient blip', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { code: 503, message: 'The model is overloaded.' } }),
+          { status: 503, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}' }] } }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    const response = await reviewWithGoogle(
+      { apiKey: 'test-key' },
+      'gemini-3.1-pro-preview',
+      { systemPrompt: 'system', userPrompt: 'user' },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(response.rawText).toContain('"findings"');
+  });
+
   it('does not retry TypeErrors thrown after a successful Google response', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -168,6 +213,42 @@ describe('ModelService: transient failures and the retry ladder', () => {
         ).rejects.toThrow(/400/);
         expect(guarded).toHaveBeenCalledTimes(1);
       }
+    });
+
+    // The latch used to be set only when the schema-less retry SUCCEEDED. If that retry then 429'd,
+    // the next call re-probed with the grammar -- a wasted 400 plus a second full prompt, every call.
+    it('latches the grammar off even when the schema-less retry itself fails', async () => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch')
+        // Grammar rejected, then the schema-less probe fails for an unrelated reason. Deliberately
+        // not a 429: that would cool the model off and the second review would skip it entirely,
+        // masking whether the latch held.
+        .mockResolvedValueOnce(gemini400('Unknown name "responseJsonSchema" at \'generation_config\'.'))
+        .mockResolvedValueOnce(gemini400('API key not valid. Please pass a valid API key.'))
+        .mockResolvedValue(geminiOk());
+
+      const env = createTestEnv();
+      await saveTestProviderApiKey(env);
+      const service = new ModelService(env);
+      const params = {
+        file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+        prTitle: 'Test',
+        prDescription: null,
+        config: {
+          ...defaultRepoConfig,
+          model: { main: 'gemini-3.1-pro-preview', fallbacks: [], size_overrides: [] },
+        },
+        totalLineCount: 1,
+      };
+
+      await expect(service.reviewFile(params)).rejects.toThrow();
+      const callsAfterFirstReview = fetchMock.mock.calls.length;
+
+      await service.reviewFile(params);
+
+      // The second review goes straight out without the grammar: no re-probe, no wasted 400.
+      const firstCallOfSecondReview = fetchMock.mock.calls[callsAfterFirstReview];
+      expect(JSON.parse(String(firstCallOfSecondReview?.[1]?.body)).generationConfig.responseJsonSchema).toBeUndefined();
+      expect(fetchMock.mock.calls.length).toBe(callsAfterFirstReview + 1);
     });
 
     // Observed in production: Gemini 3.x sends a generic top-level message and puts the real reason

@@ -21,7 +21,21 @@ const CHAIN_PROGRESS_TTL_SECONDS = 24 * 60 * 60;
 // whole round rather than on a single slow call, and is dropped from the next invocation onward.
 const MODEL_TIMEOUT_STRIKES = 3;
 
-type StoredShape = { files?: Record<string, unknown>; timeouts?: Record<string, unknown> };
+// Ceiling on a persisted cool-off. A mis-parsed "retry in 3600s" would otherwise disable a model for
+// the rest of the job; per-minute buckets never legitimately need more than this.
+const MAX_PERSISTED_COOLDOWN_MS = 5 * 60 * 1000;
+
+export interface ModelCooldown {
+  cooldownUntil: number;
+  limitTokens?: number;
+}
+
+type StoredCooldown = { until?: unknown; limitTokens?: unknown };
+type StoredShape = {
+  files?: Record<string, unknown>;
+  timeouts?: Record<string, unknown>;
+  cooldowns?: Record<string, StoredCooldown>;
+};
 
 function positiveInts(source: Record<string, unknown> | undefined): Map<string, number> {
   const kept = new Map<string, number>();
@@ -32,12 +46,48 @@ function positiveInts(source: Record<string, unknown> | undefined): Map<string, 
   return kept;
 }
 
+// `until` is an absolute epoch-ms deadline, never a duration: a stale KV read then yields an
+// already-expired entry, which degrades to today's behaviour (one wasted probe) and can never
+// over-suppress. Expired entries are kept, not dropped -- `limitTokens` outlives the cool-off and
+// still answers "can this prompt ever fit in that bucket?".
+function parseCooldowns(source: Record<string, StoredCooldown> | undefined): Map<string, ModelCooldown> {
+  const kept = new Map<string, ModelCooldown>();
+  if (!source || typeof source !== 'object') return kept;
+
+  const ceiling = Date.now() + MAX_PERSISTED_COOLDOWN_MS;
+  for (const [model, value] of Object.entries(source)) {
+    if (!value || typeof value !== 'object') continue;
+    const until = typeof value.until === 'number' && Number.isFinite(value.until) ? value.until : 0;
+    const limitTokens =
+      typeof value.limitTokens === 'number' && Number.isFinite(value.limitTokens) && value.limitTokens > 0
+        ? value.limitTokens
+        : undefined;
+    if (until <= 0 && limitTokens === undefined) continue;
+    kept.set(model, { cooldownUntil: Math.min(until, ceiling), limitTokens });
+  }
+  return kept;
+}
+
+function mergeCooldown(a: ModelCooldown | undefined, b: ModelCooldown): ModelCooldown {
+  return {
+    // Indexes and deadlines both only move forward, which makes max() the idempotent merge here too.
+    cooldownUntil: Math.max(a?.cooldownUntil ?? 0, b.cooldownUntil),
+    // Sticky: a later 429 that omits the bucket size must not erase a known one.
+    limitTokens: a?.limitTokens ?? b.limitTokens,
+  };
+}
+
 export class ModelChainProgressStore {
   private loaded: Promise<Map<string, number>> | null = null;
 
   // Timeouts per model for this job, in the SAME KV value as the chain progress. A second key would
   // cost a second subrequest read per invocation, out of the 50 this whole mechanism exists to save.
   private timeouts = new Map<string, number>();
+
+  // Per-model rate-limit state, in the same KV value again. Without persistence ModelRateLimitBook
+  // is invocation-scoped, so every continuation re-paid a full-prompt 429 to re-learn the cool-off
+  // this job already knew -- which is what the comment in model-review-chain.ts assumed was covered.
+  private cooldowns = new Map<string, ModelCooldown>();
 
   // Single-flight writer. Two bins deferring at once used to issue two overlapping puts, and KV has
   // no ordering guarantee: if the put carrying LESS state happened to land second, the other bin's
@@ -71,8 +121,13 @@ export class ModelChainProgressStore {
         // Values written before `timeouts` existed are a bare label->index map. Reading them as the
         // files map keeps in-flight jobs resuming correctly across the deploy.
         const stored = raw as StoredShape;
-        const isNewShape = stored.files !== undefined || stored.timeouts !== undefined;
+        const isNewShape =
+          stored.files !== undefined || stored.timeouts !== undefined || stored.cooldowns !== undefined;
         this.timeouts = positiveInts(isNewShape ? stored.timeouts : undefined);
+        // Merged, not assigned: noteRateLimit is sync and may land before this read resolves.
+        for (const [model, value] of parseCooldowns(isNewShape ? stored.cooldowns : undefined)) {
+          this.cooldowns.set(model, mergeCooldown(this.cooldowns.get(model), value));
+        }
         return positiveInts(isNewShape ? stored.files : (raw as Record<string, unknown>));
       } catch (error) {
         // A missing memo costs a repeated model attempt, never correctness -- never fail the review for it.
@@ -137,19 +192,32 @@ export class ModelChainProgressStore {
       const raw = await this.env.APP_KV.get(key, 'json');
       if (raw && typeof raw === 'object') {
         const stored = raw as StoredShape;
-        const isNewShape = stored.files !== undefined || stored.timeouts !== undefined;
+        const isNewShape =
+          stored.files !== undefined || stored.timeouts !== undefined || stored.cooldowns !== undefined;
         for (const [label, value] of positiveInts(isNewShape ? stored.files : (raw as Record<string, unknown>))) {
           if (value > (progress.get(label) ?? 0)) progress.set(label, value);
         }
         for (const [model, value] of positiveInts(isNewShape ? stored.timeouts : undefined)) {
           if (value > (this.timeouts.get(model) ?? 0)) this.timeouts.set(model, value);
         }
+        for (const [model, value] of parseCooldowns(isNewShape ? stored.cooldowns : undefined)) {
+          this.cooldowns.set(model, mergeCooldown(this.cooldowns.get(model), value));
+        }
       }
 
       this.tracker?.incrementSubrequests(1);
       await this.env.APP_KV.put(
         key,
-        JSON.stringify({ files: Object.fromEntries(progress), timeouts: Object.fromEntries(this.timeouts) }),
+        JSON.stringify({
+          files: Object.fromEntries(progress),
+          timeouts: Object.fromEntries(this.timeouts),
+          cooldowns: Object.fromEntries(
+            Array.from(this.cooldowns, ([model, entry]) => [
+              model,
+              { until: entry.cooldownUntil, limitTokens: entry.limitTokens },
+            ]),
+          ),
+        }),
         { expirationTtl: CHAIN_PROGRESS_TTL_SECONDS },
       );
     } catch (error) {
@@ -180,5 +248,26 @@ export class ModelChainProgressStore {
   async isTimingOut(modelId: string): Promise<boolean> {
     await this.load();
     return (this.timeouts.get(modelId) ?? 0) >= MODEL_TIMEOUT_STRIKES;
+  }
+
+  // Shares load()'s single promise, so hydrating the rate-limit book costs no extra KV read.
+  async loadCooldowns(): Promise<Map<string, ModelCooldown>> {
+    await this.load();
+    return new Map(this.cooldowns);
+  }
+
+  // Deliberately sync and non-flushing. A 429 does not advance chain progress (see the caller), so
+  // flushing here would add a get+put pair on a path that has none today; the deferral that follows
+  // calls flushPending() instead, and the single-flight writer coalesces a whole wave into one put.
+  noteRateLimit(modelId: string, entry: ModelCooldown): void {
+    if (!this.key) return;
+    this.cooldowns.set(modelId, mergeCooldown(this.cooldowns.get(modelId), entry));
+    this.dirty = true;
+  }
+
+  // For paths that mutated state without advancing progress -- notably a quota deferral.
+  flushPending(): Promise<void> {
+    if (!this.key || !this.dirty) return Promise.resolve();
+    return this.flush();
   }
 }

@@ -291,6 +291,16 @@ export async function runReviewPhase(
     await resetJobContinuationCount(env, job.id);
   }
 
+  // Before the throw paths on purpose: a chunk that defers is exactly when waste is highest.
+  // `wasted` is estimated, `usage` is billed -- see TokenTracker. Skips rising while attempts fall
+  // is the shape that says the cooldown gates are doing their job.
+  logger.info('Review chunk model usage', {
+    jobId: job.id,
+    subrequests: tracker.getSubrequestCount(),
+    usage: tracker.getTotalUsage(),
+    wasted: tracker.getWasted(),
+  });
+
   const rejected = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
   if (rejected.length > 0) {
     rejected.forEach((result, index) => {
