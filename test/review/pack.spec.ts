@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BIN_MAX_FILES,
   PACKABLE_MAX_DIFF_LINES,
   type LedgerEntry,
   narrowUnit,
@@ -79,14 +80,18 @@ describe('narrowUnit', () => {
   // Otherwise a deterministic plan re-forms the same failing bin; de-escalating must not strand
   // the other files.
   it('explodes a bin into singles once any member has failed transiently', () => {
-    const [unit] = planReviewUnits(
-      [file('a.ts', 10), file('b.ts', 10), file('c.ts', 10), file('d.ts', 10)],
-      { enabled: true },
-    );
+    // Sized from BIN_MAX_FILES so lowering the cap cannot turn this into a test about packing.
+    const paths = Array.from({ length: BIN_MAX_FILES }, (_unused, index) => `f${index}.ts`);
+    const [unit] = planReviewUnits(paths.map(path => file(path, 10)), { enabled: true });
+    expect(unitFiles(unit)).toHaveLength(BIN_MAX_FILES);
 
-    const narrowed = narrowUnit(unit, ledger({ 'a.ts': { handled: true }, 'c.ts': { transientErrorCount: 2 } }));
+    // First file already done, last one failed transiently: the rest must not be stranded with it.
+    const narrowed = narrowUnit(unit, ledger({
+      [paths[0]]: { handled: true },
+      [paths[paths.length - 1]]: { transientErrorCount: 2 },
+    }));
 
     expect(narrowed.every(u => u.kind === 'single')).toBe(true);
-    expect(narrowed.flatMap(unitFiles).map(f => f.path)).toEqual(['b.ts', 'c.ts', 'd.ts']);
+    expect(narrowed.flatMap(unitFiles).map(f => f.path)).toEqual(paths.slice(1));
   });
 });

@@ -31,6 +31,8 @@ export { RetryableModelError, isRetryableModelError, nextChainIndexOf } from './
 export { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from './model-support';
 // Re-exported so its unit spec can reach it without a sibling import (no-restricted-imports).
 export { ModelChainProgressStore } from './model-chain-progress';
+// Same reason: the 429-parsing spec asserts against the real implementation, not a copy.
+export { isPlausibleTokenBucket, parseRateLimitFromError } from './model-support';
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
 export class ModelService {
