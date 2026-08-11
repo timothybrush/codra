@@ -240,7 +240,10 @@ describe('ModelService: request shape and response handling', () => {
       expect(schemaKeys(review)).toEqual(['responseJsonSchema']);
       expect(review.generationConfig.responseJsonSchema.properties.findings.maxItems).toBe(20);
       expect(review.generationConfig.responseMimeType).toBe('application/json');
-      expect(review.generationConfig.maxOutputTokens).toBe(8192);
+      // No `outputBudgetTokens` on this input, so the adapter's own default answer budget applies -- and
+      // the bounded thinking budget is added ON TOP of it, never carved out of it.
+      expect(review.generationConfig.thinkingConfig.thinkingBudget).toBe(2048);
+      expect(review.generationConfig.maxOutputTokens).toBe(8192 + 2048);
 
       // Per-call, not hardcoded: forcing the review grammar onto the verify pass made it unsatisfiable.
       const verify = await captureGeminiBody({ systemPrompt: 'system', userPrompt: 'user', responseSchema: VERIFY_RESPONSE_SCHEMA as any });

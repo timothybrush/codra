@@ -9,6 +9,7 @@ import { jsonError } from '@server/core/http';
 import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';
 import { logger } from '@server/core/logger';
+import { disposeRpc } from '@server/core/rpc';
 import { getOrFetchRawDiffForCompletedJob } from '@server/core/review';
 import { parseUnifiedDiff } from '@server/core/diff';
 import { buildFileReviewPrompts } from '@server/prompts/file-review';
@@ -17,13 +18,18 @@ import { GitHubService } from '@server/services/github';
 // Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.
 async function terminateJobWorkflow(env: AppBindings, job: { id: string; workflowInstanceId?: string | null }) {
   const instanceId = job.workflowInstanceId ?? job.id;
+  let instance: Awaited<ReturnType<typeof env.REVIEW_WORKFLOW.get>> | undefined;
   try {
-    const instance = await env.REVIEW_WORKFLOW.get(instanceId);
+    instance = await env.REVIEW_WORKFLOW.get(instanceId);
     await instance.terminate();
   } catch (error) {
     logger.info(`Could not terminate workflow for job ${job.id} (already finished or never started)`, {
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    // In `finally` on purpose: .terminate() throws on an already-terminal instance, and the handle
+    // still needs releasing on that path. See core/rpc.ts.
+    disposeRpc(instance);
   }
 }
 

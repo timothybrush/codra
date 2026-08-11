@@ -5,9 +5,11 @@ import {
   buildReviewResponseSchema,
   type RejectedExemplar,
 } from '../prompts/file-review';
-import { parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '../core/model-output';
+import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '../core/model-output';
+import { UnparseableModelResponseError } from '../models/types';
 import { chunkFileDiff, type FileDiff } from '../core/diff';
-import { adaptiveModelTimeoutMs } from '../models/limits';
+import { adaptiveModelTimeoutMs, reviewOutputBudgetTokens } from '../models/limits';
+import { generatorFindingCap } from '../prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
 import { logger } from '../core/logger';
@@ -142,12 +144,41 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
     responseSchema: buildReviewResponseSchema(params.config.review.max_comments),
     // Scales with the diff the model sees: small files fail over fast.
     timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount),
+    // Room for the number of findings the prompt just asked for. Sized from the ask, not the diff.
+    outputBudgetTokens: reviewOutputBudgetTokens({
+      findingCap: generatorFindingCap(params.config.review.max_comments),
+      fileCount: 1,
+    }),
     label: params.file.path,
     totalLineCount: params.totalLineCount,
     config: params.config,
-    parse: (rawText) => parseFileReviewResponse(rawText, params.file, {
-      deniedClaimTypes: params.config.review.deny_claim_types,
-    }),
+    parse: (rawText, { isLastModel }) => {
+      const parsed = parseFileReviewResponse(rawText, params.file, {
+        deniedClaimTypes: params.config.review.deny_claim_types,
+      });
+
+      // A substantive diff waved through in one sentence is not a clean verdict, it is a model declining
+      // to review. Thrown as UnparseableModelResponseError so the chain treats it exactly like any other
+      // useless response and tries the next entry -- and never on the last one, where the alternative to
+      // an unearned "clean" is failing the file, which is worse.
+      if (!isLastModel && isNonAnswerReview({
+        rawText,
+        file: params.file,
+        findingCount: parsed.comments.length,
+      })) {
+        logger.warn('Model returned a non-answer for a substantive diff; escalating to the next model', {
+          path: params.file.path,
+          diffLineCount: params.file.lineCount,
+          responseChars: rawText.trim().length,
+        });
+        throw new UnparseableModelResponseError(
+          params.config.model?.main ?? 'unconfigured',
+          `no findings and only ${rawText.trim().length} characters of response for a ${params.file.lineCount}-line diff`,
+        );
+      }
+
+      return parsed;
+    },
   });
 
   return {
@@ -187,6 +218,12 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
     userPrompt,
     responseSchema: buildBatchReviewResponseSchema(params.config.review.max_comments, params.files.length),
     timeoutMs: adaptiveModelTimeoutMs(binLineCount),
+    // The bin's whole response, not one file's: every entry shares one `maxOutputTokens`, and a bin that
+    // overruns it comes back as a repaired prefix with its tail files looking clean.
+    outputBudgetTokens: reviewOutputBudgetTokens({
+      findingCap: generatorFindingCap(params.config.review.max_comments),
+      fileCount: params.files.length,
+    }),
     label: `${params.files.length} files (${params.files[0]?.path ?? 'unknown'} …)`,
     // Per file, so progress survives the bin narrowing or exploding into singles.
     progressLabels: params.files.map((file) => file.path),

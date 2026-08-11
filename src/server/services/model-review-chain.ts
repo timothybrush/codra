@@ -3,7 +3,7 @@ import { isSubrequestBudgetMessage, isTimeoutMessage } from '@shared/transient-e
 import type { RepoConfig } from '@shared/schema';
 import type { AppBindings } from '../env';
 import type { ModelResponseSchema } from '../models/types';
-import { MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
+import { clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS, SUBREQUEST_HEADROOM_FOR_MODEL_CALL } from '../models/limits';
 import {
   estimatePromptTokens,
   isCloudflareAllocationError,
@@ -43,13 +43,18 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
   label: string;
   totalLineCount: number;
   config: RepoConfig;
-  parse: (rawText: string) => T;
+  // Output-token headroom this prompt needs to answer in full; see reviewOutputBudgetTokens. Adapters
+  // clamp it, so omitting it leaves a caller on its provider's default.
+  outputBudgetTokens?: number;
+  // `isLastModel` lets a parser reject a technically-valid non-answer while a stronger entry is still
+  // untried, and accept it once nothing better remains -- so escalation can never fail a file outright.
+  parse: (rawText: string, ctx: { isLastModel: boolean }) => T;
   // Stable keys for the resume memo. A bin passes its member paths: its own `label` embeds the file
   // count, so it changes the moment a member completes or the bin de-escalates to singles, and the
   // progress would be lost exactly when it matters most.
   progressLabels?: readonly string[];
 }) {
-  const { systemPrompt, userPrompt, responseSchema, timeoutMs, label } = params;
+  const { systemPrompt, userPrompt, responseSchema, label, outputBudgetTokens } = params;
   const progressLabels = params.progressLabels?.length ? params.progressLabels : [label];
 
   const { primary, fallbacks } = ctx.selectModel({
@@ -73,6 +78,9 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
     });
   }
 
+  // Guards the head of the chain only; see clampTimeoutToChainBudget.
+  const timeoutMs = clampTimeoutToChainBudget(params.timeoutMs);
+
   const estimatedPromptTokens = estimatePromptTokens(systemPrompt, userPrompt);
 
   let lastError: unknown;
@@ -81,6 +89,9 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
   let quotaFailures = 0;
   // The `continue` paths can otherwise leave `lastError` undefined, failing the file permanently.
   let attemptedAnyModel = false;
+  // Separates "every model is on a rate-limit cooldown" from "every model is timing out" in the
+  // no-model-attempted message; the two need opposite responses from whoever reads the job log.
+  let skippedForTimeouts = false;
   // Absolute index just past the last model that ran and failed on its own merits. Only these
   // advance the memo: a model skipped by a budget breaker never ran, and a 429 means "same model,
   // later" (ModelRateLimitBook already holds that cool-off), so neither has been ruled out.
@@ -105,10 +116,15 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
     }
 
     // Back-to-back slow calls pass Cloudflare's ~120s limit and die as `exceededCpu`.
-    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
-      logger.warn(`Deferring ${label}: fallback chain exceeded its per-invocation time budget`, {
+    // Prospective, not reactive: asking whether the budget is ALREADY blown let a call start with less
+    // time left than it needs, burn what remained, and defer anyway -- paying for a doomed attempt and
+    // reporting it as that model's failure. Asking whether THIS call still fits spends nothing instead,
+    // and the resume memo means the model it declines to start is the one the next invocation begins at.
+    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs + timeoutMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
+      logger.warn(`Deferring ${label}: no room in the per-invocation time budget for another model`, {
         elapsedMs: Date.now() - chainStartedAt,
         gateWaitMs,
+        timeoutMs,
         skippedModels: modelsToTry.slice(modelIndex),
       });
       // Deferrable, so the file retries on a fresh budget instead of failing permanently.
@@ -133,11 +149,38 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       continue;
     }
 
-    // Proven too slow for this job's budget. Never for the last candidate: a chain that skips every
-    // model reports "no model was attempted", which is a worse outcome than one more slow try.
-    if (modelIndex < modelsToTry.length - 1 && await ctx.chainProgress.isTimingOut(currentModel)) {
-      logger.info(`Skipping ${currentModel} for ${label}: it has repeatedly timed out on this job`);
+    // Proven too slow for this job's budget. The last candidate is held to a higher bar rather than
+    // exempted: skipping every model reports "no model was attempted", which is worse than one more
+    // slow try -- but it is far better than paying a full per-call budget per unit, forever, for a
+    // model that has never once answered on this job.
+    const isLastCandidate = modelIndex === modelsToTry.length - 1;
+    const timingOut = isLastCandidate
+      ? await ctx.chainProgress.isTimingOutTerminally(currentModel)
+      : await ctx.chainProgress.isTimingOut(currentModel);
+    if (timingOut) {
+      skippedForTimeouts = true;
+      logger.info(`Skipping ${currentModel} for ${label}: it has repeatedly timed out on this job`, {
+        isLastCandidate,
+      });
       continue;
+    }
+
+    // Hard floor, and unlike the isNearLimit() breaker above it applies to the PRIMARY too: that
+    // breaker exists to leave room for other in-flight files and so exempts index 0, which left the
+    // head of every chain free to transmit a full prompt into an invocation that had nothing left.
+    // The runtime then refuses it and the whole unit is lost having paid for the prompt.
+    if (ctx.tracker && !ctx.tracker.hasRemainingSubrequests(SUBREQUEST_HEADROOM_FOR_MODEL_CALL)) {
+      logger.warn(`Deferring ${label}: not enough subrequest budget left to commit a prompt`, {
+        subrequests: ctx.tracker.getSubrequestCount(),
+        needed: SUBREQUEST_HEADROOM_FOR_MODEL_CALL,
+        skippedModels: modelsToTry.slice(modelIndex),
+      });
+      sawTransientFailure = true;
+      // Must not say "subrequest": isSubrequestBudgetError substring-matches it and would treat this
+      // as the runtime's own refusal, which skips persisting chain progress.
+      lastTransientError = lastTransientError ?? lastError
+        ?? new Error(`Per-invocation request budget was too low to attempt a model for ${label}; deferring for retry.`);
+      break;
     }
 
     // Skip a call known to fail rather than pay a subrequest to be told.
@@ -153,7 +196,7 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       attemptedAnyModel = true;
       const response = await ctx.callResolvedModel(
         resolved,
-        { systemPrompt, userPrompt, responseSchema },
+        { systemPrompt, userPrompt, responseSchema, outputBudgetTokens },
         timeoutMs,
         recordGateWait,
       );
@@ -162,8 +205,15 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
         ctx.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
       }
 
-      // Inside the try on purpose -- see the header.
-      const parsed = params.parse(response.rawText);
+      // Inside the try on purpose -- see the header. `isLastModel` is computed against the WHOLE chain,
+      // not `modelsToTry`: a resumed job starts mid-chain, and measuring from the slice would call the
+      // resume point "last" and skip the escalation the memo was holding a place for.
+      const parsed = params.parse(response.rawText, {
+        isLastModel: startIndex + modelIndex >= wholeChain.length - 1,
+      });
+      // Keyed on the chain entry, matching noteTimeout. No-ops unless this model has strikes, so the
+      // healthy path stays free of the KV write.
+      await ctx.chainProgress.noteSuccess(currentModel);
       // Terminal for these labels; drop the memo so a job retry starts from the primary again.
       await Promise.all(progressLabels.map((key) => ctx.chainProgress.clear(key)));
       // The common shape is "primary 429s, fallback answers": the file succeeds, so nothing below
@@ -271,9 +321,11 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       throw lastError;
     }
 
-    // Genuinely skipped: a cooldown from another file's 429, or an unavailable provider.
+    // Genuinely skipped: a cooldown from another file's 429, repeated timeouts, or an unavailable provider.
     throw new RetryableModelError(
-      `No configured review model was attempted for ${label} (all skipped: rate-limit cooldown or provider unavailable); retrying later.`,
+      `No configured review model was attempted for ${label} (all skipped: ${
+        skippedForTimeouts ? 'repeated timeouts on this job' : 'rate-limit cooldown or provider unavailable'
+      }); retrying later.`,
     );
   }
 

@@ -19,6 +19,10 @@ export type ModelInput = {
   systemPrompt: string;
   userPrompt: string;
   responseSchema?: ModelResponseSchema;
+  // Output tokens this call needs to answer in full, from `reviewOutputBudgetTokens`. Advisory: each
+  // adapter clamps it to its own provider maximum and never goes BELOW its own default, so a caller
+  // that omits it is unaffected. Omitting it on a large batched review is what truncates the response.
+  outputBudgetTokens?: number;
 };
 
 export class ProviderRequestError extends Error {

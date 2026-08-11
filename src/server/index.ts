@@ -3,6 +3,7 @@ import { ReviewWorkflow } from './workflows/review';
 import type { AppBindings } from './env';
 import { reviewJobMessageSchema } from '@shared/schema';
 import { logger } from '@server/core/logger';
+import { disposeRpc } from '@server/core/rpc';
 import { runWithDb } from '@server/db/client';
 import { failJob, hasPendingMaintenanceWork, clearSystemActive } from '@server/db/jobs';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
@@ -91,10 +92,11 @@ export default {
             message.ack();
             continue;
           }
-          await env.REVIEW_WORKFLOW.create({
+          // The returned handle is an RPC stub and this path never uses it; see core/rpc.ts.
+          disposeRpc(await env.REVIEW_WORKFLOW.create({
              id,
              params: parseResult.data,
-          });
+          }));
           message.ack();
         } catch (error) {
           if (error instanceof Error && error.message.includes('instance.already_exists')) {

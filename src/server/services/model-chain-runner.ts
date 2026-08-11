@@ -1,6 +1,6 @@
 import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '../prompts/summary';
 import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '../prompts/verify';
-import { adaptiveModelTimeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
+import { adaptiveModelTimeoutMs, clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
 import { isCloudflareAllocationError, isTransientModelFailure, RetryableModelError } from './model-support';
 import { logger } from '../core/logger';
 import type { RepoConfig } from '@shared/schema';
@@ -102,7 +102,7 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
     responseSchema: VERIFY_RESPONSE_SCHEMA as unknown as ModelInput['responseSchema'],
   };
   // Scale the timeout with the number of findings under review (capped inside adaptiveModelTimeoutMs).
-  const timeoutMs = adaptiveModelTimeoutMs(params.candidates.length * 8);
+  const timeoutMs = clampTimeoutToChainBudget(adaptiveModelTimeoutMs(params.candidates.length * 8));
 
   let lastError: unknown;
   const chainStartedAt = Date.now();
@@ -117,10 +117,12 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
       });
       break;
     }
-    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
-      logger.warn('Stopping the verification chain; it exceeded its per-invocation time budget', {
+    // Prospective: see the matching check in runModelChain.
+    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs + timeoutMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
+      logger.warn('Stopping the verification chain; no room in the per-invocation time budget for another model', {
         elapsedMs: Date.now() - chainStartedAt,
         gateWaitMs,
+        timeoutMs,
         skippedModels: modelsToTry.slice(modelIndex),
       });
       break;

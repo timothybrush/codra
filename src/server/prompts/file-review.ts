@@ -4,6 +4,12 @@ import type { ModelResponseSchema } from '@server/models/types';
 import { getLanguageForFile } from './languages';
 
 // Generator cap, NOT the posted cap: per CHUNK, upstream of four remove-only filters, where `max_comments` is once per job.
+//
+// Deliberately NOT divided by the size of a batched bin. That was tried, on the theory that a six-file
+// bin asking 20 findings per file requested more than one response could hold: measured on a 221-file
+// job, all 71 bin responses ended cleanly at 967-1,845 chars and the whole job spent 17,158 output
+// tokens -- about 3% of the ceiling that was supposedly binding. The cap has never been what limits
+// findings, so lowering it only removes room a genuinely defective file might need.
 export function generatorFindingCap(maxComments: number): number {
   return Math.max(1, maxComments * 2);
 }
@@ -171,8 +177,13 @@ export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean }):
     ? '4. Return at most {{MAX_COMMENTS}} findings PER FILE, most severe first. Keep each body under 160 words.'
     : '4. Return at most {{MAX_COMMENTS}} findings, most severe first. Keep each body under 160 words.';
 
+  // The multi-file wording must demand one entry per file (the parser reports a missing file as
+  // unreviewed and re-queues it) WITHOUT handing out an empty array as the easy way to satisfy that.
+  // The previous phrasing -- "even for files with no defect, give those an empty findings array" --
+  // presupposed clean files in every bin and reintroduced exactly the restraint language the note above
+  // says measured 0.039 findings/file. Review each diff on its own merits is the whole instruction.
   const emptyRule = multi
-    ? `5. Return exactly one entry per file listed below, in the same order, even for files with no defect - give those an empty findings array and a short explanation. Do not pad, do not withhold, and do not omit a file.`
+    ? `5. Return exactly one entry per file listed below, in the same order, and never omit a file. Review each file's diff with the same care you would give it if it were the only file in front of you. An empty findings array is a positive claim that this diff introduces no defect, so return one only when that is true. Do not pad, and do not withhold.`
     : '5. If the diff genuinely introduces no defect, return an empty findings array and a short explanation. Do not pad, and do not withhold.';
 
   return `You are a world-class software engineer performing a precise, high-signal code review.

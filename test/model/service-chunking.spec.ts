@@ -7,6 +7,8 @@ import { ModelService } from '@server/services/model';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
 import { defaultRepoConfig } from '@shared/schema';
 import { TokenTracker } from '@server/core/token-tracker';
+import { geminiThinkingBudgetTokens, reviewOutputBudgetTokens } from '@server/models/limits';
+import { generatorFindingCap } from '@server/prompts/file-review';
 
 describe('ModelService: diff chunking', () => {
   afterEach(() => {
@@ -65,8 +67,17 @@ describe('ModelService: diff chunking', () => {
 
     // 900 lines at the 800-line cap: two chunks, each its own model call.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const answerBudget = reviewOutputBudgetTokens({
+      findingCap: generatorFindingCap(defaultRepoConfig.review.max_comments),
+      fileCount: 1,
+    });
     for (const body of requestBodies) {
-      expect(body.generationConfig.maxOutputTokens).toBe(8192);
+      // Room for the findings the prompt asked for, PLUS a bounded thinking budget on top -- thinking
+      // bills against the same ceiling, so sharing one flat 8192 truncated the JSON.
+      expect(body.generationConfig.thinkingConfig.thinkingBudget)
+        .toBe(geminiThinkingBudgetTokens(answerBudget));
+      expect(body.generationConfig.maxOutputTokens)
+        .toBe(answerBudget + geminiThinkingBudgetTokens(answerBudget));
       // Proves the review grammar survives reviewFile -> callResolvedModel -> adapter.
       expect(body.generationConfig.responseJsonSchema).toBeDefined();
     }

@@ -77,6 +77,7 @@ The full setup and operations guides live at [codra.run/docs](https://codra.run/
 - [Installation guide](https://codra.run/docs/installation)
 - [Configuration guide](https://codra.run/docs/configuration)
 - [Deploy with Neon](https://codra.run/docs/neon)
+- [Deploy with Railway](https://codra.run/docs/railway)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 

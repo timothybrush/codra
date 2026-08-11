@@ -3,12 +3,22 @@ import { withTimeout } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelInput, type ModelResponse } from './types';
 import { toGeminiResponseJsonSchema } from './gemini-schema';
 import { assertPublicBaseUrl } from './url-guard';
+import {
+  MODEL_TIMEOUT_MAX_MS,
+  OUTPUT_TOKENS_FLOOR,
+  geminiThinkingBudgetTokens,
+  resolveOutputTokenCeiling,
+} from './limits';
 
 /** Fallback when the caller supplies no diff-size-aware budget. */
-const GEMINI_TIMEOUT_MS = 45_000;
+const GEMINI_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
 const GEMINI_MAX_RETRIES = 2;
-// Headroom so reasoning models can think and still emit the JSON answer without truncating.
-const GEMINI_MAX_OUTPUT_TOKENS = 8192;
+// Floor, used when the caller states no budget (verify and summary, which answer in well under this).
+const GEMINI_DEFAULT_OUTPUT_TOKENS = OUTPUT_TOKENS_FLOOR;
+// What a review call may claim when it asks for room. The old single 8192 for every call was the
+// binding constraint on findings: thinking tokens bill against it, so a six-file bin asked for ~120
+// findings inside a window that held ~35 and answered with near-empty arrays.
+const GEMINI_MAX_OUTPUT_TOKENS = 65_536;
 // Cap on any in-call retry sleep; a longer cool-off is better served by deferring the file than by pinning a gate slot here.
 const GEMINI_MAX_RETRY_DELAY_MS = 5_000;
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -57,8 +67,23 @@ function isSchemaRejection(status: number, message: string) {
     lower.includes('response_schema') ||
     lower.includes('invalid json payload') ||
     lower.includes('unknown name') ||
-    lower.includes('schema')
+    lower.includes('schema') ||
+    // The bare, detail-less 400. Google sometimes rejects a request with nothing but "Request
+    // contains an invalid argument." and no `error.details`, so none of the specific markers above
+    // can fire and the file used to fail permanently on its FIRST 400 -- no schema probe, no
+    // fallback, because a 400 is not transient. Only consulted when a grammar was actually sent, so
+    // the worst case is one extra schema-less attempt that 400s again and rethrows the real message.
+    lower.includes('invalid argument')
   );
+}
+
+// Narrow, and probed BEFORE isSchemaRejection: that one matches "unknown name" and "invalid argument",
+// so an endpoint or model that does not know `thinkingConfig` would otherwise be read as a grammar
+// rejection, dropping the schema while still sending the field that was actually refused.
+function isThinkingRejection(status: number, message: string) {
+  if (status !== 400) return false;
+  const lower = message.toLowerCase();
+  return lower.includes('thinking') || lower.includes('thought');
 }
 
 function isRetryableTransportError(error: unknown) {
@@ -85,6 +110,18 @@ export async function reviewWithGoogle(
     : null;
   // Latched: once the endpoint rejects the grammar, every later attempt goes without it.
   let schemaRejected = false;
+  // Same latch for `thinkingConfig`: the 2.0-era models and some proxies do not accept the field.
+  let thinkingRejected = false;
+
+  // Room for the JSON alone, then thinking ON TOP of it. Summing rather than sharing is the fix: with
+  // one flat ceiling for both, a thinking model spent it deliberating and returned a truncated prefix.
+  const answerBudget = resolveOutputTokenCeiling(
+    input.outputBudgetTokens,
+    GEMINI_MAX_OUTPUT_TOKENS,
+    GEMINI_DEFAULT_OUTPUT_TOKENS,
+  );
+  const thinkingBudget = geminiThinkingBudgetTokens(answerBudget);
+  const outputCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
   // The caller latches per (provider, model, grammar) off this flag. Marking the error too means a
   // schema-dropped attempt that then fails still teaches the caller, instead of re-probing next call.
   const fail = (error: unknown): never => {
@@ -131,7 +168,10 @@ export async function reviewWithGoogle(
               responseMimeType: 'application/json',
               // See gemini-schema.ts for why not `responseSchema`.
               ...(responseJsonSchema && !schemaRejected ? { responseJsonSchema } : {}),
-              maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+              maxOutputTokens: outputCeiling,
+              // Bounded on purpose: thinking bills against maxOutputTokens, so leaving it dynamic lets
+              // it eat the ceiling and return a prefix of the JSON.
+              ...(thinkingRejected ? {} : { thinkingConfig: { thinkingBudget } }),
               // See the note in models/types.ts on sampling. 0.9 on Gemini's 0-2 scale.
               temperature: 0.9,
             },
@@ -150,6 +190,19 @@ export async function reviewWithGoogle(
     if (!response.ok) {
       const errorText = await response.text();
       const message = providerErrorMessage(errorText);
+
+      // Before the schema probe: isSchemaRejection is deliberately broad and would swallow this.
+      if (!thinkingRejected && isThinkingRejection(response.status, message)) {
+        thinkingRejected = true;
+        logger.warn('Gemini rejected thinkingConfig; retrying without an explicit thinking budget', {
+          model,
+          error: message,
+        });
+        lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+        // Attempt refunded, no sleep: the latch bounds this to one extra probe, as with the grammar.
+        attempt--;
+        continue;
+      }
 
       if (responseJsonSchema && !schemaRejected && isSchemaRejection(response.status, message)) {
         schemaRejected = true;
@@ -183,6 +236,12 @@ export async function reviewWithGoogle(
         willRetry: isRetryable && attempt < maxRetries,
         requestedDelayMs: requestedDelayMs ?? undefined,
         retryDelayMs: isRetryable && attempt < maxRetries ? retryDelayMs : undefined,
+        // A bare "Request contains an invalid argument." with no `error.details` is unactionable, and
+        // without the body there is no way to learn what Google objected to. Bounded, and only on a
+        // 4xx we are about to give up on -- one body per genuinely failed call, never on a retry rung.
+        rawBody: response.status >= 400 && response.status < 500 && !(isRetryable && attempt < maxRetries)
+          ? errorText.slice(0, 2_000)
+          : undefined,
       };
       if (isRetryable && attempt < maxRetries) {
         logger.warn(`Gemini request failed with ${response.status}; retrying`, logData);
@@ -222,9 +281,14 @@ export async function reviewWithGoogle(
     // A non-empty non-STOP response is only a prefix: json.ts repairs the braces and the tail findings vanish silently.
     if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
       logger.warn(`Gemini response for ${model} ended with finishReason=${candidate.finishReason}; output is likely incomplete`, {
-        // Thinking tokens bill against the same ceiling, so compare the sum.
-        outputTokens: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
-        maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+        // NONE of these may be named `...Tokens`: logger.ts redacts any key containing "token", so the
+        // previous `outputTokens`/`maxOutputTokens` pair logged as [REDACTED] and this warning could
+        // never show how close to the ceiling a truncated response actually got.
+        // Thinking bills against the same ceiling, so compare the sum.
+        outputSpend: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+        thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+        outputCeiling,
+        thinkingBudget: thinkingRejected ? undefined : thinkingBudget,
         schemaDropped: schemaRejected,
       });
     }

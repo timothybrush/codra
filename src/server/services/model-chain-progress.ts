@@ -1,6 +1,7 @@
 import { logger } from '../core/logger';
 import type { AppBindings } from '../env';
 import type { TokenTracker } from '../core/token-tracker';
+import { isPlausibleTokenBucket } from './model-support';
 
 // Where each label (file path, or a bin's label) got to in its model chain, so a deferred review
 // resumes at the next model instead of replaying the models that already failed for it.
@@ -20,6 +21,14 @@ const CHAIN_PROGRESS_TTL_SECONDS = 24 * 60 * 60;
 // chunk dispatches three units concurrently: that is one full wave, so the model is judged on a
 // whole round rather than on a single slow call, and is dropped from the next invocation onward.
 const MODEL_TIMEOUT_STRIKES = 3;
+
+// Strikes before the LAST candidate in a chain is dropped too. Higher than MODEL_TIMEOUT_STRIKES
+// because dropping the last one defers the unit having attempted no model at all, which is the worse
+// outcome for a merely-slow model. But it must be FINITE: exempting the tail entirely is what let one
+// model burn 15 minutes of a job's wall clock at 20+ consecutive timeouts, every unit paying a full
+// per-call budget to learn what the tally already knew. Strikes reset on success (see noteSuccess),
+// so a count this high means the model has not once answered on this job.
+const LAST_CANDIDATE_TIMEOUT_STRIKES = 6;
 
 // Ceiling on a persisted cool-off. A mis-parsed "retry in 3600s" would otherwise disable a model for
 // the rest of the job; per-minute buckets never legitimately need more than this.
@@ -58,8 +67,10 @@ function parseCooldowns(source: Record<string, StoredCooldown> | undefined): Map
   for (const [model, value] of Object.entries(source)) {
     if (!value || typeof value !== 'object') continue;
     const until = typeof value.until === 'number' && Number.isFinite(value.until) ? value.until : 0;
+    // Implausible buckets are dropped rather than trusted: a job that persisted a misparsed request
+    // count would otherwise keep skipping every prompt for that model until the memo's TTL expired.
     const limitTokens =
-      typeof value.limitTokens === 'number' && Number.isFinite(value.limitTokens) && value.limitTokens > 0
+      typeof value.limitTokens === 'number' && isPlausibleTokenBucket(value.limitTokens)
         ? value.limitTokens
         : undefined;
     if (until <= 0 && limitTokens === undefined) continue;
@@ -83,6 +94,11 @@ export class ModelChainProgressStore {
   // Timeouts per model for this job, in the SAME KV value as the chain progress. A second key would
   // cost a second subrequest read per invocation, out of the 50 this whole mechanism exists to save.
   private timeouts = new Map<string, number>();
+
+  // Models whose strikes a success cleared in THIS invocation. Needed because writeOnce merges the
+  // stored tally with max(): without it the merge would read the pre-success count back out of KV and
+  // undo the reset, making the clear invisible the moment it was persisted.
+  private clearedTimeouts = new Set<string>();
 
   // Per-model rate-limit state, in the same KV value again. Without persistence ModelRateLimitBook
   // is invocation-scoped, so every continuation re-paid a full-prompt 429 to re-learn the cool-off
@@ -198,6 +214,8 @@ export class ModelChainProgressStore {
           if (value > (progress.get(label) ?? 0)) progress.set(label, value);
         }
         for (const [model, value] of positiveInts(isNewShape ? stored.timeouts : undefined)) {
+          // A success in this invocation outranks any stored tally; see `clearedTimeouts`.
+          if (this.clearedTimeouts.has(model)) continue;
           if (value > (this.timeouts.get(model) ?? 0)) this.timeouts.set(model, value);
         }
         for (const [model, value] of parseCooldowns(isNewShape ? stored.cooldowns : undefined)) {
@@ -245,9 +263,30 @@ export class ModelChainProgressStore {
     return this.flush();
   }
 
+  // A success proves the model works here, so its tally restarts. Without this the count was
+  // cumulative over a job's whole 24h memo, so three slow calls early on condemned a healthy model for
+  // the rest of it -- and LAST_CANDIDATE_TIMEOUT_STRIKES could not mean "never answered".
+  async noteSuccess(modelId: string): Promise<void> {
+    if (!this.key) return;
+    await this.load();
+    // No-ops for a model with a clean record, which is the overwhelmingly common case: the healthy
+    // path must not pay a KV get+put per reviewed file out of a budget of 50.
+    if (!this.timeouts.has(modelId)) return;
+    this.timeouts.delete(modelId);
+    this.clearedTimeouts.add(modelId);
+    this.dirty = true;
+    return this.flush();
+  }
+
   async isTimingOut(modelId: string): Promise<boolean> {
     await this.load();
     return (this.timeouts.get(modelId) ?? 0) >= MODEL_TIMEOUT_STRIKES;
+  }
+
+  // For the tail of a chain, which has no fallback to fall through to.
+  async isTimingOutTerminally(modelId: string): Promise<boolean> {
+    await this.load();
+    return (this.timeouts.get(modelId) ?? 0) >= LAST_CANDIDATE_TIMEOUT_STRIKES;
   }
 
   // Shares load()'s single promise, so hydrating the rate-limit book costs no extra KV read.

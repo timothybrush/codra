@@ -2,9 +2,13 @@ import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
 import { ProviderRequestError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
 import { assertPublicBaseUrl } from './url-guard';
+import { MODEL_TIMEOUT_MAX_MS, resolveOutputTokenCeiling } from './limits';
 
-const OPENAI_TIMEOUT_MS = 80_000;
-const OPENAI_MAX_OUTPUT_TOKENS = 4096;
+// Fallback when the caller supplies no diff-size-aware budget. Shares the review ceiling so an
+// omitting caller can never outlast the chain budget that governs everything else.
+const OPENAI_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
+const OPENAI_DEFAULT_OUTPUT_TOKENS = 4096;
+const OPENAI_MAX_OUTPUT_TOKENS = 16_384;
 
 export interface OpenAIResponse {
   choices?: Array<{
@@ -35,11 +39,16 @@ function extractOpenAiText(data: OpenAIResponse) {
 export async function reviewWithOpenAI(
   config: { apiKey: string | null; baseUrl: string; providerName: string; timeoutMs?: number },
   model: string,
-  input: { systemPrompt: string; userPrompt: string },
+  input: { systemPrompt: string; userPrompt: string; outputBudgetTokens?: number },
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<ModelResponse> {
   logger.info(`Calling OpenAI-format model: ${model}`);
   const timeoutMs = config.timeoutMs ?? OPENAI_TIMEOUT_MS;
+  const outputCeiling = resolveOutputTokenCeiling(
+    input.outputBudgetTokens,
+    OPENAI_MAX_OUTPUT_TOKENS,
+    OPENAI_DEFAULT_OUTPUT_TOKENS,
+  );
   
   assertPublicBaseUrl(config.baseUrl, config.providerName);
   const prompts = jsonOnlyPrompts(input);
@@ -63,7 +72,7 @@ export async function reviewWithOpenAI(
         ],
         // 0.9 of a 0-2 scale.
         temperature: 0.9,
-        max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+        max_tokens: outputCeiling,
         response_format: { type: 'json_object' },
       }),
     }),

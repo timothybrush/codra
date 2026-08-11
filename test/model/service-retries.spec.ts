@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isRetryableModelError, ModelService } from '@server/services/model';
 import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
+import { MODEL_TIMEOUT_MAX_MS } from '@server/models/limits';
 
 
 import { buildReviewResponseSchema } from '@server/prompts/file-review';
@@ -144,6 +145,48 @@ describe('ModelService: transient failures and the retry ladder', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(response.rawText).toContain('"findings"');
+  });
+
+  // Google sometimes 400s with nothing but "Request contains an invalid argument." and no
+  // `error.details`, so none of the specific schema markers can fire. That used to fail the file on its
+  // first 400 -- permanently, since a 400 is not transient -- with no grammar probe and no fallback.
+  it('drops the response grammar and retries on a 400 that explains nothing', async () => {
+    const bareInvalidArgument = () =>
+      new Response(
+        JSON.stringify({ error: { code: 400, message: 'Request contains an invalid argument.' } }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(bareInvalidArgument())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}' }] } }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    const response = await reviewWithGoogle(
+      { apiKey: 'test-key' },
+      'gemini-3.1-flash-lite',
+      {
+        systemPrompt: 'system',
+        userPrompt: 'user',
+        responseSchema: buildReviewResponseSchema(5),
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The first attempt carried the grammar and the retry did not.
+    const firstBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    const retryBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(firstBody.generationConfig.responseJsonSchema).toBeDefined();
+    expect(retryBody.generationConfig.responseJsonSchema).toBeUndefined();
+    // Still asks for JSON, or the schema-less attempt returns prose.
+    expect(retryBody.generationConfig.responseMimeType).toBe('application/json');
     expect(response.rawText).toContain('"findings"');
   });
 
@@ -353,9 +396,11 @@ describe('ModelService: transient failures and the retry ladder', () => {
       // Prevent an unhandled-rejection warning while the timer is still pending.
       promise.catch(() => {});
 
-      await vi.advanceTimersByTimeAsync(45_000);
+      // Derived, not hardcoded: pinning the number here meant raising the ceiling made this test
+      // advance past nothing, so the promise never settled and the run hung on fake timers.
+      await vi.advanceTimersByTimeAsync(MODEL_TIMEOUT_MAX_MS);
 
-      await expect(promise).rejects.toThrow('timed out after 45000ms');
+      await expect(promise).rejects.toThrow(`timed out after ${MODEL_TIMEOUT_MAX_MS}ms`);
       // The underlying Workers-AI request was actually cancelled, not just abandoned.
       expect(capturedSignal?.aborted).toBe(true);
     } finally {

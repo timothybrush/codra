@@ -2,10 +2,14 @@ import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
 import { assertPublicBaseUrl } from './url-guard';
+import { MODEL_TIMEOUT_MAX_MS, OUTPUT_TOKENS_FLOOR, resolveOutputTokenCeiling } from './limits';
 
 // Vertex's REST API rejects plain API keys and requires an OAuth2 token via RFC 7523 JWT-bearer grant, so `apiKey` here holds the full service-account JSON key, not a short API key string.
-const VERTEX_TIMEOUT_MS = 45_000;
-const VERTEX_MAX_OUTPUT_TOKENS = 8192;
+const VERTEX_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
+const VERTEX_DEFAULT_OUTPUT_TOKENS = OUTPUT_TOKENS_FLOOR;
+// Same Gemini models as the Google adapter, so the same ceiling. No `thinkingConfig` here though: this
+// adapter makes ONE attempt and has no latch, so a model that refused the field would fail the file.
+const VERTEX_MAX_OUTPUT_TOKENS = 65_536;
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const ACCESS_TOKEN_LIFETIME_S = 3600;
@@ -117,11 +121,16 @@ async function getAccessToken(
 export async function reviewWithVertex(
   config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
   model: string,
-  input: { systemPrompt: string; userPrompt: string },
+  input: { systemPrompt: string; userPrompt: string; outputBudgetTokens?: number },
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<ModelResponse> {
   const providerName = config.providerName ?? 'Google Vertex AI';
   const timeoutMs = config.timeoutMs ?? VERTEX_TIMEOUT_MS;
+  const outputCeiling = resolveOutputTokenCeiling(
+    input.outputBudgetTokens,
+    VERTEX_MAX_OUTPUT_TOKENS,
+    VERTEX_DEFAULT_OUTPUT_TOKENS,
+  );
   logger.info(`Calling Vertex AI model: ${model}`);
 
   assertPublicBaseUrl(config.baseUrl, providerName);
@@ -161,7 +170,7 @@ export async function reviewWithVertex(
         generationConfig: {
           responseMimeType: 'application/json',
           // No `responseJsonSchema`: this adapter makes one attempt and cannot drop the schema, so a rejection would fail the file outright.
-          maxOutputTokens: VERTEX_MAX_OUTPUT_TOKENS,
+          maxOutputTokens: outputCeiling,
           // Same models as the Google adapter, so the same value keeps the two paths comparable.
           temperature: 0.9,
         },
