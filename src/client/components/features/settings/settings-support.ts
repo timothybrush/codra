@@ -18,11 +18,12 @@ export const PROVIDER_PRESETS = [
   { value: 'custom-vertex', label: 'Google Vertex AI', apiFormat: 'vertex' as const, baseUrl: '', name: 'Vertex AI', exampleUrl: 'https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1' },
 ];
 
-export const FIXED_PROVIDER_NAMES = new Set(['OpenAI', 'OpenRouter', 'Anthropic', 'Google', 'Cloudflare', 'xAI']);
+export const FIXED_PROVIDER_NAMES = new Set(['OpenAI', 'OpenRouter', 'Anthropic', 'Google', 'Cloudflare', 'xAI', 'NVIDIA']);
 
 export function providerKeyPlaceholder(providerName: string, apiFormat: LlmApiFormat) {
   if (apiFormat === 'vertex') return '{ "type": "service_account", … }';
   if (providerName === 'xAI') return 'xai-…';
+  if (providerName === 'NVIDIA') return 'nvapi-…';
   return 'sk-…';
 }
 

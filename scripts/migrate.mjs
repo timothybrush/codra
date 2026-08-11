@@ -107,6 +107,7 @@ async function ensureModelCatalog() {
       ('Anthropic', 'anthropic', 'https://api.anthropic.com/v1', FALSE),
       ('OpenRouter', 'openai', 'https://openrouter.ai/api/v1', FALSE),
       ('xAI', 'openai', 'https://api.x.ai/v1', FALSE),
+      ('NVIDIA', 'openai', 'https://integrate.api.nvidia.com/v1', FALSE),
       ('Vertex AI', 'vertex', NULL, FALSE)
     ON CONFLICT (name) DO UPDATE SET
       api_format = EXCLUDED.api_format,

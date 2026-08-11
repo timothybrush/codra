@@ -109,6 +109,36 @@ function extractOpenAiModels(data: OpenAIModelsResponse) {
     : [];
 }
 
+// NVIDIA Build serves its whole NIM catalog from one OpenAI-compatible `/models` endpoint, so the
+// chat models arrive mixed in with embedding, reranking, and speech/OCR models that can never
+// answer a review. This is a display-quality filter, not a correctness gate: an operator can still
+// target any model id explicitly through repo config.
+const NVIDIA_NON_CHAT_MODEL_PATTERNS = [
+  /embed/i,
+  /rerank/i,
+  /retriever/i,
+  /ocr/i,
+  /parakeet/i,
+  /riva/i,
+  /\basr\b/i,
+  /\btts\b/i,
+  /speech/i,
+];
+
+const NVIDIA_BUILD_HOST = 'integrate.api.nvidia.com';
+
+function isNvidiaBuildBaseUrl(baseUrl: string) {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === NVIDIA_BUILD_HOST;
+  } catch {
+    return false;
+  }
+}
+
+function isNonChatNvidiaModel(modelId: string) {
+  return NVIDIA_NON_CHAT_MODEL_PATTERNS.some((pattern) => pattern.test(modelId));
+}
+
 function extractAnthropicModels(data: AnthropicModelsResponse) {
   return Array.isArray(data?.data)
     ? data.data.map((item) => item?.id).filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
@@ -154,7 +184,9 @@ export async function listProviderModels(input: {
       }),
     );
     if (!response.ok) throw new Error(`OpenAI model list failed with ${response.status}: ${await limitedErrorBody(response)}`);
-    return extractOpenAiModels(await response.json() as OpenAIModelsResponse);
+    const models = extractOpenAiModels(await response.json() as OpenAIModelsResponse);
+    // Host-gated so a custom OpenAI-format provider that happens to serve an id like "embed-1" is left alone.
+    return isNvidiaBuildBaseUrl(baseUrl) ? models.filter((id) => !isNonChatNvidiaModel(id)) : models;
   }
 
   if (input.apiFormat === 'anthropic') {
