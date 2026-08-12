@@ -1,4 +1,4 @@
-import { runReviewJob } from '@server/core/review';
+import { BIN_MAX_FILES, runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterEach, expect, it, vi } from 'vitest';
 import { insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
@@ -33,11 +33,10 @@ const batchingConfig = {
   review: { ...defaultRepoConfig.review, batch_small_files: true },
 };
 
-const smallFiles = [
-  { path: 'src/a.ts', content: 'console.log(1);' },
-  { path: 'src/b.ts', content: 'console.log(2);' },
-  { path: 'src/c.ts', content: 'console.log(3);' },
-];
+const smallFiles = Array.from({ length: BIN_MAX_FILES }, (_unused, index) => ({
+  path: `src/${String.fromCharCode(97 + index)}.ts`,
+  content: `console.log(${index + 1});`,
+}));
 
 async function seedJob(env: ReturnType<typeof createTestEnv>, repo: string, config = batchingConfig) {
   const job = await insertJob(env, {
@@ -83,17 +82,17 @@ dbDescribe('Review flow: batched small files', () => {
       await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-batch', phase: 'review' });
     });
 
-    // The whole point: three files, ONE model call.
+    // The whole point: a bin's worth of files, ONE model call.
     expect(reviewFilesSpy).toHaveBeenCalledTimes(1);
     expect((reviewFilesSpy.mock.calls[0][0] as { files: Array<{ path: string }> }).files.map((f) => f.path))
-      .toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+      .toEqual(smallFiles.map((f) => f.path));
     expect(reviewFileSpy).not.toHaveBeenCalled();
 
     const reviews = await getFileReviewsForJobs(env, [job.id]);
-    expect(reviews).toHaveLength(3);
+    expect(reviews).toHaveLength(smallFiles.length);
     for (const review of reviews) {
       expect(review.file_status).toBe('done');
-      expect(review.batch_size).toBe(3);
+      expect(review.batch_size).toBe(smallFiles.length);
       // Per-file summary, not one shared string: the reason for the nested response shape.
       expect(review.file_summary).toBe(`Looks ok: ${review.file_path}`);
       expect(review.parsed_comments).toHaveLength(1);

@@ -99,12 +99,16 @@ export async function verifyFindings(params: {
     const conflicting = new Set<number>();
     for (const result of results) {
       if (!Number.isInteger(result.index) || result.index < 0 || result.index >= candidates.length) continue;
+      // `decidable: false` is a drop whatever the verdict says: the verifier has just stated that the
+      // window it was given cannot settle the claim, and a claim nobody can check must not be posted as
+      // if it were checked. Only an explicit `false` counts -- an omitted field means "did not say".
+      const verdict = result.decidable === false ? 'drop' as const : result.verdict;
       const prior = byIndex.get(result.index);
-      if (prior && prior.verdict !== result.verdict) {
+      if (prior && prior.verdict !== verdict) {
         conflicting.add(result.index);
         continue;
       }
-      if (!prior) byIndex.set(result.index, { verdict: result.verdict, reason: result.reason });
+      if (!prior) byIndex.set(result.index, { verdict, reason: result.reason });
     }
     for (const index of conflicting) byIndex.delete(index);
 

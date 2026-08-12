@@ -21,6 +21,7 @@ import {
   checkAbsenceClaim,
   isVersionClaimRefutedByPin,
   looksLikeExternalVersionClaim,
+  refuteUndecidableClaim,
 } from '../claim-checks';
 import { parseRawPayload } from './json';
 import {
@@ -213,6 +214,16 @@ function applyClaimGate(
     return { withheld: { title, body, tag: 'refuted:pinned-sha' } };
   }
 
+  // Claims whose consequence lives in a file, framework or engine version the model was never shown.
+  // Counted under its own key and tagged distinctly, so every suppression stays auditable in the
+  // off-diff list rather than vanishing -- a wrong refutation must be findable.
+  const undecidable = refuteUndecidableClaim({ title, body });
+  if (undecidable) {
+    const key = `undecidable_${undecidable.replace('-', '_')}`;
+    deniedClaimCounts[key] = (deniedClaimCounts[key] ?? 0) + 1;
+    return { withheld: { title, body, tag: `refuted:${undecidable}` } };
+  }
+
   return { claimType };
 }
 
@@ -249,6 +260,15 @@ function buildParsedComment(params: {
     ? finding.confidence_score
     : 0;
 
+  // An empty or whitespace-only suggestion means "no suggestion", not "discard this finding" -- but
+  // `codeSuggestion` is `z.string().min(1)`, so passing `""` straight through threw a ZodError and the
+  // catch below binned the whole comment as `unverified:unassemblable`. Measured across an 800-review
+  // sweep: 256 findings destroyed this way, including real ones (a hardcoded-secret P1 among them).
+  // `evidence` on the next line has always had this guard; this field simply never got it.
+  const codeSuggestion = typeof finding.code_suggestion === 'string' && finding.code_suggestion.trim()
+    ? finding.code_suggestion
+    : undefined;
+
   return parsedReviewCommentSchema.parse({
     path: file.path,
     line,
@@ -260,8 +280,8 @@ function buildParsedComment(params: {
     // Unrecoverable later: 003 nulls diff_input and the KV diff cache expires after 6h.
     contextSnippet: renderDiffSnippet(file, line) || undefined,
     title,
-    body: withSuggestion(body, finding.code_suggestion),
-    codeSuggestion: finding.code_suggestion,
+    body: withSuggestion(body, codeSuggestion),
+    codeSuggestion,
     confidenceScore,
     evidence: typeof finding.evidence === 'string' && finding.evidence.trim() ? finding.evidence.trim() : undefined,
     fingerprint: buildFindingFingerprint(file.path, title),

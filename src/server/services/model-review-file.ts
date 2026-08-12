@@ -138,17 +138,19 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
     rejectedExemplars: params.rejectedExemplars,
   });
 
+  // One figure drives three things: the room the answer gets, and now the time it gets to write it.
+  const outputBudgetTokens = reviewOutputBudgetTokens({
+    findingCap: generatorFindingCap(params.config.review.max_comments),
+    fileCount: 1,
+  });
+
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
     responseSchema: buildReviewResponseSchema(params.config.review.max_comments),
-    // Scales with the diff the model sees: small files fail over fast.
-    timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount),
-    // Room for the number of findings the prompt just asked for. Sized from the ask, not the diff.
-    outputBudgetTokens: reviewOutputBudgetTokens({
-      findingCap: generatorFindingCap(params.config.review.max_comments),
-      fileCount: 1,
-    }),
+    // Scales with the diff the model sees AND the answer it was asked for: small files fail over fast.
+    timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount, outputBudgetTokens),
+    outputBudgetTokens,
     label: params.file.path,
     totalLineCount: params.totalLineCount,
     config: params.config,
@@ -213,17 +215,21 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
   // The bin's total: a 400-line bin on a small-file timeout dies mid-call and takes all of it down.
   const binLineCount = params.files.reduce((sum, file) => sum + file.lineCount, 0);
 
+  // The bin's whole response, not one file's: every entry shares one `maxOutputTokens`, and a bin that
+  // overruns it comes back as a repaired prefix with its tail files looking clean. A packed bin is also
+  // the slowest call the system makes, and its diff line count badly under-predicts that, so the same
+  // figure sizes the timeout.
+  const outputBudgetTokens = reviewOutputBudgetTokens({
+    findingCap: generatorFindingCap(params.config.review.max_comments),
+    fileCount: params.files.length,
+  });
+
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
     responseSchema: buildBatchReviewResponseSchema(params.config.review.max_comments, params.files.length),
-    timeoutMs: adaptiveModelTimeoutMs(binLineCount),
-    // The bin's whole response, not one file's: every entry shares one `maxOutputTokens`, and a bin that
-    // overruns it comes back as a repaired prefix with its tail files looking clean.
-    outputBudgetTokens: reviewOutputBudgetTokens({
-      findingCap: generatorFindingCap(params.config.review.max_comments),
-      fileCount: params.files.length,
-    }),
+    timeoutMs: adaptiveModelTimeoutMs(binLineCount, outputBudgetTokens),
+    outputBudgetTokens,
     label: `${params.files.length} files (${params.files[0]?.path ?? 'unknown'} …)`,
     // Per file, so progress survives the bin narrowing or exploding into singles.
     progressLabels: params.files.map((file) => file.path),

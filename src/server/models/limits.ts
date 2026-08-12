@@ -14,11 +14,31 @@ export const MODEL_TIMEOUT_MAX_MS = 50_000;
 // The chain still gets walked, one model per continuation, bounded by MAX_RETRYABLE_FILE_REVIEW_FAILURES.
 export const MODEL_FALLBACK_CHAIN_BUDGET_MS = 55_000;
 
-// Per-call timeout, scaled by the size of the (already truncated) diff being reviewed.
-export function adaptiveModelTimeoutMs(diffLineCount: number | null | undefined): number {
+// What an answer costs in wall clock, per 1,000 output tokens the caller has asked room for. Latency
+// here tracks how much the model WRITES (and thinks), which the diff size only loosely predicts: a
+// two-file bin is 60 diff lines and therefore got the 20s base, while its median answer took 18s on
+// gemini-2.5-flash and 31% of those calls overran the ceiling their diff size had earned them. Sizing
+// the timeout off the same `reviewOutputBudgetTokens` figure the prompt is built from removes that
+// mismatch, and the MODEL_TIMEOUT_MAX_MS cap still bounds the worst case.
+const MODEL_TIMEOUT_PER_1K_OUTPUT_MS = 1_200;
+
+// Per-call timeout, scaled by the (already truncated) diff being reviewed AND by the size of the answer
+// being requested. `outputBudgetTokens` is optional: a caller that omits it keeps the old arithmetic
+// exactly, so the verify and summary paths are unaffected.
+export function adaptiveModelTimeoutMs(
+  diffLineCount: number | null | undefined,
+  outputBudgetTokens?: number | null,
+): number {
   const lines = typeof diffLineCount === 'number' && Number.isFinite(diffLineCount) ? Math.max(0, diffLineCount) : 0;
   const scaled = MODEL_TIMEOUT_BASE_MS + Math.max(0, lines - MODEL_TIMEOUT_FREE_LINES) * MODEL_TIMEOUT_PER_LINE_MS;
-  return Math.min(MODEL_TIMEOUT_MAX_MS, scaled);
+
+  const budget = typeof outputBudgetTokens === 'number' && Number.isFinite(outputBudgetTokens)
+    ? Math.max(0, outputBudgetTokens)
+    : 0;
+  // Only the room ABOVE the floor earns extra time: every caller asks for at least the floor.
+  const answerAllowance = Math.max(0, budget - OUTPUT_TOKENS_FLOOR) / 1_000 * MODEL_TIMEOUT_PER_1K_OUTPUT_MS;
+
+  return Math.min(MODEL_TIMEOUT_MAX_MS, scaled + answerAllowance);
 }
 
 // One call must always fit the chain budget, or the HEAD of every chain would be deferred before it

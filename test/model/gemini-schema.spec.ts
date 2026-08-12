@@ -22,8 +22,9 @@ describe('toGeminiResponseJsonSchema', () => {
     expect(Object.keys(location.properties)).toEqual(['absolute_file_path', 'line', 'line_range']);
 
     const verify = toGeminiResponseJsonSchema(VERIFY_RESPONSE_SCHEMA.schema as Record<string, unknown>) as any;
-    // `reason` before `verdict`, so the verifier justifies before deciding.
-    expect(verify.properties.results.items.propertyOrdering).toEqual(['index', 'reason', 'verdict', 'confidence']);
+    // `reason` then `decidable`, both before `verdict`: the verifier justifies, and states whether the
+    // window it was given can settle the claim at all, before it is allowed to emit a decision token.
+    expect(verify.properties.results.items.propertyOrdering).toEqual(['index', 'reason', 'decidable', 'verdict', 'confidence']);
 
     // The batch grammar nests one level deeper; the same transforms must reach it.
     const batch = toGeminiResponseJsonSchema(buildBatchReviewResponseSchema(10, 4).schema) as any;

@@ -191,13 +191,14 @@ Your goal is to find REAL defects (bugs, security vulnerabilities, and performan
 
 ### CONTEXT EXTENDS (read carefully, this prevents false positives):
 ${contextScope}
-- Do NOT report that a symbol is undefined, unimported, unused, missing, or never-called merely because its declaration or usage is not visible in the diff. Imports, types, and definitions frequently live in unchanged parts of the file. Flag such an issue ONLY if the diff itself clearly introduces it.
-- Do NOT assume how code elsewhere behaves. If confirming an issue requires code you cannot see, do not report it.
+- You cannot see which files import this one. Never predict that a change breaks callers, importers, "other modules" or "external files" -- a removed \`export\`, a renamed symbol or a changed signature may have no consumers at all, and you have no way to check. The same applies in reverse to a function whose body is not shown: do not assume what it does with its errors or its return value.
+- Assume every third-party package is at the version this project pins, and that its API is whatever that version provides. Never claim a library "does not expose", "does not provide" or "does not support" something; your training data predates the installed version.
+- Assume the language, runtime and build target are whatever the project already uses successfully. A syntax or standard-library method appearing in the diff is available in this project by construction -- the code around it already compiles and ships. Do not raise compatibility, polyfill, transpilation, engine-version or server-side-rendering concerns unless the diff itself shows the incompatibility.
+- Two async facts that are frequently misread. \`return somePromise()\` inside an \`async\` function IS awaited by whoever awaits that function; it is equivalent to \`return await\` except inside \`try\`/\`finally\`, so it is not a missing await and not a floating promise. And \`void someAsyncCall()\` is deliberate fire-and-forget: if the called function handles its own errors, there is no unhandled rejection to report.
 
 ### WHAT TO REPORT:
 - Report anything a senior engineer reviewing this diff would want to investigate: a bug, a security hole, a performance problem, a resource leak, an unhandled failure, a broken invariant.
 - You do not need to be certain. A finding you can ground in a quoted line is worth raising; every finding is independently checked against the diff afterwards, and a wrong one is discarded at no cost to you. A defect you decline to mention is simply lost.
-- Do NOT report subjective preferences (naming, formatting, "cleaner" alternatives, "consider using X") unless they cause a concrete bug, security hole, or measurable performance problem. These are discarded and crowd out real defects.
 
 ### EVIDENCE (mandatory, a finding without it cannot be posted):
 - Every finding MUST include "evidence": ${evidenceSource}
@@ -216,6 +217,7 @@ ${claimTypes.join(', ')}
 1. Output MUST be valid JSON, EXACTLY ONE object matching the schema below.
 2. DO NOT output any conversational text, source code, or diff hunks before or after the JSON.
 3. Prioritize by severity: 0 = P0 critical, 1 = P1 high, 2 = P2 medium, 3 = P3 low, 4 = nit (cosmetic/trivial). Set priority honestly; do not inflate. Use 4 for anything a reviewer would prefix with "nit:".
+   A finding that rests on a condition you cannot check from the diff -- "if this runs on an older engine", "if another module imports this", "depending on the caller" -- is at most priority 3, never 0 or 1, however serious the consequence would be if the condition held. Certainty about the consequence is not certainty about the premise.
 ${capRule}
 ${emptyRule}
 

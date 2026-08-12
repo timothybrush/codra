@@ -59,6 +59,36 @@ describe('verifyFindings orchestrator', () => {
     expect(result.reasons.size).toBeGreaterThanOrEqual(0);
   });
 
+  // The failure this exists for: on codra's own PR #86 the verifier confirmed five findings whose
+  // consequences lay outside the window it was shown ("this breaks importers", "this throws under SSR")
+  // because it could only check that the quoted line was real. `decidable` is the field that lets it
+  // say so, and an explicit `false` has to cost the finding or the field is decoration.
+  it('drops a finding the verifier says it cannot settle, whatever verdict it gave', async () => {
+    const comments = [comment({ title: 'Checkable' }), comment({ title: 'Needs the importers' })];
+    const model = fakeModel('{"results":['
+      + '{"index":0,"reason":"line does exhibit it","decidable":true,"verdict":"keep"},'
+      + '{"index":1,"reason":"would need the importers of this module","decidable":false,"verdict":"keep"}'
+      + ']}');
+
+    const result = await verifyFindings({ ...base, comments, model });
+
+    expect(result.comments.map(c => c.title)).toEqual(['Checkable']);
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0].comment.title).toBe('Needs the importers');
+    expect(result.dropped[0].reason).toBe('would need the importers of this module');
+  });
+
+  // A model that ignores the new field must not have every finding read as undecidable.
+  it('keeps findings when the verifier omits decidable entirely', async () => {
+    const comments = [comment({ title: 'Kept' }), comment({ title: 'Also kept' })];
+    const model = fakeModel('{"results":[{"index":0,"verdict":"keep"},{"index":1,"verdict":"keep"}]}');
+
+    const result = await verifyFindings({ ...base, comments, model });
+
+    expect(result.comments).toHaveLength(2);
+    expect(result.dropped).toHaveLength(0);
+  });
+
   it('falls back to the input findings when verification throws', async () => {
     const comments = [comment({ title: 'A' }), comment({ title: 'B' })];
     const result = await verifyFindings({ ...base, comments, model: throwingModel() });

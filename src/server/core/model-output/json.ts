@@ -221,6 +221,33 @@ export function preprocessJson(json: string): string {
   return result;
 }
 
+/**
+ * Deletes every `null`-valued key, recursively, before Zod sees the payload.
+ *
+ * The model output schemas mark optional fields `.optional()`, which accepts an ABSENT key and rejects
+ * an explicit `null` -- and these models routinely emit `"code_suggestion": null` for a finding that
+ * carries no suggestion. On the batched path that single null failed
+ * `batchReviewModelOutputSchema.parse`, so `parseBatchReviewResponse` threw and the response for EVERY
+ * file in the bin was discarded, then reported as an unreadable answer and failed over to the next
+ * model. Measured on this repository's own review: 37 of 88 rejected payloads were otherwise complete
+ * and readable.
+ *
+ * Stripping rather than widening each field is deliberate: absent and null mean the same thing to every
+ * one of these schemas, one pass covers the fields nobody has thought of yet, and no downstream type
+ * has to learn about `null`.
+ */
+export function stripNulls<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(stripNulls) as unknown as T;
+  if (value === null || typeof value !== 'object') return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (entry === null) continue;
+    out[key] = stripNulls(entry);
+  }
+  return out as T;
+}
+
 function isPlaceholderString(value: unknown) {
   return typeof value === 'string' && /^<[^>]+>$/.test(value.trim());
 }
@@ -306,7 +333,8 @@ export function parseRawPayload(raw: string): z.infer<typeof fileReviewModelOutp
 
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(repaired);
+    // Nulls out before anything else looks at the payload: `.optional()` rejects an explicit null.
+    parsedJson = stripNulls(JSON.parse(repaired));
   } catch (e) {
     logger.error('Critical JSON parse error after extraction and repair', { repaired: truncateJsonForLog(repaired), error: e });
     throw new Error(`Invalid JSON format: ${e instanceof Error ? e.message : 'Unknown error'}`, { cause: e });

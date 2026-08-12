@@ -9,6 +9,7 @@ import {
   normalizeFinding,
   parseRawPayload,
   preprocessJson,
+  stripNulls,
   truncateJsonForLog,
 } from './json';
 
@@ -109,7 +110,8 @@ export function parseRawBatchPayload(raw: string): RawBatchPayload {
 
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(repaired);
+    // See stripNulls: one `"code_suggestion": null` used to discard the whole bin's response.
+    parsedJson = stripNulls(JSON.parse(repaired));
   } catch (e) {
     logger.error('Critical JSON parse error after extraction and repair', { repaired: truncateJsonForLog(repaired), error: e });
     throw new Error(`Invalid JSON format: ${e instanceof Error ? e.message : 'Unknown error'}`, { cause: e });
