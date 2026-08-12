@@ -2,10 +2,14 @@ import { logger } from '@server/core/logger';
 import type { AppBindings } from '@server/env';
 import { TimeoutError } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, jsonOnlyPrompts, type ModelInput, type ModelResponse } from './types';
+import { MODEL_TIMEOUT_MAX_MS, OUTPUT_TOKENS_FLOOR, resolveOutputTokenCeiling } from './limits';
 
 // Reasoning models under strict-JSON can burn the token budget thinking and never emit; fail fast and defer.
-const CLOUDFLARE_TIMEOUT_MS = 45_000;
-const CLOUDFLARE_MAX_OUTPUT_TOKENS = 8192;
+const CLOUDFLARE_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
+const CLOUDFLARE_DEFAULT_OUTPUT_TOKENS = OUTPUT_TOKENS_FLOOR;
+// Workers AI context windows vary widely by model, so this stays modest next to Gemini's: an over-large
+// `max_completion_tokens` is refused by the smaller models rather than clamped.
+const CLOUDFLARE_MAX_OUTPUT_TOKENS = 16_384;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -117,7 +121,11 @@ function buildCloudflareInferenceRequest(input: ModelInput) {
       { role: 'system', content: prompts.system },
       { role: 'user', content: prompts.user },
     ],
-    max_completion_tokens: CLOUDFLARE_MAX_OUTPUT_TOKENS,
+    max_completion_tokens: resolveOutputTokenCeiling(
+      input.outputBudgetTokens,
+      CLOUDFLARE_MAX_OUTPUT_TOKENS,
+      CLOUDFLARE_DEFAULT_OUTPUT_TOKENS,
+    ),
     ...(input.responseSchema
       ? {
           response_format: {

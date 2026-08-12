@@ -31,7 +31,11 @@ function makeKV() {
       return maxInFlight;
     },
     get stored() {
-      return value === null ? null : JSON.parse(value) as { files?: Record<string, number>; timeouts?: Record<string, number> };
+      return value === null ? null : JSON.parse(value) as {
+        files?: Record<string, number>;
+        timeouts?: Record<string, number>;
+        cooldowns?: Record<string, { until?: number; limitTokens?: number }>;
+      };
     },
     writes,
   };
@@ -108,6 +112,66 @@ describe('ModelChainProgressStore', () => {
     expect(await next.isTimingOut('vertex-ai:gemini-2.5-flash')).toBe(false);
   });
 
+  // The tail of a chain has no fallback to fall through to, so it is held to a higher bar rather than
+  // exempted. Exempting it entirely let one model burn 15 minutes of a job's wall clock at 20+
+  // consecutive timeouts, every unit paying a full per-call budget to learn what the tally knew.
+  it('holds the last candidate to a higher strike count before dropping it too', async () => {
+    const kv = makeKV();
+    const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-tail');
+
+    for (let i = 0; i < 3; i += 1) await store.noteTimeout('cf:glm-4.7-flash');
+    // Enough to drop it mid-chain, deliberately not enough to drop the tail.
+    expect(await store.isTimingOut('cf:glm-4.7-flash')).toBe(true);
+    expect(await store.isTimingOutTerminally('cf:glm-4.7-flash')).toBe(false);
+
+    for (let i = 0; i < 3; i += 1) await store.noteTimeout('cf:glm-4.7-flash');
+    expect(await store.isTimingOutTerminally('cf:glm-4.7-flash')).toBe(true);
+
+    // Durable, or the next invocation re-pays the whole wave to re-learn it.
+    const next = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-tail');
+    expect(await next.isTimingOutTerminally('cf:glm-4.7-flash')).toBe(true);
+  });
+
+  describe('noteSuccess', () => {
+    // Without the reset the tally was cumulative over the memo's 24h life, so three slow calls early
+    // in a long job condemned a healthy model for the rest of it.
+    it('restarts the tally, so a slow patch cannot condemn a working model', async () => {
+      const kv = makeKV();
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-recovered');
+
+      for (let i = 0; i < 3; i += 1) await store.noteTimeout('vertex-ai:gemini-2.5-pro');
+      expect(await store.isTimingOut('vertex-ai:gemini-2.5-pro')).toBe(true);
+
+      await store.noteSuccess('vertex-ai:gemini-2.5-pro');
+      expect(await store.isTimingOut('vertex-ai:gemini-2.5-pro')).toBe(false);
+    });
+
+    // writeOnce merges the stored tally with max(), which would otherwise read the pre-success count
+    // straight back out of KV and undo the reset the moment it was persisted.
+    it('survives the merge against what another invocation stored', async () => {
+      const kv = makeKV();
+      await kv.kv.put('k', JSON.stringify({ timeouts: { 'vertex-ai:gemini-2.5-pro': 5 } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-merge-success');
+      await store.noteSuccess('vertex-ai:gemini-2.5-pro');
+
+      expect(kv.stored?.timeouts?.['vertex-ai:gemini-2.5-pro']).toBeUndefined();
+      const next = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-merge-success');
+      expect(await next.isTimingOut('vertex-ai:gemini-2.5-pro')).toBe(false);
+    });
+
+    it('writes nothing for a model with a clean record', async () => {
+      const kv = makeKV();
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-clean');
+
+      await store.noteSuccess('vertex-ai:gemini-2.5-pro');
+
+      // The healthy path is every successful file: a KV get+put here would spend two subrequests
+      // per file out of the 50 this memo exists to protect.
+      expect(kv.writes).toHaveLength(0);
+    });
+  });
+
   it('keeps chain progress and timeouts in one value without either clobbering the other', async () => {
     const kv = makeKV();
     const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-both');
@@ -130,6 +194,109 @@ describe('ModelChainProgressStore', () => {
 
     expect(await store.startIndexFor('src/legacy.ts')).toBe(3);
     expect(await store.isTimingOut('anything')).toBe(false);
+  });
+
+  // Without persistence ModelRateLimitBook is invocation-scoped, so every job continuation re-paid a
+  // full-prompt 429 to re-learn a cool-off the previous invocation had already been told about.
+  describe('rate-limit cool-offs', () => {
+    it('carries a learned cool-off and bucket size to the next invocation', async () => {
+      const kv = makeKV();
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-cooldown');
+      const until = Date.now() + 30_000;
+
+      store.noteRateLimit('google:gemini-2.5-flash', { cooldownUntil: until, limitTokens: 16000 });
+      await store.flushPending();
+
+      const next = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-cooldown');
+      const loaded = await next.loadCooldowns();
+      expect(loaded.get('google:gemini-2.5-flash')).toEqual({ cooldownUntil: until, limitTokens: 16000 });
+      // Scoped to the model that actually 429'd: each Gemini model has its own per-minute bucket.
+      expect(loaded.has('google:gemini-2.5-flash-lite')).toBe(false);
+    });
+
+    it('does not write on note alone, so a 429 adds no subrequests on a path that had none', async () => {
+      const kv = makeKV();
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-lazy');
+
+      store.noteRateLimit('google:gemini-2.5-flash', { cooldownUntil: Date.now() + 30_000 });
+      expect(kv.writes).toHaveLength(0);
+
+      // The deferral that follows is what makes it durable.
+      await store.flushPending();
+      expect(kv.writes.length).toBeGreaterThan(0);
+    });
+
+    it('takes the later deadline when two invocations both learned one', async () => {
+      const kv = makeKV();
+      const earlier = Date.now() + 10_000;
+      const later = Date.now() + 90_000;
+      await kv.kv.put('k', JSON.stringify({ cooldowns: { 'google:m': { until: later, limitTokens: 16000 } } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-merge-cooldown');
+      // Omits limitTokens on purpose: a later 429 that doesn't restate the bucket must not erase it.
+      store.noteRateLimit('google:m', { cooldownUntil: earlier });
+      await store.flushPending();
+
+      expect(kv.stored?.cooldowns?.['google:m']).toEqual({ until: later, limitTokens: 16000 });
+    });
+
+    // A job that persisted a misparsed request count as a bucket would keep skipping every prompt for
+    // that model until the memo's 24h TTL expired, because the bucket size is sticky by design.
+    it('discards a stored bucket too small to be a token quota', async () => {
+      const kv = makeKV();
+      const until = Date.now() + 30_000;
+      await kv.kv.put('k', JSON.stringify({ cooldowns: { 'google:m': { until, limitTokens: 15 } } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-poisoned-bucket');
+
+      const entry = (await store.loadCooldowns()).get('google:m');
+      // The cool-off survives -- the model really was rate-limited; only the bucket size is nonsense.
+      expect(entry?.cooldownUntil).toBe(until);
+      expect(entry?.limitTokens).toBeUndefined();
+    });
+
+    it('clamps an implausible cool-off rather than disabling a model for the whole job', async () => {
+      const kv = makeKV();
+      // A mis-parsed "retry in 3600s" would otherwise pin this model out for the job's 24h lifetime.
+      await kv.kv.put('k', JSON.stringify({ cooldowns: { 'google:m': { until: Date.now() + 3_600_000 } } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-clamp');
+
+      const entry = (await store.loadCooldowns()).get('google:m');
+      expect(entry!.cooldownUntil).toBeLessThanOrEqual(Date.now() + 5 * 60 * 1000);
+    });
+
+    // The bucket size outlives the cool-off: it still answers "can this prompt ever fit?".
+    it('keeps an expired entry so its bucket size survives', async () => {
+      const kv = makeKV();
+      await kv.kv.put('k', JSON.stringify({ cooldowns: { 'google:m': { until: Date.now() - 60_000, limitTokens: 16000 } } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-expired');
+
+      expect((await store.loadCooldowns()).get('google:m')?.limitTokens).toBe(16000);
+    });
+
+    it('reads a blob written before cooldowns existed without losing resume progress', async () => {
+      const kv = makeKV();
+      await kv.kv.put('k', JSON.stringify({ files: { 'src/a.ts': 2 }, timeouts: { 'google:m': 1 } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-old-shape');
+
+      expect(await store.startIndexFor('src/a.ts')).toBe(2);
+      expect((await store.loadCooldowns()).size).toBe(0);
+    });
+
+    it('keeps a cool-off noted before the KV read resolved', async () => {
+      const kv = makeKV();
+      await kv.kv.put('k', JSON.stringify({ files: { 'src/a.ts': 2 } }));
+
+      const store = new ModelChainProgressStore({ APP_KV: kv.kv } as never, 'job-early-note');
+      // noteRateLimit is sync and can land first; load() must merge into it, not replace it.
+      store.noteRateLimit('google:m', { cooldownUntil: Date.now() + 30_000, limitTokens: 16000 });
+
+      expect((await store.loadCooldowns()).get('google:m')?.limitTokens).toBe(16000);
+      expect(await store.startIndexFor('src/a.ts')).toBe(2);
+    });
   });
 
   it('does nothing at all without a jobId', async () => {

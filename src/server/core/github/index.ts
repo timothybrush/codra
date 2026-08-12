@@ -329,6 +329,8 @@ export class GitHubClient {
     const currentByLowerName = new Map(currentLabels.map(label => [label.toLowerCase(), label]));
 
     const uniqueLabels = Array.from(new Set(labels.map(label => label.toLowerCase())));
+    // Deletes stay sequential: concurrent mutations of one issue's labels trip GitHub's secondary
+    // rate limit, and the fan-out would also compete for the invocation's subrequest budget.
     for (const label of uniqueLabels) {
       const currentLabel = currentByLowerName.get(label);
       if (currentLabel) {

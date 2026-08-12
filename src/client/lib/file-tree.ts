@@ -43,7 +43,7 @@ export function buildTree(files: FileReviewRecord[]): TreeNode[] {
 
   // Folders before files, each alphabetical - matches GitHub's ordering.
   function sortNodes(nodes: TreeNode[]): TreeNode[] {
-    const sorted = [...nodes].sort((a, b) => {
+    const sorted = nodes.toSorted((a, b) => {
       if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
       return a.name.localeCompare(b.name);
     });

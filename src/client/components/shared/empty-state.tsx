@@ -43,8 +43,8 @@ export function EmptyState({ icon, title, description, hints, linkAction, action
 
       {hints && hints.length > 0 && (
         <ul className="mt-1 flex flex-col gap-1.5 text-left">
-          {hints.map((hint, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm text-muted-foreground">
+          {hints.map((hint) => (
+            <li key={hint} className="flex items-start gap-2.5 text-sm text-muted-foreground">
               <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-primary opacity-80" />
               <span>{hint}</span>
             </li>

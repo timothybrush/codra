@@ -249,6 +249,7 @@ export async function getModelUsageStats(env: Pick<AppBindings, 'HYPERDRIVE'>, d
       WHERE created_at >= now() - ($1::int * interval '1 day')
       GROUP BY model_used
       ORDER BY calls DESC, model_used ASC
+      LIMIT 20
     `,
     [days],
   );

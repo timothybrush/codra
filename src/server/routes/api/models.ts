@@ -35,39 +35,40 @@ const apiFormatSchema = z.enum(llmApiFormats);
 const positiveIntegerSchema = z.number().int().positive().finite();
 const modelIdSchema = z.string().trim().min(1);
 const optionalUrlSchema = z.string().trim().url().nullable().optional();
-const providerIdSchema = z.string().uuid();
+const providerIdSchema = z.uuid();
 
-const providerCreateSchema = z.object({
+const providerCreateSchema = z.strictObject({
   name: z.string().trim().min(1),
   apiFormat: apiFormatSchema,
   baseUrl: optionalUrlSchema,
   apiKey: z.string().optional(),
   enabled: z.boolean().default(true),
-}).strict();
+});
 
+// `.extend()` carries the parent's strictness through, so no second `.strict()` is needed here.
 const providerUpdateSchema = providerCreateSchema.extend({
   clearApiKey: z.boolean().optional(),
-}).strict();
+});
 
-const modelConfigUpdateSchema = z.object({
+const modelConfigUpdateSchema = z.strictObject({
   providerId: providerIdSchema,
   modelName: z.string().trim().min(1),
-}).strict();
+});
 
-const globalModelConfigSchema = z.object({
+const globalModelConfigSchema = z.strictObject({
   main: modelIdSchema.nullable().default(null),
   fallbacks: z.array(modelIdSchema).nullable().default([]),
   size_overrides: z
     .array(
-      z.object({
+      z.strictObject({
         max_lines: positiveIntegerSchema,
         model: modelIdSchema,
         fallbacks: z.array(modelIdSchema).optional(),
-      }).strict(),
+      }),
     )
     .nullable()
     .optional(),
-}).strict();
+});
 
 function normalizedBaseUrl(apiFormat: z.infer<typeof apiFormatSchema>, baseUrl?: string | null) {
   if (apiFormat === 'cloudflare-workers-ai') return null;

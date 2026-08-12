@@ -9,6 +9,7 @@ import {
   normalizeFinding,
   parseRawPayload,
   preprocessJson,
+  stripNulls,
   truncateJsonForLog,
 } from './json';
 
@@ -40,7 +41,10 @@ function normalizeBatchFileEntry(entry: unknown, fallbackPath?: string): unknown
 
   return {
     absolute_file_path: path,
-    findings: e.findings.map(normalizeFinding).filter(Boolean),
+    findings: e.findings.flatMap((finding) => {
+      const normalized = normalizeFinding(finding);
+      return normalized ? [normalized] : [];
+    }),
     overall_correctness: typeof e.overall_correctness === 'string' && e.overall_correctness ? e.overall_correctness : undefined,
     overall_explanation: typeof e.overall_explanation === 'string' && e.overall_explanation ? e.overall_explanation : undefined,
     overall_confidence_score: normalizeConfidence(e.overall_confidence_score),
@@ -53,12 +57,16 @@ function collectBatchEntries(parsedJson: unknown): unknown[] | null {
   const files = root?.files ?? (Array.isArray(parsedJson) ? parsedJson : undefined);
 
   if (Array.isArray(files)) {
-    return files.map((entry) => normalizeBatchFileEntry(entry)).filter(Boolean);
+    return files.flatMap((entry) => {
+      const normalized = normalizeBatchFileEntry(entry);
+      return normalized ? [normalized] : [];
+    });
   }
   if (files && typeof files === 'object') {
-    return Object.entries(files as Record<string, unknown>)
-      .map(([path, entry]) => normalizeBatchFileEntry(entry, path))
-      .filter(Boolean);
+    return Object.entries(files as Record<string, unknown>).flatMap(([path, entry]) => {
+      const normalized = normalizeBatchFileEntry(entry, path);
+      return normalized ? [normalized] : [];
+    });
   }
   return null;
 }
@@ -102,7 +110,8 @@ export function parseRawBatchPayload(raw: string): RawBatchPayload {
 
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(repaired);
+    // See stripNulls: one `"code_suggestion": null` used to discard the whole bin's response.
+    parsedJson = stripNulls(JSON.parse(repaired));
   } catch (e) {
     logger.error('Critical JSON parse error after extraction and repair', { repaired: truncateJsonForLog(repaired), error: e });
     throw new Error(`Invalid JSON format: ${e instanceof Error ? e.message : 'Unknown error'}`, { cause: e });

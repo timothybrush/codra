@@ -279,11 +279,14 @@ export function filterReviewableFiles(
 ): { files: FileDiff[]; skipped: number } {
   const customMatchers = config.skip_files.map((pattern) => picomatch(pattern, { dot: true }));
 
-  const reviewable = files
-    .filter((file) => !file.isDeleted && !file.isBinary)
-    .filter((file) => !defaultSkipMatchers.some((matcher) => matcher(file.path)))
-    .filter((file) => !customMatchers.some((matcher) => matcher(file.path)))
-    .sort((left, right) => Number(left.isNew) - Number(right.isNew) || left.path.localeCompare(right.path));
+  const reviewable: FileDiff[] = [];
+  for (const file of files) {
+    if (file.isDeleted || file.isBinary) continue;
+    if (defaultSkipMatchers.some((matcher) => matcher(file.path))) continue;
+    if (customMatchers.some((matcher) => matcher(file.path))) continue;
+    reviewable.push(file);
+  }
+  reviewable.sort((left, right) => Number(left.isNew) - Number(right.isNew) || left.path.localeCompare(right.path));
 
   return {
     files: reviewable.slice(0, maxFiles),

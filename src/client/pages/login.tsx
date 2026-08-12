@@ -82,7 +82,7 @@ export function LoginPage() {
             <a
               href="/auth/github"
               id="login-submit"
-              className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-md border border-[var(--btn-primary-border)] bg-[var(--btn-primary-surface)] text-[0.95rem] font-semibold text-[var(--btn-primary-fg)] transition-all hover:bg-[var(--btn-primary-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-md border border-[var(--btn-primary-border)] bg-[var(--btn-primary-surface)] text-[0.95rem] font-semibold text-[var(--btn-primary-fg)] transition-[background-color,border-color,color,box-shadow,transform] hover:bg-[var(--btn-primary-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <GithubMark size={17} />
               Sign in with GitHub

@@ -4,6 +4,12 @@ import type { ModelResponseSchema } from '@server/models/types';
 import { getLanguageForFile } from './languages';
 
 // Generator cap, NOT the posted cap: per CHUNK, upstream of four remove-only filters, where `max_comments` is once per job.
+//
+// Deliberately NOT divided by the size of a batched bin. That was tried, on the theory that a six-file
+// bin asking 20 findings per file requested more than one response could hold: measured on a 221-file
+// job, all 71 bin responses ended cleanly at 967-1,845 chars and the whole job spent 17,158 output
+// tokens -- about 3% of the ceiling that was supposedly binding. The cap has never been what limits
+// findings, so lowering it only removes room a genuinely defective file might need.
 export function generatorFindingCap(maxComments: number): number {
   return Math.max(1, maxComments * 2);
 }
@@ -171,8 +177,13 @@ export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean }):
     ? '4. Return at most {{MAX_COMMENTS}} findings PER FILE, most severe first. Keep each body under 160 words.'
     : '4. Return at most {{MAX_COMMENTS}} findings, most severe first. Keep each body under 160 words.';
 
+  // The multi-file wording must demand one entry per file (the parser reports a missing file as
+  // unreviewed and re-queues it) WITHOUT handing out an empty array as the easy way to satisfy that.
+  // The previous phrasing -- "even for files with no defect, give those an empty findings array" --
+  // presupposed clean files in every bin and reintroduced exactly the restraint language the note above
+  // says measured 0.039 findings/file. Review each diff on its own merits is the whole instruction.
   const emptyRule = multi
-    ? `5. Return exactly one entry per file listed below, in the same order, even for files with no defect - give those an empty findings array and a short explanation. Do not pad, do not withhold, and do not omit a file.`
+    ? `5. Return exactly one entry per file listed below, in the same order, and never omit a file. Review each file's diff with the same care you would give it if it were the only file in front of you. An empty findings array is a positive claim that this diff introduces no defect, so return one only when that is true. Do not pad, and do not withhold.`
     : '5. If the diff genuinely introduces no defect, return an empty findings array and a short explanation. Do not pad, and do not withhold.';
 
   return `You are a world-class software engineer performing a precise, high-signal code review.
@@ -180,13 +191,14 @@ Your goal is to find REAL defects (bugs, security vulnerabilities, and performan
 
 ### CONTEXT EXTENDS (read carefully, this prevents false positives):
 ${contextScope}
-- Do NOT report that a symbol is undefined, unimported, unused, missing, or never-called merely because its declaration or usage is not visible in the diff. Imports, types, and definitions frequently live in unchanged parts of the file. Flag such an issue ONLY if the diff itself clearly introduces it.
-- Do NOT assume how code elsewhere behaves. If confirming an issue requires code you cannot see, do not report it.
+- You cannot see which files import this one. Never predict that a change breaks callers, importers, "other modules" or "external files" -- a removed \`export\`, a renamed symbol or a changed signature may have no consumers at all, and you have no way to check. The same applies in reverse to a function whose body is not shown: do not assume what it does with its errors or its return value.
+- Assume every third-party package is at the version this project pins, and that its API is whatever that version provides. Never claim a library "does not expose", "does not provide" or "does not support" something; your training data predates the installed version.
+- Assume the language, runtime and build target are whatever the project already uses successfully. A syntax or standard-library method appearing in the diff is available in this project by construction -- the code around it already compiles and ships. Do not raise compatibility, polyfill, transpilation, engine-version or server-side-rendering concerns unless the diff itself shows the incompatibility.
+- Two async facts that are frequently misread. \`return somePromise()\` inside an \`async\` function IS awaited by whoever awaits that function; it is equivalent to \`return await\` except inside \`try\`/\`finally\`, so it is not a missing await and not a floating promise. And \`void someAsyncCall()\` is deliberate fire-and-forget: if the called function handles its own errors, there is no unhandled rejection to report.
 
 ### WHAT TO REPORT:
 - Report anything a senior engineer reviewing this diff would want to investigate: a bug, a security hole, a performance problem, a resource leak, an unhandled failure, a broken invariant.
 - You do not need to be certain. A finding you can ground in a quoted line is worth raising; every finding is independently checked against the diff afterwards, and a wrong one is discarded at no cost to you. A defect you decline to mention is simply lost.
-- Do NOT report subjective preferences (naming, formatting, "cleaner" alternatives, "consider using X") unless they cause a concrete bug, security hole, or measurable performance problem. These are discarded and crowd out real defects.
 
 ### EVIDENCE (mandatory, a finding without it cannot be posted):
 - Every finding MUST include "evidence": ${evidenceSource}
@@ -205,6 +217,7 @@ ${claimTypes.join(', ')}
 1. Output MUST be valid JSON, EXACTLY ONE object matching the schema below.
 2. DO NOT output any conversational text, source code, or diff hunks before or after the JSON.
 3. Prioritize by severity: 0 = P0 critical, 1 = P1 high, 2 = P2 medium, 3 = P3 low, 4 = nit (cosmetic/trivial). Set priority honestly; do not inflate. Use 4 for anything a reviewer would prefix with "nit:".
+   A finding that rests on a condition you cannot check from the diff -- "if this runs on an older engine", "if another module imports this", "depending on the caller" -- is at most priority 3, never 0 or 1, however serious the consequence would be if the condition held. Certainty about the consequence is not certainty about the premise.
 ${capRule}
 ${emptyRule}
 

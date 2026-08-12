@@ -179,6 +179,7 @@ export function useJobDetail(id: string) {
       const msg = e instanceof Error ? e.message : 'Failed to delete job.';
       toast.error('Could not delete the job.', { id: t, description: msg });
       setError(msg);
+    } finally {
       setIsDeleting(false);
     }
   };

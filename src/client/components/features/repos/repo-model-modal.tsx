@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
@@ -6,14 +6,14 @@ import { Button } from '@client/components/ui/button';
 import { Alert } from '@client/components/ui/alert';
 import { Save, RotateCcw, X } from 'lucide-react';
 import type { RepoConfigRecord } from '@shared/schema';
+import { ModelRouteEditor } from '@client/components/features/models/model-chain';
 import {
   EMPTY_MODEL_ROUTE,
-  ModelRouteEditor,
   routesEqual,
   type ModelOption,
   type ModelRouteConfig,
   type ProviderOption,
-} from '@client/components/features/models/model-chain';
+} from '@client/components/features/models/model-route';
 import { getGlobalRoute, getRepoRoute, hasStoredModelStrategy, repoId, type GlobalModelConfig } from './repo-route';
 
 export interface RepoModelModalProps {
@@ -27,37 +27,24 @@ export interface RepoModelModalProps {
   onModelReset: (repo: RepoConfigRecord) => void;
 }
 
-export function RepoModelModal({
+type RepoModelFormProps = Omit<RepoModelModalProps, 'open' | 'onOpenChange'>;
+
+// Lives inside `Dialog.Portal`, which unmounts on close, so the draft starts from the repo's stored
+// route on every open instead of being synced back from props.
+function RepoModelForm({
   repo,
   globalConfig,
   modelOptions,
   providerOptions,
-  open,
-  onOpenChange,
   onModelApplied,
   onModelReset,
-}: RepoModelModalProps) {
-  const selectedRepoId = repo ? repoId(repo) : null;
-  const globalRouteKey = useMemo(
-    () => JSON.stringify(getGlobalRoute(globalConfig)),
-    [globalConfig],
+}: RepoModelFormProps) {
+  const [route, setRoute] = useState<ModelRouteConfig>(
+    () => (repo ? getRepoRoute(repo, globalConfig) : EMPTY_MODEL_ROUTE),
   );
-  const [route, setRoute] = useState<ModelRouteConfig>(EMPTY_MODEL_ROUTE);
-  const [initialRoute, setInitialRoute] = useState<ModelRouteConfig>(EMPTY_MODEL_ROUTE);
+  const [initialRoute, setInitialRoute] = useState<ModelRouteConfig>(route);
   const [saving, setSaving] = useState<'apply' | 'reset' | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!repo) return;
-    const nextRoute = getRepoRoute(repo, globalConfig);
-    setRoute(nextRoute);
-    setInitialRoute(nextRoute);
-    setSaving(null);
-    setError(null);
-    // Keyed on value identity (id + JSON of the route), not object identity, so a poll returning a
-    // structurally identical object doesn't reset the user's unsaved edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRepoId, globalRouteKey]);
 
   const dirty = useMemo(() => !routesEqual(route, initialRoute), [initialRoute, route]);
   const hasStoredStrategy = repo ? hasStoredModelStrategy(repo) : false;
@@ -115,6 +102,69 @@ export function RepoModelModal({
   };
 
   return (
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        {error && <Alert variant="destructive" className="mb-4">{error}</Alert>}
+        <ModelRouteEditor
+          value={route}
+          onChange={setRoute}
+          models={modelOptions}
+          providers={providerOptions}
+          density="comfortable"
+        />
+      </div>
+
+      <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-ui-line bg-ui-fill/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <Button
+          variant="ghost"
+          onClick={handleReset}
+          disabled={!repo || saving !== null || !hasStoredStrategy}
+          loading={saving === 'reset'}
+          icon={<RotateCcw size={14} />}
+          className="text-ui-subtle hover:text-ui-default"
+        >
+          Use global
+        </Button>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Dialog.Close render={<Button variant="secondary" disabled={saving !== null} />}>
+            Cancel
+          </Dialog.Close>
+          <Button
+            variant="primary"
+            onClick={handleApply}
+            disabled={!dirty || saving !== null}
+            loading={saving === 'apply'}
+            icon={<Save size={14} />}
+          >
+            Apply
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function RepoModelModal({
+  repo,
+  globalConfig,
+  modelOptions,
+  providerOptions,
+  open,
+  onOpenChange,
+  onModelApplied,
+  onModelReset,
+}: RepoModelModalProps) {
+  // Keyed on the route's value identity, not object identity, so a poll returning a structurally
+  // identical global config doesn't discard the user's unsaved edits. The repo is part of the key
+  // because Base UI keeps the portal mounted for the 150 ms close animation: reopening on a
+  // different repo inside that window would otherwise reuse the previous repo's draft and save it
+  // to the new one.
+  const formKey = useMemo(
+    () => `${repo ? repoId(repo) : 'none'}:${JSON.stringify(getGlobalRoute(globalConfig))}`,
+    [repo, globalConfig],
+  );
+
+  return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-background/75 backdrop-blur-sm transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
@@ -135,43 +185,15 @@ export function RepoModelModal({
             </Dialog.Close>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-            {error && <Alert variant="destructive" className="mb-4">{error}</Alert>}
-            <ModelRouteEditor
-              value={route}
-              onChange={setRoute}
-              models={modelOptions}
-              providers={providerOptions}
-              density="comfortable"
-            />
-          </div>
-
-          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-ui-line bg-ui-fill/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <Button
-              variant="ghost"
-              onClick={handleReset}
-              disabled={!repo || saving !== null || !hasStoredStrategy}
-              loading={saving === 'reset'}
-              icon={<RotateCcw size={14} />}
-              className="text-ui-subtle hover:text-ui-default"
-            >
-              Use global
-            </Button>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Dialog.Close render={<Button variant="secondary" disabled={saving !== null} />}>
-                Cancel
-              </Dialog.Close>
-              <Button
-                variant="primary"
-                onClick={handleApply}
-                disabled={!dirty || saving !== null}
-                loading={saving === 'apply'}
-                icon={<Save size={14} />}
-              >
-                Apply
-              </Button>
-            </div>
-          </div>
+          <RepoModelForm
+            key={formKey}
+            repo={repo}
+            globalConfig={globalConfig}
+            modelOptions={modelOptions}
+            providerOptions={providerOptions}
+            onModelApplied={onModelApplied}
+            onModelReset={onModelReset}
+          />
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

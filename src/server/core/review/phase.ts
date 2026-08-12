@@ -48,9 +48,11 @@ export async function runReviewPhase(
 
   await updateJobStep(env, job.id, 'Reviewing Files', { status: 'running' });
 
-  const rejectedExemplars = await loadRejectedExemplars(env, job);
-
-  const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
+  // One DB read and one GitHub read with nothing between them; two in flight cannot breach the subrequest cap.
+  const [rejectedExemplars, pr] = await Promise.all([
+    loadRejectedExemplars(env, job),
+    github.getPullRequest(job.owner, job.repo, job.prNumber),
+  ]);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
   const failureModelId = config.model?.main ?? 'unconfigured';
   let failureModelProviderPromise: Promise<string | null> | null = null;
@@ -78,8 +80,13 @@ export async function runReviewPhase(
   const jobIdsToQuery = [job.id];
   if (job.retryOfJobId) jobIdsToQuery.push(job.retryOfJobId);
   const allExistingReviews = await getFileReviewsForJobs(env, jobIdsToQuery);
-  const currentReviews = new Map(allExistingReviews.filter((review) => review.job_id === job.id).map((review) => [review.file_path, review]));
-  const parentReviews = new Map(allExistingReviews.filter((review) => review.job_id !== job.id && review.file_status === 'done').map((review) => [review.file_path, review]));
+  type ExistingReview = (typeof allExistingReviews)[number];
+  const currentReviews = new Map<string, ExistingReview>();
+  const parentReviews = new Map<string, ExistingReview>();
+  for (const review of allExistingReviews) {
+    if (review.job_id === job.id) currentReviews.set(review.file_path, review);
+    else if (review.file_status === 'done') parentReviews.set(review.file_path, review);
+  }
 
   const reviewTasks: Array<Promise<void>> = [];
   // Single-threaded, so ++ is safe.
@@ -88,13 +95,11 @@ export async function runReviewPhase(
 
   // Bulk-copy parent reviews in one DB pass, so a fully-inheritable retry finishes in one invocation.
   if (job.retryOfJobId && parentReviews.size > 0) {
-    const inheritablePaths = files
-      .filter((file) => {
-        if (currentReviews.has(file.path)) return false;
-        const parent = parentReviews.get(file.path);
-        return Boolean(parent && canInheritParentFileReview(config, parent));
-      })
-      .map((file) => file.path);
+    const inheritablePaths = files.flatMap((file) => {
+      if (currentReviews.has(file.path)) return [];
+      const parent = parentReviews.get(file.path);
+      return parent && canInheritParentFileReview(config, parent) ? [file.path] : [];
+    });
 
     if (inheritablePaths.length > 0) {
       const inheritedPaths = await bulkInheritFileReviews(env, {
@@ -286,6 +291,16 @@ export async function runReviewPhase(
     await resetJobContinuationCount(env, job.id);
   }
 
+  // Before the throw paths on purpose: a chunk that defers is exactly when waste is highest.
+  // `wasted` is estimated, `usage` is billed -- see TokenTracker. Skips rising while attempts fall
+  // is the shape that says the cooldown gates are doing their job.
+  logger.info('Review chunk model usage', {
+    jobId: job.id,
+    subrequests: tracker.getSubrequestCount(),
+    usage: tracker.getTotalUsage(),
+    wasted: tracker.getWasted(),
+  });
+
   const rejected = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
   if (rejected.length > 0) {
     rejected.forEach((result, index) => {
@@ -306,7 +321,9 @@ export async function runReviewPhase(
   const latestReviews = await getFileReviewsForJobs(env, [job.id]);
   // Exclude files awaiting async results so the job doesn't finalize with pending reviews.
   const reviewedPaths = new Set(
-    latestReviews.filter((review) => countsAsHandledFileReview(review) && !isAwaitingAsyncReview(review)).map((review) => review.file_path),
+    latestReviews.flatMap((review) => (
+      countsAsHandledFileReview(review) && !isAwaitingAsyncReview(review) ? [review.file_path] : []
+    )),
   );
   const completedCount = files.filter((file) => reviewedPaths.has(file.path)).length;
 

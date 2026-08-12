@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Badge, StatusBadge } from '@client/components/ui/badge';
 import { parsePromptDiff, diffStats, type DiffRow } from '@client/lib/prompt-diff';
@@ -6,38 +6,16 @@ import { highlightLine, langForPath } from '@client/lib/highlight';
 import { cn } from '@client/lib/utils';
 import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
 import { CommentCard } from './comment-card';
+import {
+  LARGE_DIFF_ROWS,
+  NO_ROWS,
+  PREVIEW_ROWS,
+  ROW_TONES,
+  commentKey,
+  rowKey,
+} from './diff-file-panel-utils';
 
-export const LARGE_DIFF_ROWS = 300;
-
-// Longer diffs render only the first PREVIEW_ROWS lines behind a "Show full diff" control, so a huge
-// PR never dumps tens of thousands of rows into the DOM. Files with comments are never truncated.
-export const PREVIEW_ROWS = 150;
-
-// Estimated row height, used to size a panel before it first paints.
-export const DIFF_ROW_PX = 20;
-
-// Offscreen panels skip layout/paint; this placeholder height keeps the scrollbar and page height
-// stable instead of the page "growing" as panels come into view.
-export function panelCvStyle(open: boolean, lineEstimate: number): CSSProperties {
-  const body = open ? Math.min(lineEstimate, PREVIEW_ROWS) * DIFF_ROW_PX + 140 : 0;
-  return {
-    contentVisibility: 'auto',
-    containIntrinsicSize: `auto ${46 + body}px`,
-  };
-}
-
-export function fileAnchorId(id: string) {
-  return `diff-file-${id}`;
-}
-
-export const ROW_TONES: Record<DiffRow['kind'], { row: string; gutter: string; marker: string }> = {
-  add:  { row: 'diff-add', gutter: 'diff-add-fg', marker: 'diff-add-fg' },
-  del:  { row: 'diff-del', gutter: 'diff-del-fg', marker: 'diff-del-fg' },
-  ctx:  { row: '',         gutter: 'text-ui-subtle/60', marker: 'text-transparent' },
-  hunk: { row: 'ui-well',  gutter: '',           marker: '' },
-};
-
-export function DiffLine({ row, lang }: { row: DiffRow; lang: ReturnType<typeof langForPath> }) {
+function DiffLine({ row, lang }: { row: DiffRow; lang: ReturnType<typeof langForPath> }) {
   const tone = ROW_TONES[row.kind];
 
   if (row.kind === 'hunk') {
@@ -79,8 +57,6 @@ export interface FileDiffProps {
   onToggleViewed: (viewed: boolean) => void;
 }
 
-export const NO_ROWS: DiffRow[] = [];
-
 export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChange, onToggleViewed }: FileDiffProps) {
   const lang = useMemo(() => langForPath(file.filePath), [file.filePath]);
   // Header stats come from a cheap line scan; the full row parse only happens once the panel opens.
@@ -114,21 +90,23 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
       }
     }
 
+    // Each segment is keyed off its first row / anchor line, so keys survive a re-slice when the
+    // panel expands from preview to full.
     const segs: Array<
-      | { type: 'rows'; rows: DiffRow[] }
-      | { type: 'comments'; comments: ParsedReviewComment[] }
+      | { type: 'rows'; key: string; rows: DiffRow[] }
+      | { type: 'comments'; key: string; comments: ParsedReviewComment[] }
     > = [];
     let run: DiffRow[] = [];
     for (const row of visibleRows) {
       run.push(row);
       const comments = row.newNo !== null ? byLine.get(row.newNo) : undefined;
       if (comments) {
-        segs.push({ type: 'rows', rows: run });
-        segs.push({ type: 'comments', comments });
+        segs.push({ type: 'rows', key: `rows:${rowKey(run[0])}`, rows: run });
+        segs.push({ type: 'comments', key: `comments:${row.newNo}`, comments });
         run = [];
       }
     }
-    if (run.length > 0) segs.push({ type: 'rows', rows: run });
+    if (run.length > 0) segs.push({ type: 'rows', key: `rows:${rowKey(run[0])}`, rows: run });
 
     return { segments: segs, unanchored: rest };
   }, [visibleRows, file.parsedComments]);
@@ -204,20 +182,20 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
           ) : (
             // Each segment scrolls independently, so comment cards stay at panel width instead of
             // stretching to the widest code line in a shared scroller.
-            segments.map((segment, i) =>
+            segments.map((segment) =>
               segment.type === 'rows' ? (
-                <div key={i} className="thin-scroll overflow-x-auto">
+                <div key={segment.key} className="thin-scroll overflow-x-auto">
                   <div className="min-w-fit py-1">
-                    {segment.rows.map((row, j) => (
-                      <DiffLine key={j} row={row} lang={lang} />
+                    {segment.rows.map((row) => (
+                      <DiffLine key={rowKey(row)} row={row} lang={lang} />
                     ))}
                   </div>
                 </div>
               ) : (
-                <div key={i} className="space-y-3 border-y border-ui-line/60 px-3 py-3 sm:px-4">
+                <div key={segment.key} className="space-y-3 border-y border-ui-line/60 px-3 py-3 sm:px-4">
                   <div className="max-w-3xl space-y-3">
-                    {segment.comments.map((comment, j) => (
-                      <CommentCard key={j} comment={comment} filePath={file.filePath} />
+                    {segment.comments.map((comment, i) => (
+                      <CommentCard key={commentKey(comment, i)} comment={comment} filePath={file.filePath} />
                     ))}
                   </div>
                 </div>
@@ -266,8 +244,8 @@ export function FileDiff({ file, open, viewed, diffsLoading = false, onOpenChang
                 File-level comments
               </p>
               <div className="max-w-3xl space-y-3">
-                {unanchored.map((comment, j) => (
-                  <CommentCard key={j} comment={comment} filePath={file.filePath} />
+                {unanchored.map((comment, i) => (
+                  <CommentCard key={commentKey(comment, i)} comment={comment} filePath={file.filePath} />
                 ))}
               </div>
             </div>

@@ -4,16 +4,13 @@ import { Link } from 'react-router-dom';
 import { cn, formatPreciseDuration } from '@client/lib/utils';
 import type { JobDetail, JobStep } from '@shared/schema';
 import {
-  DETAIL_LABEL,
-  DETAIL_ROW,
   EmptyValue,
   JobStatusLine,
   MetaChip,
   StatusDot,
   VerdictPill,
-  formatAbsoluteDate,
-  formatRelativeDate,
 } from './job-chips';
+import { DETAIL_LABEL, DETAIL_ROW, formatAbsoluteDate, formatRelativeDate } from './job-chip-utils';
 
 interface JobMetaCardsProps {
   job: JobDetail;
@@ -192,7 +189,7 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
         {steps.length === 0 ? (
           <p className="py-3 text-xs text-ui-default dark:text-ui-subtle">No steps recorded yet.</p>
         ) : (
-          steps.map((step, idx) => <StepRow key={step.name || idx} step={step} />)
+          steps.map((step) => <StepRow key={step.name} step={step} />)
         )}
       </MetaPanel>
     </div>

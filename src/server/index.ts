@@ -3,6 +3,7 @@ import { ReviewWorkflow } from './workflows/review';
 import type { AppBindings } from './env';
 import { reviewJobMessageSchema } from '@shared/schema';
 import { logger } from '@server/core/logger';
+import { disposeRpc } from '@server/core/rpc';
 import { runWithDb } from '@server/db/client';
 import { failJob, hasPendingMaintenanceWork, clearSystemActive } from '@server/db/jobs';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
@@ -52,6 +53,9 @@ export default {
         logger.error('Pre-batch maintenance task failed', error instanceof Error ? error : new Error(String(error)));
       }
 
+      // Sequential by design: each iteration creates a Workflow instance (a subrequest), and a
+      // batch can carry enough messages that fanning out would breach the Workers simultaneous-
+      // subrequest cap on the Free plan.
       for (const message of batch.messages) {
         const parseResult = reviewJobMessageSchema.safeParse(message.body);
 
@@ -75,29 +79,30 @@ export default {
           continue;
         }
 
+        const { jobId, deliveryId, forceFreshInstance } = parseResult.data;
+
         try {
           // Recovery re-enqueues a stuck job under its original jobId; keying the instance on jobId
           // would collide with the dead instance (instance.already_exists), so recovery sets
           // forceFreshInstance to key the new instance on the (fresh) deliveryId -- a UUID,
           // matching workflow_instance_id's column type.
-          const id = parseResult.data.forceFreshInstance
-            ? parseResult.data.deliveryId
-            : (parseResult.data.jobId ?? parseResult.data.deliveryId);
+          const id = forceFreshInstance ? deliveryId : (jobId ?? deliveryId);
           if (!id) {
             logger.error('Message missing identifiers; dropping', { body: message.body });
             message.ack();
             continue;
           }
-          await env.REVIEW_WORKFLOW.create({
+          // The returned handle is an RPC stub and this path never uses it; see core/rpc.ts.
+          disposeRpc(await env.REVIEW_WORKFLOW.create({
              id,
              params: parseResult.data,
-          });
+          }));
           message.ack();
         } catch (error) {
           if (error instanceof Error && error.message.includes('instance.already_exists')) {
             logger.info('Workflow instance already exists; dropping duplicate queue message.', {
-              jobId: parseResult.data.jobId,
-              deliveryId: parseResult.data.deliveryId,
+              jobId,
+              deliveryId,
             });
             message.ack();
             continue;
@@ -105,7 +110,7 @@ export default {
 
           logger.error('Failed to create workflow', error instanceof Error ? error : new Error(String(error)));
           if (message.attempts >= 3) {
-            const id = parseResult.data.jobId ?? parseResult.data.deliveryId;
+            const id = jobId ?? deliveryId;
             if (id) {
               try {
                 await failJob(env, id, 'Failed to start Cloudflare Workflow after multiple attempts. The Cloudflare infrastructure might be experiencing an outage.');

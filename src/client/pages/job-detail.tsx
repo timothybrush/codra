@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domMax } from 'motion/react';
 import { ClipboardList, FileDiff } from 'lucide-react';
 import { LoadError } from '@client/components/shared/load-error';
 import { useJobDetail } from '@client/hooks/use-job-detail';
@@ -60,34 +60,37 @@ export function JobDetailPage() {
 
       <JobProgress job={job} />
 
-      <nav className="flex items-center gap-1 border-b border-ui-line" role="tablist" aria-label="Job detail sections">
-        {TABS.map(({ id: tabId, label, icon: Icon }) => {
-          const active = tab === tabId;
-          return (
-            <button
-              key={tabId}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(tabId)}
-              className={cn(
-                'relative -mb-px flex items-center gap-2 px-3 py-2.5 text-[13px] transition-colors',
-                active ? 'font-medium text-ui-strong' : 'text-ui-subtle hover:text-ui-default',
-              )}
-            >
-              <Icon size={14} strokeWidth={2} />
-              {label}
-              {active && (
-                <motion.span
-                  layoutId="job-tab-underline"
-                  transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-                  className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[var(--btn-primary-bg)]"
-                />
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      {/* domMax, not domAnimation: the underline uses `layoutId`, which needs the layout feature. */}
+      <LazyMotion features={domMax}>
+        <nav className="flex items-center gap-1 border-b border-ui-line" role="tablist" aria-label="Job detail sections">
+          {TABS.map(({ id: tabId, label, icon: Icon }) => {
+            const active = tab === tabId;
+            return (
+              <button
+                key={tabId}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(tabId)}
+                className={cn(
+                  'relative -mb-px flex items-center gap-2 px-3 py-2.5 text-[13px] transition-colors',
+                  active ? 'font-medium text-ui-strong' : 'text-ui-subtle hover:text-ui-default',
+                )}
+              >
+                <Icon size={14} strokeWidth={2} />
+                {label}
+                {active && (
+                  <m.span
+                    layoutId="job-tab-underline"
+                    transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+                    className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[var(--btn-primary-bg)]"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </LazyMotion>
 
       {tab === 'overview' ? (
         <div className="flex flex-col gap-5">

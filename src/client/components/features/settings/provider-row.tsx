@@ -6,9 +6,9 @@ import { Switch } from '@client/components/ui/switch';
 import { Badge } from '@client/components/ui/badge';
 import { cn } from '@client/lib/utils';
 import type { LlmApiFormat, LlmProvider } from '@shared/schema';
+import { FieldLabel } from './field-label';
 import {
   API_FORMAT_OPTIONS,
-  FieldLabel,
   apiKeyFieldLabel,
   domId,
   isCustomProvider,

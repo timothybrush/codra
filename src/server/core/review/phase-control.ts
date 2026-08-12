@@ -24,7 +24,12 @@ export const RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS = [30, 2 * 60, 5 * 60]
 export const FRESH_INVOCATION_YIELD_SECONDS = 8;
 // Poll cadence for an in-flight Workers AI async batch, bounded by MAX_JOB_CONTINUATIONS so a stuck batch cannot loop forever.
 export const ASYNC_BATCH_POLL_DELAY_SECONDS = 20;
-export const MAX_RETRYABLE_FILE_REVIEW_FAILURES = 3;
+// A big bin now spends a whole invocation on ONE model (MODEL_FALLBACK_CHAIN_BUDGET_MS is only a little
+// above the per-call ceiling), so this is also the ceiling on how DEEP into its fallback chain a file
+// can ever get: the resume memo advances one entry per deferral. At 3 a chain longer than three models
+// lost its tail no matter how healthy those entries were. Costs worst-case latency, not attempts --
+// RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS tops out at 5 minutes per deferral.
+export const MAX_RETRYABLE_FILE_REVIEW_FAILURES = 6;
 // Ceiling on same-phase reschedules with no file completed; any progress resets it.
 export const MAX_JOB_CONTINUATIONS = 20;
 // Lower than review's: finalize either fits a fresh invocation's budget or it doesn't; the check-run reconciler recovers past that.

@@ -1,6 +1,6 @@
 import { formatDateTime } from '@client/lib/timezone';
 import type { RepoConfig, RepoConfigRecord } from '@shared/schema';
-import { EMPTY_MODEL_ROUTE, normalizeModelRoute, routesEqual, type ModelRouteConfig } from '@client/components/features/models/model-chain';
+import { EMPTY_MODEL_ROUTE, normalizeModelRoute, routesEqual, type ModelRouteConfig } from '@client/components/features/models/model-route';
 // Shared by the repos page, its rows and the strategy dialog, so it can't live in any single one.
 
 export type GlobalModelConfig = RepoConfig['model'];

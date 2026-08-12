@@ -8,6 +8,7 @@ import { CopyButton } from '@client/components/shared/copy-button';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
 import type { ParsedReviewComment } from '@shared/schema';
 import { severityConfig } from './constants';
+import { ContextSnippet } from './context-snippet';
 
 import { safeRehypePlugins } from '@client/lib/markdown-plugins';
 /** Plain-English reason a finding never reached the pull request. */
@@ -173,12 +174,7 @@ export function CommentCard({ comment, filePath, jobId }: CommentCardProps) {
           <div className="mt-2 flex justify-end">
             <CopyButton value={comment.contextSnippet} label="Copy diff" />
           </div>
-          <pre
-            className="thin-scroll ui-font-mono mt-2 overflow-x-auto rounded-md border p-3 text-[12px] leading-relaxed"
-            style={{ background: 'var(--code-bg)', borderColor: 'var(--code-border)', color: 'var(--code-fg)' }}
-          >
-            {comment.contextSnippet}
-          </pre>
+          <ContextSnippet snippet={comment.contextSnippet} filePath={filePath} />
         </details>
       )}
 

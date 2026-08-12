@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronRight,
@@ -13,16 +14,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Button } from '@client/components/ui/button';
+import type { ButtonProps } from '@client/components/ui/button';
 import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
-import {
-  AuthorChip,
-  JobStatusLine,
-  MetaChip,
-  VerdictPill,
-  formatAbsoluteDate,
-  formatRelativeDate,
-} from './job-chips';
+import { AuthorChip, JobStatusLine, MetaChip, VerdictPill } from './job-chips';
+import { formatAbsoluteDate, formatRelativeDate } from './job-chip-utils';
 import type { JobDetail } from '@shared/schema';
 
 // Lucide's CircleStop strokes the inner square too, which reads as a blob at 14px; filling it
@@ -43,6 +39,44 @@ function StopIcon({ size = 14 }: { size?: number }) {
       <circle cx="12" cy="12" r="10" />
       <rect x="8.5" y="8.5" width="7" height="7" rx="1" fill="currentColor" stroke="none" />
     </svg>
+  );
+}
+
+interface JobActionButtonProps {
+  icon: ComponentType<{ size?: number }>;
+  label: string;
+  /** In-flight: swaps the icon for a spinner. Also disables unless `disabled` says otherwise. */
+  busy: boolean;
+  disabled?: boolean;
+  variant?: ButtonProps['variant'];
+  className?: string;
+  onClick: () => void;
+}
+
+// Every header action is the same icon-only button whose only state is "in flight", so the busy flag
+// lives here rather than branching the header itself.
+function JobActionButton({
+  icon: Icon,
+  label,
+  busy,
+  disabled,
+  variant = 'secondary',
+  className = 'rounded-[7px]',
+  onClick,
+}: JobActionButtonProps) {
+  return (
+    <Button
+      variant={variant}
+      size="sm"
+      shape="square"
+      className={className}
+      disabled={disabled ?? busy}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      {busy ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
+    </Button>
   );
 }
 
@@ -148,45 +182,30 @@ export function JobHeader({
             </Link>
           </Button>
 
-          <Button
-            variant="secondary"
-            size="sm"
-            shape="square"
-            className="rounded-[7px]"
+          <JobActionButton
+            icon={StopIcon}
+            label="Stop review"
+            busy={isStopping}
             disabled={!canStop || isStopping}
             onClick={() => setStopOpen(true)}
-            title="Stop review"
-            aria-label="Stop review"
-          >
-            {isStopping ? <Loader2 size={13} className="animate-spin" /> : <StopIcon size={13} />}
-          </Button>
+          />
 
           {/* Always restarts the review from the beginning (every file), regardless of the job's current status. */}
-          <Button
-            variant="secondary"
-            size="sm"
-            shape="square"
-            className="rounded-[7px]"
-            disabled={isRerunning}
+          <JobActionButton
+            icon={RotateCcw}
+            label={job.status === 'failed' ? 'Retry job' : 'Re-run job'}
+            busy={isRerunning}
             onClick={onRerun}
-            title={job.status === 'failed' ? 'Retry job' : 'Re-run job'}
-            aria-label={job.status === 'failed' ? 'Retry job' : 'Re-run job'}
-          >
-            {isRerunning ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-          </Button>
+          />
 
-          <Button
+          <JobActionButton
+            icon={Trash2}
+            label="Delete job"
+            busy={isDeleting}
             variant="destructive-outline"
-            size="sm"
-            shape="square"
             className="rounded-[7px] shadow-none"
-            disabled={isDeleting}
             onClick={() => setDeleteOpen(true)}
-            title="Delete job"
-            aria-label="Delete job"
-          >
-            {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-          </Button>
+          />
         </div>
       </header>
 

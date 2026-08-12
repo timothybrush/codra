@@ -1,9 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { cn } from '@client/lib/utils';
 import { Select } from '@client/components/ui/select';
 import { Button } from '@client/components/ui/button';
 import { Trash2, ListPlus } from 'lucide-react';
-
 
 import type {
   ModelDensity,
@@ -12,25 +11,7 @@ import type {
   ModelRouteTier,
   ProviderOption,
 } from './model-route';
-import {
-  EMPTY_MODEL_ROUTE,
-  describeModelRoute,
-  normalizeModelRoute,
-  routesEqual,
-} from './model-route';
 
-// Re-exported so repos.tsx and settings.tsx keep importing these names from here, where they've always lived.
-export {
-  EMPTY_MODEL_ROUTE,
-  describeModelRoute,
-  normalizeModelRoute,
-  routesEqual,
-  type ModelDensity,
-  type ModelOption,
-  type ModelRouteConfig,
-  type ModelRouteTier,
-  type ProviderOption,
-};
 interface ModelSelectorProps {
   value: string | null;
   onValueChange: (value: string) => void;
@@ -41,7 +22,7 @@ interface ModelSelectorProps {
   className?: string;
 }
 
-export function ModelSelector({
+function ModelSelector({
   value,
   onValueChange,
   models,
@@ -50,18 +31,14 @@ export function ModelSelector({
   density = 'comfortable',
   className,
 }: ModelSelectorProps) {
+  // The shown provider follows the selected model, so it stays derived rather than synced. The picked
+  // provider only decides the filter while nothing is selected yet.
+  const [pickedProvider, setPickedProvider] = useState<string | null>(null);
   const currentModel = models.find(m => m.value === value);
-  const [provider, setProvider] = useState(currentModel?.providerId ?? providers[0]?.value ?? '');
-
-  useEffect(() => {
-    const model = models.find(m => m.value === value);
-    if (model && model.providerId !== provider) {
-      setProvider(model.providerId);
-    }
-  }, [models, provider, value]);
+  const provider = currentModel?.providerId ?? pickedProvider ?? providers[0]?.value ?? '';
 
   const filteredModels = useMemo(
-    () => models.filter(m => m.providerId === provider).map(m => ({ value: m.value, label: m.label })),
+    () => models.flatMap(m => (m.providerId === provider ? [{ value: m.value, label: m.label }] : [])),
     [models, provider],
   );
 
@@ -87,7 +64,7 @@ export function ModelSelector({
         label={hideLabels ? undefined : 'Provider'}
         value={provider}
         onValueChange={(nextProvider) => {
-          setProvider(nextProvider);
+          setPickedProvider(nextProvider);
           const first = models.find(m => m.providerId === nextProvider);
           if (first) onValueChange(first.value);
         }}
@@ -115,7 +92,7 @@ interface ModelChainProps {
   density?: ModelDensity;
 }
 
-export function ModelChain({
+function ModelChain({
   primary,
   fallbacks,
   onChange,
@@ -219,6 +196,7 @@ export function ModelRouteEditor({
   density = 'comfortable',
   className,
 }: ModelRouteEditorProps) {
+  const fieldId = useId();
   const tiers = value.size_overrides ?? [];
 
   const updateTier = (index: number, updates: Partial<ModelRouteTier>) => {
@@ -305,11 +283,15 @@ export function ModelRouteEditor({
               </div>
               <div className="grid min-w-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[160px_minmax(0,1fr)]">
                 <div className="min-w-0 space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <label
+                    htmlFor={`${fieldId}-tier-${index}-max-lines`}
+                    className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+                  >
                     Max lines
                   </label>
                   <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-border bg-background px-3 focus-within:ring-1 focus-within:ring-ring">
                     <input
+                      id={`${fieldId}-tier-${index}-max-lines`}
                       type="number"
                       min={1}
                       value={tier.max_lines}

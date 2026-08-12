@@ -4,6 +4,8 @@ import { LoadError } from '@client/components/shared/load-error';
 import { CopyButton } from '@client/components/shared/copy-button';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
+import { groupBatches } from '@client/lib/batch-groups';
+import type { BatchGroup } from '@client/lib/batch-groups';
 import {
   ChevronLeft, FileCode2, Clock, Cpu, Hash, Layers, MessageSquare,
   AlertCircle, CheckCircle2, SkipForward, Hourglass,
@@ -35,31 +37,6 @@ const STATUS_META: Record<FileStatus, {
   failed:  { Icon: AlertCircle,  iconCls: 'text-danger',    badge: 'danger',  label: 'Failed'  },
   pending: { Icon: Hourglass,    iconCls: 'text-ui-subtle', badge: 'neutral', label: 'Pending' },
 };
-
-// Bin membership is never persisted (pack.ts derives it rather than storing it). But every file in
-// a bin is written with the SAME shared response, so grouping on `rawAiOutput` reconstructs the bins
-// exactly. Two different bins producing byte-identical JSON is not a real possibility: the payload
-// names each file it covers.
-type BatchGroup = { index: number; paths: string[] };
-
-export function groupBatches(files: FileReviewRecord[]): Map<string, BatchGroup> {
-  const byResponse = new Map<string, BatchGroup>();
-
-  for (const file of files) {
-    // 1 means reviewed alone, null predates batching, and a failed row has no response to group on.
-    if ((file.batchSize ?? 1) <= 1 || !file.rawAiOutput) continue;
-    const existing = byResponse.get(file.rawAiOutput);
-    if (existing) existing.paths.push(file.filePath);
-    else byResponse.set(file.rawAiOutput, { index: byResponse.size + 1, paths: [file.filePath] });
-  }
-
-  // Re-keyed by path, because a row only knows its own identity.
-  const byPath = new Map<string, BatchGroup>();
-  for (const group of byResponse.values()) {
-    for (const path of group.paths) byPath.set(path, group);
-  }
-  return byPath;
-}
 
 function withheldTotal(file: FileReviewRecord): number {
   const counts = file.withheldCounts;
@@ -125,7 +102,7 @@ function FileRow({ file, diffsLoading, batch }: { file: FileReviewRecord; diffsL
               <Hash size={10} />{inTok ?? '-'}↑ {outTok ?? '-'}↓
             </span>
           )}
-          {batchSize && (
+          {batchSize !== null && (
             <span
               title={batchTitle}
               className="ui-font-mono flex items-center gap-1 text-[10px] tabular-nums text-ui-subtle"
@@ -165,7 +142,7 @@ function FileRow({ file, diffsLoading, batch }: { file: FileReviewRecord; diffsL
           {modelShort && <span><Cpu size={9} className="mr-1 inline" />{modelShort}</span>}
           {duration   && <span><Clock size={9} className="mr-1 inline" />{duration}</span>}
           {inTok      && <span><Hash size={9} className="mr-1 inline" />{inTok}↑ {outTok ?? '-'}↓</span>}
-          {batchSize  && <span title={batchTitle}><Layers size={9} className="mr-1 inline" />batch {batch?.index ?? '?'} · ×{batchSize}</span>}
+          {batchSize !== null && <span title={batchTitle}><Layers size={9} className="mr-1 inline" />batch {batch?.index ?? '?'} · ×{batchSize}</span>}
           {file.fileStatus === 'done' && (
             <span><MessageSquare size={9} className="mr-1 inline" />{kept} kept{withheld > 0 ? `, ${withheld} withheld` : ''}</span>
           )}

@@ -76,7 +76,7 @@ function trimOverCap(reviews: Map<string, GroundedFileReview>, cap: number, stat
   for (const [path, review] of reviews) {
     if (review.comments.length <= cap) continue;
 
-    const ranked = [...review.comments].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
+    const ranked = review.comments.toSorted((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
     const dropped = ranked.slice(cap);
     stats.overCap += dropped.length;
 
@@ -116,7 +116,7 @@ export function parseBatchReviewResponse(
     stats.flatFallback = 1;
     stats.entriesReturned = 1;
 
-    const byFile = new Map<string, typeof payload.data.findings>();
+    const byFile = new Map<string, { file: FileDiff; findings: typeof payload.data.findings }>();
     for (const finding of payload.data.findings) {
       const reported = finding.code_location.absolute_file_path?.trim();
       // `claimed` stays empty here: findings share files, so claiming would starve the rest.
@@ -125,11 +125,13 @@ export function parseBatchReviewResponse(
         stats.unroutableEntries += 1;
         continue;
       }
-      byFile.set(target.path, [...(byFile.get(target.path) ?? []), finding]);
+      const bucket = byFile.get(target.path);
+      if (bucket) bucket.findings.push(finding);
+      else byFile.set(target.path, { file: target, findings: [finding] });
     }
 
-    for (const [path, findings] of byFile) {
-      ground(files.find((f) => f.path === path)!, {
+    for (const { file, findings } of byFile.values()) {
+      ground(file, {
         findings,
         overall_correctness: payload.data.overall_correctness,
         // Batch-level summary is all there is here.
@@ -154,5 +156,5 @@ export function parseBatchReviewResponse(
   // Defence: the grammar caps per file, but only binds on providers that enforce it.
   if (options?.maxCommentsPerFile) trimOverCap(reviews, generatorFindingCap(options.maxCommentsPerFile), stats);
 
-  return { reviews, missing: files.filter((f) => !reviews.has(f.path)).map((f) => f.path), stats };
+  return { reviews, missing: files.flatMap((f) => (reviews.has(f.path) ? [] : [f.path])), stats };
 }

@@ -50,11 +50,11 @@ export default tseslint.config(
       'import-x/no-cycle': 'error',
 
       // 400 lines, counting neither blanks nor comments, so adding an explanation never pushes a file
-      // over. Two files carry an explicit override below, each for a stated reason -- a third should
-      // be a split, not a third override.
+      // over. One file carries an explicit override below, for a stated reason -- a second should
+      // be a split, not a second override.
       'max-lines': ['error', { max: 400, skipBlankLines: true, skipComments: true }],
 
-      // An error, not a warning: the four places whose dependency array is deliberately narrower
+      // An error, not a warning: the three places whose dependency array is deliberately narrower
       // than their closure now carry a line-level disable stating why. A new violation should fail.
       'react-hooks/exhaustive-deps': 'error',
 
@@ -107,19 +107,13 @@ export default tseslint.config(
     },
   },
   {
-    // The two files still over the limit, each for a stated reason. Both are known work, not
-    // permanent carve-outs -- delete the entry rather than raising `max` when either is split.
-    //
-    // settings.tsx (552): SettingsPage is one component whose JSX reads nearly all of its 19 pieces
-    //   of state, so its remaining sections do not align with extractable units -- lifting the
-    //   providers section out means threading ~23 props. The support module, provider row, About
-    //   section, review section and review-settings hook are already out (1096 -> 612 lines); what
-    //   is left needs the provider load/CRUD split into a hook first.
+    // The one file still over the limit, for a stated reason. Known work, not a permanent
+    // carve-out -- delete the entry rather than raising `max` when it is split.
     //
     // test/api/auth.spec.ts (422): the review-settings suites here read-modify-write the same
     //   singleton `global_settings` row set and race across files once `fileParallelism` is on. See
     //   the DO-NOT-SPLIT header on the file itself.
-    files: ['src/client/pages/settings.tsx', 'test/api/auth.spec.ts'],
+    files: ['test/api/auth.spec.ts'],
     rules: {
       'max-lines': 'off',
     },

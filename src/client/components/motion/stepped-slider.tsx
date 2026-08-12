@@ -1,7 +1,9 @@
 // Adapted from a min/max/step range slider so labeled steps (e.g. Low/Medium/High/Max) line up on
 // evenly spaced stops; the value readout sits statically above the track (no floating/portal tooltip).
 import {
-  motion,
+  domAnimation,
+  LazyMotion,
+  m,
   useMotionTemplate,
   useMotionValue,
   useReducedMotion,
@@ -82,8 +84,10 @@ export function SteppedSlider({
   const [internal, setInternal] = useState(defaultValue);
   const [active, setActive] = useState(false);
   // Decoupled from the committed value so onValueChange fires once per gesture (on release),
-  // not on every pointer-move tick.
+  // not on every pointer-move tick. Mirrored in a ref so release can read the pending value
+  // without doing the commit inside a state updater.
   const [dragValue, setDragValue] = useState<number | null>(null);
+  const dragValueRef = useRef<number | null>(null);
   const controlled = value !== undefined;
   const committedValue = clamp(controlled ? (value as number) : internal, min, max);
   const current = active && dragValue !== null ? clamp(dragValue, min, max) : committedValue;
@@ -132,34 +136,38 @@ export function SteppedSlider({
     [committedValue, min, max],
   );
 
+  const trackDragValue = useCallback((next: number | null) => {
+    dragValueRef.current = next;
+    setDragValue(next);
+  }, []);
+
   const onPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       if (disabled) return;
       event.currentTarget.setPointerCapture(event.pointerId);
       setActive(true);
-      setDragValue(snapValue(valueFromX(event.clientX)));
+      trackDragValue(snapValue(valueFromX(event.clientX)));
     },
-    [disabled, valueFromX, snapValue],
+    [disabled, valueFromX, snapValue, trackDragValue],
   );
 
   const onPointerMove = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       if (!active || disabled) return;
-      setDragValue(snapValue(valueFromX(event.clientX)));
+      trackDragValue(snapValue(valueFromX(event.clientX)));
     },
-    [active, disabled, valueFromX, snapValue],
+    [active, disabled, valueFromX, snapValue, trackDragValue],
   );
 
   const endDrag = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
       setActive(false);
-      setDragValue((pending) => {
-        if (pending !== null) commit(pending);
-        return null;
-      });
+      const pending = dragValueRef.current;
+      trackDragValue(null);
+      if (pending !== null) commit(pending);
     },
-    [commit],
+    [commit, trackDragValue],
   );
 
   const onKeyDown = useCallback(
@@ -184,120 +192,122 @@ export function SteppedSlider({
   const valueLabel = formatValue ? formatValue(current) : String(current);
 
   return (
-    <div className={cn('w-full', className)}>
-      <div className="mb-1.5 flex justify-end">
-        <span className="text-xs font-medium text-foreground tabular-nums">{valueLabel}</span>
-      </div>
-
-      <div
-        ref={trackRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        className={cn(
-          'relative flex h-10 w-full touch-none select-none items-center overflow-hidden rounded-lg bg-muted',
-          disabled ? 'pointer-events-none opacity-50' : 'cursor-grab active:cursor-grabbing',
-        )}
-      >
-        {/* Pattern repeats every 10px, shifting by exactly one period, so the loop point is never visible. */}
-        <motion.div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: left }}>
-          {isMaxed ? (
-            <div
-              className="absolute inset-0"
-              style={{ backgroundImage: fillGradient }}
-            >
-              <motion.div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.85) 1.3px, transparent 1.3px)',
-                  backgroundSize: '10px 10px',
-                }}
-                animate={reduce ? undefined : { backgroundPositionX: ['0px', '10px'] }}
-                transition={{ duration: dotDriftDuration, repeat: Infinity, ease: 'linear' }}
-              />
-            </div>
-          ) : (
-            <div className="absolute inset-0 bg-foreground/15" />
-          )}
-        </motion.div>
-
-        {/* Inset so end dots don't clip; sized up at max so they don't blend into the dot texture. */}
-        <div className="pointer-events-none absolute inset-x-2 inset-y-0">
-          {steps.map((tick) => {
-            const tp = ((tick.value - min) / (max - min)) * 100;
-            return (
-              <span
-                key={tick.value}
-                className={cn(
-                  'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full',
-                  isMaxed ? 'size-1.5 bg-white shadow-[0_0_0_1.5px_rgba(0,0,0,0.35)]' : 'size-1 bg-foreground/25',
-                )}
-                style={{ left: `${tp}%` }}
-              />
-            );
-          })}
+    <LazyMotion features={domAnimation}>
+      <div className={cn('w-full', className)}>
+        <div className="mb-1.5 flex justify-end">
+          <span className="text-xs font-medium text-foreground tabular-nums">{valueLabel}</span>
         </div>
 
-        {/* Own layer so only opacity animates - Motion's box-shadow interpolator can't parse CSS custom properties in the color stops. */}
-        {isMaxed && !reduce && (
-          <motion.div
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 h-5 w-1.5 rounded-sm"
-            style={{ left, x: thumbX, y: '-50%', boxShadow: `0 0 9px 3px ${glowColor}` }}
-            animate={{ opacity: [0.25, 0.9, 0.25], scale: [1, 1.15, 1] }}
-            transition={{ duration: glowDuration, repeat: Infinity, ease: 'easeInOut', delay: seed * 0.5 }}
-          />
-        )}
-
-        <motion.div
-          id={id}
-          role="slider"
-          tabIndex={disabled ? -1 : 0}
-          aria-label={ariaLabel}
-          aria-labelledby={ariaLabelledBy}
-          aria-valuemin={min}
-          aria-valuemax={max}
-          aria-valuenow={Math.round(current)}
-          aria-valuetext={valueLabel}
-          aria-disabled={disabled || undefined}
-          onKeyDown={onKeyDown}
-          animate={reduce ? undefined : { scaleY: active ? 1.35 : 1 }}
-          transition={SPRING_BOUNCY}
+        <div
+          ref={trackRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
           className={cn(
-            'absolute top-1/2 h-5 w-1.5 rounded-sm bg-foreground shadow-sm outline-none ring-foreground/30 focus-visible:ring-4',
-            // Background-colored ring keeps the thumb legible against the accent fill at any position.
-            isMaxed && 'ring-2 ring-background',
+            'relative flex h-10 w-full touch-none select-none items-center overflow-hidden rounded-lg bg-muted',
+            disabled ? 'pointer-events-none opacity-50' : 'cursor-grab active:cursor-grabbing',
           )}
-          style={{ left, x: thumbX, y: '-50%' }}
-        />
-      </div>
+        >
+          {/* Pattern repeats every 10px, shifting by exactly one period, so the loop point is never visible. */}
+          <m.div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: left }}>
+            {isMaxed ? (
+              <div
+                className="absolute inset-0"
+                style={{ backgroundImage: fillGradient }}
+              >
+                <m.div
+                  className="absolute inset-0"
+                  style={{
+                    backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.85) 1.3px, transparent 1.3px)',
+                    backgroundSize: '10px 10px',
+                  }}
+                  animate={reduce ? undefined : { backgroundPositionX: ['0px', '10px'] }}
+                  transition={{ duration: dotDriftDuration, repeat: Infinity, ease: 'linear' }}
+                />
+              </div>
+            ) : (
+              <div className="absolute inset-0 bg-foreground/15" />
+            )}
+          </m.div>
 
-      {steps.length > 0 && (
-        <div className="relative mt-1.5 h-4">
-          <div className="absolute inset-x-2 inset-y-0">
-            {steps.map((tick, index) => {
-              const isFirst = index === 0;
-              const isLast = index === steps.length - 1;
+          {/* Inset so end dots don't clip; sized up at max so they don't blend into the dot texture. */}
+          <div className="pointer-events-none absolute inset-x-2 inset-y-0">
+            {steps.map((tick) => {
               const tp = ((tick.value - min) / (max - min)) * 100;
               return (
                 <span
                   key={tick.value}
                   className={cn(
-                    'absolute text-[10px] font-medium text-muted-foreground',
-                    isFirst && 'left-0',
-                    isLast && 'right-0',
-                    !isFirst && !isLast && '-translate-x-1/2',
+                    'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full',
+                    isMaxed ? 'size-1.5 bg-white shadow-[0_0_0_1.5px_rgba(0,0,0,0.35)]' : 'size-1 bg-foreground/25',
                   )}
-                  style={!isFirst && !isLast ? { left: `${tp}%` } : undefined}
-                >
-                  {tick.label}
-                </span>
+                  style={{ left: `${tp}%` }}
+                />
               );
             })}
           </div>
+
+          {/* Own layer so only opacity animates - Motion's box-shadow interpolator can't parse CSS custom properties in the color stops. */}
+          {isMaxed && !reduce && (
+            <m.div
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 h-5 w-1.5 rounded-sm"
+              style={{ left, x: thumbX, y: '-50%', boxShadow: `0 0 9px 3px ${glowColor}` }}
+              animate={{ opacity: [0.25, 0.9, 0.25], scale: [1, 1.15, 1] }}
+              transition={{ duration: glowDuration, repeat: Infinity, ease: 'easeInOut', delay: seed * 0.5 }}
+            />
+          )}
+
+          <m.div
+            id={id}
+            role="slider"
+            tabIndex={disabled ? -1 : 0}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledBy}
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-valuenow={Math.round(current)}
+            aria-valuetext={valueLabel}
+            aria-disabled={disabled || undefined}
+            onKeyDown={onKeyDown}
+            animate={reduce ? undefined : { scaleY: active ? 1.35 : 1 }}
+            transition={SPRING_BOUNCY}
+            className={cn(
+              'absolute top-1/2 h-5 w-1.5 rounded-sm bg-foreground shadow-sm outline-none ring-foreground/30 focus-visible:ring-4',
+              // Background-colored ring keeps the thumb legible against the accent fill at any position.
+              isMaxed && 'ring-2 ring-background',
+            )}
+            style={{ left, x: thumbX, y: '-50%' }}
+          />
         </div>
-      )}
-    </div>
+
+        {steps.length > 0 && (
+          <div className="relative mt-1.5 h-4">
+            <div className="absolute inset-x-2 inset-y-0">
+              {steps.map((tick, index) => {
+                const isFirst = index === 0;
+                const isLast = index === steps.length - 1;
+                const tp = ((tick.value - min) / (max - min)) * 100;
+                return (
+                  <span
+                    key={tick.value}
+                    className={cn(
+                      'absolute text-[10px] font-medium text-muted-foreground',
+                      isFirst && 'left-0',
+                      isLast && 'right-0',
+                      !isFirst && !isLast && '-translate-x-1/2',
+                    )}
+                    style={!isFirst && !isLast ? { left: `${tp}%` } : undefined}
+                  >
+                    {tick.label}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </LazyMotion>
   );
 }

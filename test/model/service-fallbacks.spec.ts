@@ -143,6 +143,78 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // Regression: the tail of the chain used to be exempt from the timeout breaker entirely, so a model
+  // that had never once answered on a job still cost every unit a full per-call budget -- 20 batches
+  // and 15 minutes of wall clock in production, all of it spent to re-learn the tally's verdict.
+  it('drops even the last candidate once it has never answered on this job', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+
+    // Six strikes: past the tail's higher bar, which a merely-slow model does not reach.
+    await env.APP_KV.put(
+      'jobs:job-tail-drop:chain-progress',
+      JSON.stringify({ timeouts: { 'gemini-3.1-pro-preview': 6, 'gemini-2.5-pro': 6 } }),
+    );
+    const service = new ModelService(env, undefined, { jobId: 'job-tail-drop' });
+
+    const promise = service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'gemini-3.1-pro-preview', fallbacks: ['gemini-2.5-pro'], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    // Deferred, and the message says which of the two skip reasons applied.
+    await expect(promise).rejects.toThrow(/No configured review model was attempted.*repeated timeouts/);
+    await promise.catch((error) => expect(isRetryableModelError(error)).toBe(true));
+    // The whole point: not one call was paid for.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The other side of the same rule: a merely-slow tail still gets its shot, because deferring with no
+  // model attempted is the worse outcome when the model does sometimes answer.
+  it('still tries the last candidate when it is only mid-chain slow', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}' }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+
+    // Three strikes drops a model mid-chain but not at the tail.
+    await env.APP_KV.put(
+      'jobs:job-tail-slow:chain-progress',
+      JSON.stringify({ timeouts: { 'gemini-3.1-pro-preview': 3, 'gemini-2.5-pro': 3 } }),
+    );
+    const service = new ModelService(env, undefined, { jobId: 'job-tail-slow' });
+
+    const response = await service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'gemini-3.1-pro-preview', fallbacks: ['gemini-2.5-pro'], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    // The struck primary is skipped, the tail is attempted anyway, and it answers.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/models/gemini-2.5-pro:generateContent');
+    expect(response.modelUsed).toBe('gemini-2.5-pro');
+  });
+
   // An unresolvable model is a permanent operator error; a transient deferral would hide the fix.
   it('surfaces a permanent config error rather than deferring', async () => {
     const env = createTestEnv();
@@ -205,6 +277,36 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(response.modelUsed).toBe('gemini-3.1-pro-preview');
+  });
+
+  // The counterpart to the test above: the primary gets its shot at a merely-tight budget, but not at
+  // one that cannot cover the call. Previously it transmitted the prompt regardless and the runtime
+  // refused it, losing the unit AND the prompt -- three files' worth in one observed invocation.
+  it('will not commit a prompt when the budget cannot cover the call', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const tracker = new TokenTracker();
+    // Leaves 5 of the 50-subrequest cap, under the headroom one call may need.
+    tracker.incrementSubrequests(45);
+    const service = new ModelService(env, tracker);
+
+    const promise = service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'gemini-3.1-pro-preview', fallbacks: ['gemini-2.5-pro'], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    // Deferred, not failed: a fresh invocation has a fresh budget.
+    await expect(promise).rejects.toThrow(/retrying later/);
+    await promise.catch((error) => expect(isRetryableModelError(error)).toBe(true));
+    // The whole point -- nothing went over the wire.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('skips remaining fallback models (instead of spending more of the shared budget) once near the subrequest limit', async () => {

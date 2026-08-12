@@ -8,12 +8,11 @@ import { invalidateRepoConfigCache } from '@server/core/config';
 import { repoConfigSchema } from '@shared/schema';
 
 const repoConfigPatchSchema = z
-  .object({
+  .strictObject({
     enabled: z.boolean().optional(),
     review: repoConfigSchema.shape.review.optional(),
     model: repoConfigSchema.shape.model.optional(),
   })
-  .strict()
   .refine(
     (patch) => patch.enabled !== undefined || patch.review !== undefined || patch.model !== undefined,
     'Repository config patch cannot be empty.',
@@ -69,15 +68,18 @@ export function createReposRouter() {
           repos,
           5,
           async (repo: GitHubRepository) => {
+            const owner = repo.owner.login;
+            const name = repo.name;
+            const fullName = `${owner}/${name}`;
             try {
               await syncRepoConfig(c.env, {
                 installationId: String(inst.id),
-                owner: repo.owner.login,
-                repo: repo.name,
+                owner,
+                repo: name,
               });
-              return `${repo.owner.login}/${repo.name}`;
+              return fullName;
             } catch (repoError) {
-              console.error('Failed to sync repo:', `${repo.owner.login}/${repo.name}`, repoError);
+              console.error('Failed to sync repo:', fullName, repoError);
               return null;
             }
           },

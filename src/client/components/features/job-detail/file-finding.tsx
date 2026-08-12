@@ -4,7 +4,8 @@ import { ChevronRight } from 'lucide-react';
 import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
 import { CommentCard } from './comment-card';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
-import { MonoPath, StatusDot, VerdictPill, statusLabel } from './job-chips';
+import { MonoPath, StatusDot, VerdictPill } from './job-chips';
+import { statusLabel } from './job-chip-utils';
 
 import { safeRehypePlugins } from '@client/lib/markdown-plugins';
 interface FileFindingProps {

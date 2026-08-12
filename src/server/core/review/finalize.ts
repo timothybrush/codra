@@ -33,8 +33,12 @@ export async function runFinalizePhase(
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
   // One lookup supplies both the file ceiling and the gating comment cap.
   const reviewSettings = await getReviewSettings(env);
-  const { files, skipped: filesOverCap } = await getDiffFiles(env, job, github, config, reviewSettings.maxFiles);
-  let reviews = await getFileReviewsForJobs(env, [job.id]);
+  // The diff (KV/GitHub) and the file reviews (Postgres) share no state; two in flight cannot breach the subrequest cap.
+  const [{ files, skipped: filesOverCap }, initialReviews] = await Promise.all([
+    getDiffFiles(env, job, github, config, reviewSettings.maxFiles),
+    getFileReviewsForJobs(env, [job.id]),
+  ]);
+  let reviews = initialReviews;
 
   {
     // Set difference, not counts: the re-fetched diff can differ, so equal counts can still hide unreviewed files.
@@ -165,22 +169,10 @@ export async function runFinalizePhase(
     formattedSummary += `\n\n> [!WARNING]\n> **${filesOverCap} file${filesOverCap === 1 ? ' was' : 's were'} not reviewed.** This pull request has ${files.length + filesOverCap} reviewable files and the limit is ${reviewSettings.maxFiles}. Raise it in Settings to cover the whole diff.`;
   }
 
-  // One note: headline count plus dominant reason. withheldByParser is counted upstream, folded here.
-  const totalHeld = omittedCount + withheldByParser;
-  if (totalHeld > 0) {
-    const causes = ([
-      { n: droppedByVerification, why: 'unconfirmed against the diff' },
-      { n: withheldByParser, why: 'not grounded in a quoted line' },
-      { n: droppedBySuppression, why: 'already reported or dismissed' },
-      { n: droppedByFilters, why: 'below the severity or confidence threshold' },
-      { n: droppedByCap, why: `over the \`max_comments\` cap (${effectiveMaxComments})` },
-    ]).filter((cause) => cause.n > 0).sort((a, b) => b.n - a.n);
-    const top = causes[0];
-    const rest = causes.length > 1 ? `, ${causes.length - 1} other reason${causes.length > 2 ? 's' : ''}` : '';
-
-    formattedSummary += `\n\n> [!NOTE]\n> **${totalHeld} finding${totalHeld === 1 ? '' : 's'} not posted** - mostly ${top.why} (${top.n})${rest}. Per-file detail below.`;
-  }
-
+  // Deliberately NOT surfaced in the GitHub comment. The withheld tally is diagnostic -- it says how
+  // the pipeline behaved, not anything about the pull request -- and a reader of the review cannot act
+  // on "5 not grounded in a quoted line". It stays in the structured log above, in `withheld_counts` on
+  // each file_reviews row, and in the per-file off-diff list, which is where it is actually useful.
   // A finalize that died after createReview but before completeJob left a review on GitHub; reuse it.
   const finalizeRetriedPastPost = job.steps.some(
     (step) => step.name === 'Completing' && (step.status === 'running' || step.status === 'done'),

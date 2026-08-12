@@ -185,3 +185,12 @@ ALTER TABLE file_reviews ADD COLUMN IF NOT EXISTS batch_size INTEGER;
 CREATE INDEX IF NOT EXISTS file_reviews_batch_size_idx
   ON file_reviews (batch_size)
   WHERE batch_size > 1;
+
+-- Top level, not inside the $backfill$ block above: that block returns early on databases that
+-- predate consolidation, and this seed has to reach every fresh database.
+INSERT INTO llm_providers (name, api_format, base_url, enabled)
+VALUES ('NVIDIA', 'openai', 'https://integrate.api.nvidia.com/v1', FALSE)
+ON CONFLICT (name) DO UPDATE SET
+  api_format = EXCLUDED.api_format,
+  base_url   = EXCLUDED.base_url,
+  updated_at = now();

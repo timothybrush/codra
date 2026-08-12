@@ -35,7 +35,71 @@ const VERSION_CLAIM_PATTERNS: readonly RegExp[] = [
   /\blatest (?:major )?version\b/i,
   /\bno such (?:version|tag|release)\b/i,
   /\bnot a valid (?:configuration )?(?:option|key|property)\b/i,
+  // A claim about what an installed library's API offers is the same kind of claim as one about a
+  // version: it is settled by node_modules, not by the diff. Added after a P0 on codra's own PR #86
+  // asserted that `z.uuid()` "does not expose" a top-level validator and would throw at runtime --
+  // Zod 4 has had it since the 4.0 release, and the suggested fix reverted to the deprecated form.
+  // "does not exist" was already covered; the miss was purely the verb.
+  /\b(?:does not|doesn't|do not|don't)\s+(?:expose|provide|have|support|include|offer)\b/i,
+  /\bno such (?:function|method|export|property|api|field)\b/i,
+  /\bis not (?:exposed|exported|available) (?:by|from|in)\b/i,
 ];
+
+// ---- Undecidable-claim refutations ---------------------------------------------------------------
+// CLAIM_TYPE_DECIDABILITY answers "can this be settled from a diff hunk?" per claim TYPE, which leaves
+// `other` -- the deliberate escape hatch, marked diff_local -- carrying whatever a model wants to
+// assert. These answer the same question per CLAIM, for the two families that recur:
+//
+//   cross-file    the claim's consequence lands in a file that is not in the diff
+//   environment   the claim is conditional on a runtime, framework or engine version not shown
+//
+// Both are already forbidden by the review prompt in prose; on codra's own PR #86 the models ignored
+// that instruction four times in one review, and the verification pass confirmed every one of them
+// (generator and verifier share a knowledge gap, so verification cannot close it).
+//
+// Same soundness rule as the absence checker above: a refutation asserts only that the claim cannot be
+// settled HERE, never that the code is fine. Losing one is free; a wrong one silences a real defect.
+
+// The claim reaches for consumers it cannot see: "other modules", "downstream callers".
+const CROSS_FILE_SUBJECT = /\b(?:other|another|external|downstream|consuming|importing|dependent|calling)\s+(?:module|file|component|caller|package|consumer|import)s?\b/i;
+const CROSS_FILE_CONSEQUENCE = /\b(?:break|breaks|breaking|broken|fail|fails|failing|error|errors|cannot import|can't import|unable to|compilation|compile|prevent|prevents|preventing|block|blocks|blocking)\b/i;
+
+// Hedged, and hedged specifically about where the code runs rather than about what it does.
+const ENVIRONMENT_HEDGE = /\b(?:depending on|might not|may not|could be undefined|if (?:this|the|it)\b[^.]{0,60}\b(?:is )?(?:rendered|run|executed|used)\b)/i;
+const ENVIRONMENT_SUBJECT = /\b(?:older|legacy|earlier|some)\s+(?:node(?:\.js)?|browsers?|runtimes?|environments?|engines?|versions?)\b|\bserver[- ]side\b|\bSSR\b|\bhydration\b|\bpolyfill\b|\bis not defined on the server\b/i;
+
+// "if `loadCooldowns()` fails, the rejection is unhandled" -- a claim about how a function HANDLES ITS
+// OWN ERRORS, where that function's body is not in the diff. Posted as a P1 on codra's own PR: the
+// callee already wrapped its only failure path in try/catch, in another file, with a comment saying so.
+// Requires a call-shaped subject (`name(` or `name()`), a failure condition, and an unhandled-outcome
+// word, so an ordinary claim about visible code -- "this catch swallows the error" -- does not match.
+// `(?!\.\s)` skips a sentence break but keeps dotted member expressions, so the condition still matches
+// "if the `this.persistence.loadCooldowns()` call fails" without spanning two sentences.
+const CALLEE_FAILURE_CONDITION = /\b(?:if|when|should|were)\b(?:(?!\.\s)[^;!?]){0,100}\b(?:fails?|failing|rejects?|rejecting|throws?|throwing|errors? out)\b/i;
+const CALLEE_CALL_SHAPE = /[\w.$]+\s*\(\s*\)|`[\w.$]+\(/;
+const CALLEE_UNHANDLED_OUTCOME = /\bunhandled\b|\bunhandled promise\b|\bnot (?:caught|handled)\b|\bno (?:\.)?catch\b|\bwithout (?:a )?(?:try|catch)\b|\bcrash\b/i;
+
+export type UndecidableClaimReason = 'cross-file' | 'environment' | 'callee-errors';
+
+/**
+ * Refutes a claim whose truth lives outside the diff, returning the family it belongs to or null.
+ *
+ * Deliberately requires TWO independent signals per family -- a subject and a consequence -- because
+ * either alone is ordinary review language. "This breaks the build" is a normal thing to say about
+ * code in the diff; "other modules import this" is a normal aside. Only together do they describe a
+ * consequence in a file nobody showed the model.
+ */
+export function refuteUndecidableClaim(input: { title: string; body: string }): UndecidableClaimReason | null {
+  const text = `${input.title}\n${input.body}`;
+
+  if (CROSS_FILE_SUBJECT.test(text) && CROSS_FILE_CONSEQUENCE.test(text)) return 'cross-file';
+  if (ENVIRONMENT_HEDGE.test(text) && ENVIRONMENT_SUBJECT.test(text)) return 'environment';
+  if (CALLEE_FAILURE_CONDITION.test(text) && CALLEE_CALL_SHAPE.test(text) && CALLEE_UNHANDLED_OUTCOME.test(text)) {
+    return 'callee-errors';
+  }
+
+  return null;
+}
 
 // A full git object id: `uses: owner/action@<40 hex>` pins, and any version beside it is a comment.
 const FULL_SHA_PATTERN = /\b[0-9a-f]{40}\b/;

@@ -1,56 +1,20 @@
-import { type ReactNode } from 'react';
+import { Children, type ReactNode } from 'react';
 import { Activity, Boxes, Coins, FolderGit2, ShieldCheck } from 'lucide-react';
 import { LayerCard } from '@client/components/ui/layer-card';
 import { Skeleton } from '@client/components/shared/skeleton';
-import { cn, fmtNumber } from '@client/lib/utils';
-import { formatDayLabel } from '@client/lib/timezone';
-
-export const CHART = {
-  primary: '#65a30d',
-  primaryDark: '#e0fe56',
-  blue: '#3b82f6',
-  blueDark: '#3b82f6',
-  amber: '#d97706',
-  amberDark: '#f59e0b',
-  danger: '#dc2626',
-  dangerDark: '#f87171',
-  info: '#0ea5e9',
-  infoDark: '#38bdf8',
-  quiet: '#94a3b8',
-  quietDark: '#64748b',
-};
-
-// Per-row accents for the segmented tick meters (white / orange / cyan / blue / purple rhythm).
-export const TICK_COLORS_DARK = ['#e4e4e7', '#fb923c', '#22d3ee', '#3b82f6', '#a78bfa'];
-
-export const TICK_COLORS_LIGHT = ['#3f3f46', '#ea580c', '#0891b2', '#2563eb', '#7c3aed'];
-
-export const MONO_STACK = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
-
-// Rendered verbatim, not re-parsed: parsing these server-bucketed `YYYY-MM-DD` strings in the
-// viewer's local zone used to shift the date by a day for negative UTC offsets.
-export function formatDay(value: string) {
-  return formatDayLabel(value);
-}
-
-export function formatCompact(value: number) {
-  return value >= 1000 ? fmtNumber(value) : value.toLocaleString();
-}
-
-export function modelName(model: string) {
-  return model.split('/').pop()?.replace(/-/g, ' ') ?? model;
-}
+import { cn } from '@client/lib/utils';
+import { formatCompact, formatDayRange } from './chart-support';
 
 export function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
 
+  const endDay: string | undefined = payload[0]?.payload?.endDay;
+  const heading =
+    typeof label === 'string' && label.includes('-') ? formatDayRange(label, endDay) : label;
+
   return (
     <div className="rounded-md bg-ui-base px-3 py-2.5 text-xs shadow-lg ring ring-ui-line">
-      {label && (
-        <p className="mb-2 font-semibold text-ui-strong">
-          {typeof label === 'string' && label.includes('-') ? formatDay(label) : label}
-        </p>
-      )}
+      {label && <p className="mb-2 font-semibold text-ui-strong">{heading}</p>}
       <div className="space-y-1.5">
         {payload.map((item: any) => (
           <div key={item.dataKey ?? item.name} className="flex min-w-32 items-center gap-2">
@@ -69,7 +33,7 @@ export function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-export function CardDots() {
+function CardDots() {
   return (
     <div
       aria-hidden
@@ -174,6 +138,31 @@ export function ChartDefs({ isDark }: { isDark: boolean }) {
   );
 }
 
+/**
+ * Caps a meter list at `visible` rows and scrolls the rest, so a long tail (dozens of models)
+ * can't stretch the card and throw off the others sharing its grid row. The cap is a pixel
+ * max-height derived from the fixed row/gap metrics below, which is why `TickMeter` pins its
+ * own height.
+ */
+const METER_ROW_PX = 20;
+const METER_GAP_PX = 14;
+
+export function MeterList({ visible, children }: { visible: number; children: ReactNode }) {
+  // Only the overflowing case gets the cap and the scrollbar gutter, so short lists keep even padding.
+  const scrolls = Children.count(children) > visible;
+
+  return (
+    <div className="px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+      <div
+        className={cn('space-y-3.5', scrolls && 'overflow-y-auto pr-3')}
+        style={scrolls ? { maxHeight: visible * METER_ROW_PX + (visible - 1) * METER_GAP_PX } : undefined}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** Segmented tick meter (reference "cost allocation" bars). */
 export function TickMeter({
   label,
@@ -192,7 +181,7 @@ export function TickMeter({
   const filled = value > 0 ? Math.max(1, Math.round((value / Math.max(max, 1)) * SEGMENTS)) : 0;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex h-5 items-center gap-3">
       <span className="w-28 shrink-0 truncate text-[13px] font-medium text-ui-default" title={label}>
         {label}
       </span>
@@ -212,7 +201,7 @@ export function TickMeter({
   );
 }
 
-export function GraphCardSkeleton({ title, icon, className = '' }: { title: string; icon?: ReactNode; className?: string }) {
+function GraphCardSkeleton({ title, icon, className = '' }: { title: string; icon?: ReactNode; className?: string }) {
   return (
     <GraphShell title={title} icon={icon} className={className}>
       <div className="h-64 px-4 pb-4 pt-4 sm:h-80 sm:px-5 sm:pb-5">
@@ -222,11 +211,11 @@ export function GraphCardSkeleton({ title, icon, className = '' }: { title: stri
   );
 }
 
-export function GraphBarCardSkeleton({ title, icon, className = '' }: { title: string; icon?: ReactNode; className?: string }) {
+function GraphBarCardSkeleton({ title, icon, rows = 5, className = '' }: { title: string; icon?: ReactNode; rows?: number; className?: string }) {
   return (
     <GraphShell title={title} icon={icon} className={className}>
       <div className="space-y-4 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: rows }).map((_, i) => (
           <div key={i} className="flex items-center gap-3">
             <Skeleton height={12} width={90} />
             <Skeleton height={14} width="100%" />
@@ -247,8 +236,8 @@ export function MetricsGridSkeleton() {
       </div>
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
         <GraphBarCardSkeleton title="Job Health" icon={<ShieldCheck size={14} strokeWidth={2} />} />
-        <GraphBarCardSkeleton title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />} />
-        <GraphBarCardSkeleton title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />} />
+        <GraphBarCardSkeleton title="Top Repositories" icon={<FolderGit2 size={14} strokeWidth={2} />} rows={4} />
+        <GraphBarCardSkeleton title="Model Calls" icon={<Boxes size={14} strokeWidth={2} />} rows={5} />
       </div>
     </div>
   );

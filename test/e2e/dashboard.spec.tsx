@@ -48,6 +48,7 @@ describe('Frontend UI Flows (JSDOM)', () => {
       stats: {
         totals: { jobs: 10, inputTokens: 500, outputTokens: 250, comments: 5 },
         trend: [],
+        trendBucketDays: 1,
         verdicts: [],
         models: [],
         topRepos: [],

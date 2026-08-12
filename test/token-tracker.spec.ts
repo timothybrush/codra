@@ -45,3 +45,73 @@ describe('TokenTracker.remainingSafeBudget', () => {
     expect(tracker.remainingSafeBudget()).toBe(0);
   });
 });
+
+// A failed model call still put a full prompt on the wire, but record() only ever ran after a
+// success -- so every 429'd and retried send was invisible to token accounting and telemetry, and
+// the reported input total understated what the review actually cost.
+describe('TokenTracker wasted-attempt accounting', () => {
+  it('counts failed attempts by reason without touching billed usage', () => {
+    const tracker = new TokenTracker();
+    tracker.record('google:m', 1000, 200);
+    tracker.recordFailedAttempt('google:m', 3000, 'rate-limited');
+    tracker.recordFailedAttempt('google:m', 3000, 'error');
+    tracker.recordFailedAttempt('google:m', 3000, 'rate-limited');
+
+    // Estimates must never leak into the billed figures.
+    expect(tracker.getTotalUsage()).toEqual({ input: 1000, output: 200 });
+    expect(tracker.getBreakdown()).toHaveLength(1);
+
+    expect(tracker.getWasted()).toEqual({
+      attempts: 3,
+      estimatedInput: 9000,
+      skips: 0,
+      byReason: { 'rate-limited': 2, error: 1 },
+    });
+  });
+
+  it('counts skipped calls separately -- the signal that the cool-off gates are working', () => {
+    const tracker = new TokenTracker();
+    tracker.recordSkippedCall('google:m', 'cooling off for another 42s');
+    tracker.recordSkippedCall('google:m', 'cooling off for another 41s');
+
+    const wasted = tracker.getWasted();
+    expect(wasted.skips).toBe(2);
+    // A skip sent no prompt, so it costs no estimated tokens.
+    expect(wasted.attempts).toBe(0);
+    expect(wasted.estimatedInput).toBe(0);
+  });
+
+  it('carries wasted counters through merge, so a per-chunk tracker rolls up', () => {
+    const parent = new TokenTracker();
+    parent.recordFailedAttempt('google:m', 1000, 'error');
+    parent.recordSkippedCall('google:m', 'cooling off');
+
+    const child = new TokenTracker();
+    child.record('google:m', 500, 100);
+    child.recordFailedAttempt('google:m', 2000, 'rate-limited');
+    child.recordFailedAttempt('google:m', 2000, 'error');
+    child.recordSkippedCall('google:m', 'cooling off');
+
+    parent.merge(child);
+
+    expect(parent.getTotalUsage()).toEqual({ input: 500, output: 100 });
+    expect(parent.getWasted()).toEqual({
+      attempts: 3,
+      estimatedInput: 5000,
+      skips: 2,
+      byReason: { error: 2, 'rate-limited': 1 },
+    });
+  });
+
+  it('clears wasted counters on reset alongside usage', () => {
+    const tracker = new TokenTracker();
+    tracker.record('google:m', 100, 10);
+    tracker.recordFailedAttempt('google:m', 1000, 'error');
+    tracker.recordSkippedCall('google:m', 'cooling off');
+
+    tracker.reset();
+
+    expect(tracker.getTotalUsage()).toEqual({ input: 0, output: 0 });
+    expect(tracker.getWasted()).toEqual({ attempts: 0, estimatedInput: 0, skips: 0, byReason: {} });
+  });
+});

@@ -2,10 +2,20 @@ import { logger } from '@server/core/logger';
 import { withTimeout } from '@server/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from './types';
 import { assertPublicBaseUrl } from './url-guard';
+import { MODEL_TIMEOUT_MAX_MS, OUTPUT_TOKENS_FLOOR, resolveOutputTokenCeiling } from './limits';
 
 // Vertex's REST API rejects plain API keys and requires an OAuth2 token via RFC 7523 JWT-bearer grant, so `apiKey` here holds the full service-account JSON key, not a short API key string.
-const VERTEX_TIMEOUT_MS = 45_000;
-const VERTEX_MAX_OUTPUT_TOKENS = 8192;
+const VERTEX_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
+const VERTEX_DEFAULT_OUTPUT_TOKENS = OUTPUT_TOKENS_FLOOR;
+// Same Gemini models as the Google adapter, so the same ceiling. No `thinkingConfig` here though: this
+// adapter makes ONE attempt and has no latch, so a model that refused the field would fail the file.
+const VERTEX_MAX_OUTPUT_TOKENS = 65_536;
+// Retries for a 429 only, and only while the caller's own timeout still has room. See the loop below
+// for why resending an unchanged request is the correct response to this particular refusal.
+const VERTEX_QUOTA_RETRIES = 2;
+const VERTEX_QUOTA_BACKOFF_MS = 4_000;
+// Room a resend needs to be worth starting at all; a Vertex 429 itself comes back in ~7s.
+const VERTEX_MIN_ATTEMPT_MS = 8_000;
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const ACCESS_TOKEN_LIFETIME_S = 3600;
@@ -117,11 +127,16 @@ async function getAccessToken(
 export async function reviewWithVertex(
   config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
   model: string,
-  input: { systemPrompt: string; userPrompt: string },
+  input: { systemPrompt: string; userPrompt: string; outputBudgetTokens?: number },
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<ModelResponse> {
   const providerName = config.providerName ?? 'Google Vertex AI';
   const timeoutMs = config.timeoutMs ?? VERTEX_TIMEOUT_MS;
+  const outputCeiling = resolveOutputTokenCeiling(
+    input.outputBudgetTokens,
+    VERTEX_MAX_OUTPUT_TOKENS,
+    VERTEX_DEFAULT_OUTPUT_TOKENS,
+  );
   logger.info(`Calling Vertex AI model: ${model}`);
 
   assertPublicBaseUrl(config.baseUrl, providerName);
@@ -141,33 +156,57 @@ export async function reviewWithVertex(
   const baseUrl = config.baseUrl.replace(/\/+$/, '');
   const url = `${baseUrl}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
 
-  if (tracker) tracker.incrementSubrequests(1);
-  const response = await withTimeout('Vertex AI', timeoutMs, (signal) =>
-    fetch(url, {
-      method: 'POST',
-      signal,
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          role: 'system',
-          parts: [{ text: prompts.system }],
+  const body = JSON.stringify({
+    systemInstruction: {
+      role: 'system',
+      parts: [{ text: prompts.system }],
+    },
+    contents: [
+      { role: 'user', parts: [{ text: prompts.user }] },
+    ],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      // No `responseJsonSchema`: this adapter cannot drop a schema mid-flight, so a rejection would fail the file outright.
+      maxOutputTokens: outputCeiling,
+      // Same models as the Google adapter, so the same value keeps the two paths comparable.
+      temperature: 0.9,
+    },
+  });
+
+  const attempt = () =>
+    withTimeout('Vertex AI', timeoutMs, (signal) =>
+      fetch(url, {
+        method: 'POST',
+        signal,
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
         },
-        contents: [
-          { role: 'user', parts: [{ text: prompts.user }] },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          // No `responseJsonSchema`: this adapter makes one attempt and cannot drop the schema, so a rejection would fail the file outright.
-          maxOutputTokens: VERTEX_MAX_OUTPUT_TOKENS,
-          // Same models as the Google adapter, so the same value keeps the two paths comparable.
-          temperature: 0.9,
-        },
+        body,
       }),
-    }),
-  );
+    );
+
+  if (tracker) tracker.incrementSubrequests(1);
+  let response = await attempt();
+
+  // A Vertex 429 here is queueing, not a bucket the caller can pace around. Measured over ~900 calls on
+  // one project: roughly three in four refused, and the refusal was uncorrelated with the requested
+  // output ceiling, with the endpoint, and with whether the previous call succeeded -- resending the
+  // IDENTICAL request works. The adapter used to make one attempt and turn every one of those into a
+  // failed file, which is the one case where the single-attempt rule above does not apply: there is no
+  // schema to re-probe and nothing about the request to change.
+  //
+  // Bounded by the caller's own timeout, not by a retry count alone: `timeoutMs` is already clamped to
+  // the fallback-chain budget, so a slow rung must not spend the whole invocation sitting in backoff.
+  for (let retry = 0; retry < VERTEX_QUOTA_RETRIES && response.status === 429; retry++) {
+    const waitMs = VERTEX_QUOTA_BACKOFF_MS * (retry + 1);
+    if (Date.now() - startTime + waitMs + VERTEX_MIN_ATTEMPT_MS > timeoutMs) break;
+
+    logger.warn(`Vertex AI refused with 429; resending unchanged in ${waitMs}ms`, { model, retry: retry + 1 });
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    if (tracker) tracker.incrementSubrequests(1);
+    response = await attempt();
+  }
 
   if (!response.ok) {
     const message = providerErrorMessage(await response.text());

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BIN_MAX_FILES,
   PACKABLE_MAX_DIFF_LINES,
   type LedgerEntry,
   narrowUnit,
@@ -38,14 +39,15 @@ const ledger = (entries: Record<string, Partial<LedgerEntry>>) =>
 describe('planReviewUnits', () => {
   // Independent ceilings: a file under the line limit can still blow the char budget alone.
   it('packs small files, respects both ceilings, and no-ops when disabled', () => {
-    const files = [file('a.ts', 10), file('b.ts', 10), file('c.ts', 10)];
+    const paths = Array.from({ length: BIN_MAX_FILES }, (_unused, index) => `f${index}.ts`);
+    const files = paths.map(path => file(path, 10));
 
     const packed = planReviewUnits(files, { enabled: true });
     expect(packed).toHaveLength(1);
-    expect(unitFiles(packed[0]).map(f => f.path)).toEqual(['a.ts', 'b.ts', 'c.ts']);
+    expect(unitFiles(packed[0]).map(f => f.path)).toEqual(paths);
 
     const unpacked = planReviewUnits(files, { enabled: false });
-    expect(unpacked).toHaveLength(3);
+    expect(unpacked).toHaveLength(BIN_MAX_FILES);
     expect(unpacked.every(u => u.kind === 'single')).toBe(true);
 
     const units = planReviewUnits([
@@ -64,29 +66,36 @@ describe('planReviewUnits', () => {
 
 describe('narrowUnit', () => {
   it('drops handled files and collapses to a single when one is left', () => {
-    const [unit] = planReviewUnits([file('a.ts', 10), file('b.ts', 10), file('c.ts', 10)], { enabled: true });
+    // Needs a bin big enough to still hold two files after one is handled, whatever the cap is.
+    const paths = Array.from({ length: Math.max(3, BIN_MAX_FILES) }, (_unused, index) => `f${index}.ts`);
+    const [unit] = planReviewUnits(paths.slice(0, BIN_MAX_FILES).map(path => file(path, 10)), { enabled: true });
+    const inBin = unitFiles(unit).map(f => f.path);
 
-    const partial = narrowUnit(unit, ledger({ 'a.ts': { handled: true } }));
-    expect(partial).toHaveLength(1);
-    expect(unitFiles(partial[0]).map(f => f.path)).toEqual(['b.ts', 'c.ts']);
+    // Handling all but the last leaves exactly one file, which must de-escalate to a single.
+    const allButLast = Object.fromEntries(inBin.slice(0, -1).map(path => [path, { handled: true }]));
+    const one = narrowUnit(unit, ledger(allButLast));
+    expect(one).toEqual([{ kind: 'single', file: expect.objectContaining({ path: inBin[inBin.length - 1] }) }]);
 
-    const one = narrowUnit(unit, ledger({ 'a.ts': { handled: true }, 'b.ts': { handled: true } }));
-    expect(one).toEqual([{ kind: 'single', file: expect.objectContaining({ path: 'c.ts' }) }]);
-
-    expect(narrowUnit(unit, ledger({ 'a.ts': { handled: true }, 'b.ts': { handled: true }, 'c.ts': { handled: true } }))).toEqual([]);
+    // Handling every member leaves nothing to review.
+    const all = Object.fromEntries(inBin.map(path => [path, { handled: true }]));
+    expect(narrowUnit(unit, ledger(all))).toEqual([]);
   });
 
   // Otherwise a deterministic plan re-forms the same failing bin; de-escalating must not strand
   // the other files.
   it('explodes a bin into singles once any member has failed transiently', () => {
-    const [unit] = planReviewUnits(
-      [file('a.ts', 10), file('b.ts', 10), file('c.ts', 10), file('d.ts', 10)],
-      { enabled: true },
-    );
+    // Sized from BIN_MAX_FILES so lowering the cap cannot turn this into a test about packing.
+    const paths = Array.from({ length: BIN_MAX_FILES }, (_unused, index) => `f${index}.ts`);
+    const [unit] = planReviewUnits(paths.map(path => file(path, 10)), { enabled: true });
+    expect(unitFiles(unit)).toHaveLength(BIN_MAX_FILES);
 
-    const narrowed = narrowUnit(unit, ledger({ 'a.ts': { handled: true }, 'c.ts': { transientErrorCount: 2 } }));
+    // First file already done, last one failed transiently: the rest must not be stranded with it.
+    const narrowed = narrowUnit(unit, ledger({
+      [paths[0]]: { handled: true },
+      [paths[paths.length - 1]]: { transientErrorCount: 2 },
+    }));
 
     expect(narrowed.every(u => u.kind === 'single')).toBe(true);
-    expect(narrowed.flatMap(unitFiles).map(f => f.path)).toEqual(['b.ts', 'c.ts', 'd.ts']);
+    expect(narrowed.flatMap(unitFiles).map(f => f.path)).toEqual(paths.slice(1));
   });
 });

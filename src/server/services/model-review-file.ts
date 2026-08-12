@@ -5,9 +5,11 @@ import {
   buildReviewResponseSchema,
   type RejectedExemplar,
 } from '../prompts/file-review';
-import { parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '../core/model-output';
+import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '../core/model-output';
+import { UnparseableModelResponseError } from '../models/types';
 import { chunkFileDiff, type FileDiff } from '../core/diff';
-import { adaptiveModelTimeoutMs } from '../models/limits';
+import { adaptiveModelTimeoutMs, reviewOutputBudgetTokens } from '../models/limits';
+import { generatorFindingCap } from '../prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
 import { logger } from '../core/logger';
@@ -51,11 +53,12 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
   }
 
   const results: Array<ModelResponse & { parsed: ReturnType<typeof parseFileReviewResponse>, reviewedLineCount: number, wasPromptTruncated: boolean, userPrompt: string }> = [];
-  
+  const { path: filePath } = params.file;
+
   for (const [chunkIndex, chunk] of chunks.entries()) {
     // No new chunk when close to the 50-subrequest limit.
     if (results.length > 0 && ctx.tracker?.isNearLimit()) {
-      logger.warn(`Stopping chunk processing for ${params.file.path} early due to subrequest budget limits.`);
+      logger.warn(`Stopping chunk processing for ${filePath} early due to subrequest budget limits.`);
       break;
     }
 
@@ -63,7 +66,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     if (chunkIndex >= BASE_CHUNKS) {
       const remaining = ctx.tracker?.remainingSafeBudget() ?? Number.POSITIVE_INFINITY;
       if (remaining < EXTRA_CHUNK_BUDGET_RESERVE) {
-        logger.info(`Skipping the opportunistic chunk tail for ${params.file.path}; budget is committed elsewhere.`, {
+        logger.info(`Skipping the opportunistic chunk tail for ${filePath}; budget is committed elsewhere.`, {
           chunkIndex,
           totalChunks: chunks.length,
           remainingSafeBudget: remaining,
@@ -80,7 +83,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
       if (results.length === 0) {
         throw error; // First chunk failed, let it defer/fail properly
       }
-      logger.warn(`Chunk review failed for ${params.file.path}, returning partial results to avoid stalling the job.`, { error: error instanceof Error ? error.message : String(error) });
+      logger.warn(`Chunk review failed for ${filePath}, returning partial results to avoid stalling the job.`, { error: error instanceof Error ? error.message : String(error) });
       break;
     }
   }
@@ -135,18 +138,49 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
     rejectedExemplars: params.rejectedExemplars,
   });
 
+  // One figure drives three things: the room the answer gets, and now the time it gets to write it.
+  const outputBudgetTokens = reviewOutputBudgetTokens({
+    findingCap: generatorFindingCap(params.config.review.max_comments),
+    fileCount: 1,
+  });
+
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
     responseSchema: buildReviewResponseSchema(params.config.review.max_comments),
-    // Scales with the diff the model sees: small files fail over fast.
-    timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount),
+    // Scales with the diff the model sees AND the answer it was asked for: small files fail over fast.
+    timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount, outputBudgetTokens),
+    outputBudgetTokens,
     label: params.file.path,
     totalLineCount: params.totalLineCount,
     config: params.config,
-    parse: (rawText) => parseFileReviewResponse(rawText, params.file, {
-      deniedClaimTypes: params.config.review.deny_claim_types,
-    }),
+    parse: (rawText, { isLastModel }) => {
+      const parsed = parseFileReviewResponse(rawText, params.file, {
+        deniedClaimTypes: params.config.review.deny_claim_types,
+      });
+
+      // A substantive diff waved through in one sentence is not a clean verdict, it is a model declining
+      // to review. Thrown as UnparseableModelResponseError so the chain treats it exactly like any other
+      // useless response and tries the next entry -- and never on the last one, where the alternative to
+      // an unearned "clean" is failing the file, which is worse.
+      if (!isLastModel && isNonAnswerReview({
+        rawText,
+        file: params.file,
+        findingCount: parsed.comments.length,
+      })) {
+        logger.warn('Model returned a non-answer for a substantive diff; escalating to the next model', {
+          path: params.file.path,
+          diffLineCount: params.file.lineCount,
+          responseChars: rawText.trim().length,
+        });
+        throw new UnparseableModelResponseError(
+          params.config.model?.main ?? 'unconfigured',
+          `no findings and only ${rawText.trim().length} characters of response for a ${params.file.lineCount}-line diff`,
+        );
+      }
+
+      return parsed;
+    },
   });
 
   return {
@@ -181,11 +215,21 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
   // The bin's total: a 400-line bin on a small-file timeout dies mid-call and takes all of it down.
   const binLineCount = params.files.reduce((sum, file) => sum + file.lineCount, 0);
 
+  // The bin's whole response, not one file's: every entry shares one `maxOutputTokens`, and a bin that
+  // overruns it comes back as a repaired prefix with its tail files looking clean. A packed bin is also
+  // the slowest call the system makes, and its diff line count badly under-predicts that, so the same
+  // figure sizes the timeout.
+  const outputBudgetTokens = reviewOutputBudgetTokens({
+    findingCap: generatorFindingCap(params.config.review.max_comments),
+    fileCount: params.files.length,
+  });
+
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
     responseSchema: buildBatchReviewResponseSchema(params.config.review.max_comments, params.files.length),
-    timeoutMs: adaptiveModelTimeoutMs(binLineCount),
+    timeoutMs: adaptiveModelTimeoutMs(binLineCount, outputBudgetTokens),
+    outputBudgetTokens,
     label: `${params.files.length} files (${params.files[0]?.path ?? 'unknown'} …)`,
     // Per file, so progress survives the bin narrowing or exploding into singles.
     progressLabels: params.files.map((file) => file.path),

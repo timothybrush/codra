@@ -14,7 +14,8 @@ import { diffStats } from '@client/lib/prompt-diff';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
 import type { FileReviewRecord, JobDetail } from '@shared/schema';
 
-import { panelCvStyle, fileAnchorId, FileDiff } from './diff-file-panel';
+import { FileDiff } from './diff-file-panel';
+import { panelCvStyle, fileAnchorId } from './diff-file-panel-utils';
 import { FileTree } from './diff-file-tree';
 /** A file present in the PR diff with no review row yet (job still running or file skipped) - shown as pending, GitHub-style. */
 function syntheticFileReview(jobId: string, filePath: string, diffInput: string): FileReviewRecord {

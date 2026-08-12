@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupBatches } from '@client/pages/job-logs';
+import { groupBatches } from '@client/lib/batch-groups';
 import type { FileReviewRecord } from '@shared/schema';
 
 // Which files shared a model call is NOT stored -- pack.ts derives bins and never persists them.

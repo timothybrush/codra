@@ -6,17 +6,17 @@ import { getUpdatesEmailPreference, syncUpdatesEmail } from '@server/core/update
 import { getAccountSettings, updateAccountSettings, upsertAccountSettings } from '@server/db/accounts';
 import type { AppEnv } from '@server/env';
 
-const emailSchema = z.object({
+const emailSchema = z.strictObject({
   email: z.string().trim().email().max(254),
-}).strict();
+});
 
 // Fields are independently optional (at least one required); timezone null means "follow the browser", else must be an Intl-known zone.
-const accountUpdateSchema = z.object({
+const accountUpdateSchema = z.strictObject({
   name: z.string().trim().min(1).max(120).optional(),
   timezone: z.string().trim().min(1).max(64).refine(isSupportedTimeZone, {
     message: 'Unknown time zone.',
   }).nullable().optional(),
-}).strict().refine(
+}).refine(
   (body) => body.name !== undefined || body.timezone !== undefined,
   { message: 'Nothing to update.' },
 );

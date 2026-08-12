@@ -12,6 +12,7 @@ import { logger } from '../core/logger';
 import { getResolvedModelConfig, type ResolvedModelConfig } from '@server/db/model-configs';
 import { decryptLlmApiKey } from '@server/core/llm-crypto';
 import {
+  isSchemaDroppedError,
   normalizeModel,
   uniqueModels,
 } from './model-support';
@@ -30,6 +31,8 @@ export { RetryableModelError, isRetryableModelError, nextChainIndexOf } from './
 export { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from './model-support';
 // Re-exported so its unit spec can reach it without a sibling import (no-restricted-imports).
 export { ModelChainProgressStore } from './model-chain-progress';
+// Same reason: the 429-parsing spec asserts against the real implementation, not a copy.
+export { isPlausibleTokenBucket, parseRateLimitFromError } from './model-support';
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
 export class ModelService {
@@ -37,7 +40,9 @@ export class ModelService {
   private readonly resolvedModelCache = new Map<string, Promise<ResolvedModelConfig | null>>();
 
   // Rate-limit learning plus the connection/token gates, keyed by MODEL, not provider.
-  private readonly rateLimits = new ModelRateLimitBook();
+  // Backed by chainProgress so learned cool-offs outlive the invocation; assigned in the constructor
+  // because it depends on it.
+  private readonly rateLimits: ModelRateLimitBook;
 
   // Provider-unavailable markers live in KV and can't flip set-to-unset within one invocation, so cache them per instance.
   private readonly providerUnavailableCache = new Map<string, Promise<boolean>>();
@@ -57,6 +62,7 @@ export class ModelService {
     private options: { jobId?: string } = {},
   ) {
     this.chainProgress = new ModelChainProgressStore(env, options.jobId, tracker);
+    this.rateLimits = new ModelRateLimitBook(this.chainProgress);
   }
 
   private providerUnavailableKey(providerId: string) {
@@ -120,7 +126,7 @@ export class ModelService {
     let fallbackModels = (modelCfg?.fallbacks || []).map(normalizeModel);
 
     if (modelCfg?.size_overrides && modelCfg.size_overrides.length > 0) {
-      const sortedOverrides = [...modelCfg.size_overrides].sort((a, b) => a.max_lines - b.max_lines);
+      const sortedOverrides = modelCfg.size_overrides.toSorted((a, b) => a.max_lines - b.max_lines);
       const matched = sortedOverrides.find(o => thresholdBase <= o.max_lines);
       if (matched) {
         selectedModel = normalizeModel(matched.model);
@@ -185,18 +191,26 @@ export class ModelService {
     if (config.apiFormat === 'gemini') {
       const apiKey = await this.decryptApiKey(config);
       const schemaKey = `${config.providerId}|${config.modelName}|${input.responseSchema?.name ?? 'none'}`;
-      const response = await this.rateLimits.runGated(config, onGateWait, () => {
-        // Read inside the gate: hoisted, the opening wave would all see "not yet known" and probe.
-        const gatedInput = this.schemaUnsupportedModels.has(schemaKey)
-          ? { ...input, responseSchema: undefined }
-          : input;
-        return reviewWithGoogle(
-          { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
-          config.modelName,
-          gatedInput,
-          this.tracker,
-        );
-      });
+      let response: ModelResponse;
+      try {
+        response = await this.rateLimits.runGated(config, onGateWait, () => {
+          // Read inside the gate: hoisted, the opening wave would all see "not yet known" and probe.
+          const gatedInput = this.schemaUnsupportedModels.has(schemaKey)
+            ? { ...input, responseSchema: undefined }
+            : input;
+          return reviewWithGoogle(
+            { apiKey, baseUrl: config.baseUrl, providerName: config.providerName, timeoutMs },
+            config.modelName,
+            gatedInput,
+            this.tracker,
+          );
+        });
+      } catch (error) {
+        // Latch on failure too: the probe already proved the grammar is refused, and without this a
+        // schema-dropped attempt that then 429s re-pays the 400 plus a full prompt on the next call.
+        if (isSchemaDroppedError(error)) this.schemaUnsupportedModels.add(schemaKey);
+        throw error;
+      }
       if (response.degraded === 'schema-dropped') {
         this.schemaUnsupportedModels.add(schemaKey);
       }

@@ -181,7 +181,7 @@ export const batchReviewModelOutputSchema = z.object({
 });
 
 export const reviewJobMessageSchema = z.object({
-  jobId: z.string().uuid().optional(),
+  jobId: z.uuid().optional(),
   deliveryId: z.string().min(1),
   phase: z.enum(['prepare', 'review', 'finalize']).optional(),
   eventName: z.string().min(1).optional(),
@@ -212,7 +212,7 @@ export const reviewJobMessageSchema = z.object({
 });
 
 export const jobSummarySchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
   workflowInstanceId: z.string().nullable().optional(),
   owner: z.string(),
   repo: z.string(),
@@ -239,7 +239,7 @@ export const jobSummarySchema = z.object({
   steps: z.array(jobStepSchema).default([]),
   checkRunId: coerceNumberSchema.nullable().optional(),
   configSnapshot: repoConfigSchema.nullable().optional(),
-  retryOfJobId: z.string().uuid().nullable().optional(),
+  retryOfJobId: z.uuid().nullable().optional(),
 });
 
 export const jobsQuerySchema = z.object({
@@ -259,8 +259,8 @@ export const jobsQuerySchema = z.object({
 export type JobStep = z.infer<typeof jobStepSchema>;
 
 const fileReviewRecordSchema = z.object({
-  id: z.string().uuid(),
-  jobId: z.string().uuid(),
+  id: z.uuid(),
+  jobId: z.uuid(),
   filePath: z.string(),
   fileStatus: z.enum(fileStatuses),
   modelUsed: z.string(),
@@ -301,7 +301,7 @@ export const jobDetailSchema = jobSummarySchema.extend({
   summaryMarkdown: z.string().nullable(),
   configSnapshot: repoConfigSchema.nullable(),
   reviewId: coerceNumberSchema.nullable(),
-  retryOfJobId: z.string().uuid().nullable(),
+  retryOfJobId: z.uuid().nullable(),
   summaryModel: z.string().nullable(),
   files: z.array(fileReviewRecordSchema),
 });
@@ -327,15 +327,20 @@ export const statsSchema = z.object({
     outputTokens: z.number().int(),
     comments: z.number().int(),
   }),
+  // One point per bucket, not per day: long ranges are collapsed server-side so the chart stays legible.
   trend: z.array(
     z.object({
       day: z.string(),
+      /** Last day covered by the bucket (equal to `day` when bucketing is daily). */
+      endDay: z.string(),
       jobs: z.number().int(),
       inputTokens: z.number().int(),
       outputTokens: z.number().int(),
       comments: z.number().int(),
     }),
   ),
+  /** Days rolled up into each `trend` point. 1 = daily. */
+  trendBucketDays: z.number().int().positive(),
   verdicts: z.array(
     z.object({
       verdict: z.enum(reviewVerdicts).nullable(),
@@ -397,10 +402,10 @@ export type JobDetail = z.infer<typeof jobDetailSchema>;
 export type RepoConfigRecord = z.infer<typeof repoConfigRecordSchema>;
 
 export const llmProviderSchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
   name: z.string(),
   apiFormat: z.enum(llmApiFormats),
-  baseUrl: z.string().url().nullable(),
+  baseUrl: z.url().nullable(),
   enabled: z.boolean(),
   hasApiKey: z.boolean(),
   createdAt: dateStringSchema,
@@ -409,7 +414,7 @@ export const llmProviderSchema = z.object({
 
 export const modelConfigSchema = z.object({
   modelId: z.string(),
-  providerId: z.string().uuid(),
+  providerId: z.uuid(),
   providerName: z.string(),
   apiFormat: z.enum(llmApiFormats),
   modelName: z.string(),

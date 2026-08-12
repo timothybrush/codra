@@ -62,7 +62,7 @@ describe('timezone formatting', () => {
   // Exercises the real call site rather than a copy of its options, so the guard
   // can't drift away from the component it protects.
   it('formats the job-detail absolute stamp with its requested options', async () => {
-    const { formatAbsoluteDate } = await import('@client/components/features/job-detail/job-chips');
+    const { formatAbsoluteDate } = await import('@client/components/features/job-detail/job-chip-utils');
     const stamp = formatAbsoluteDate(INSTANT);
 
     expect(stamp).toBeTruthy();

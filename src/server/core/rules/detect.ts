@@ -79,9 +79,10 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
 
   for (const hunk of file.hunks) {
     // Same discipline as buildPresenceIndex: collected per hunk so reformat-move suppression can compare within the same window.
-    const removed = new Set(
-      hunk.lines.filter((l) => l.kind === 'del').map((l) => normalizeDiffText(l.content)),
-    );
+    const removed = new Set<string>();
+    for (const l of hunk.lines) {
+      if (l.kind === 'del') removed.add(normalizeDiffText(l.content));
+    }
 
     for (const line of hunk.lines) {
       if (line.kind !== 'add') continue;
@@ -130,25 +131,29 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
 // Turns rule hits into the same `ParsedReviewComment` shape the LLM channel produces, so downstream stages treat them uniformly.
 // The fingerprint deliberately includes the anchor hash: a rule's title is a CONSTANT, so two hits of one rule in one file would otherwise collide on a single fingerprint identity.
 export function ruleHitsToComments(file: FileDiff, result: RuleScanResult): ParsedReviewComment[] {
-  return result.hits
-    .filter((hit) => !hit.shadow)
-    .map((hit) => {
-      const anchorHash = buildAnchorHash(hit.line.content);
-      return {
-        path: file.path,
-        line: hit.line.newLineNumber ?? null,
-        position: hit.line.position ?? null,
-        severity: hit.rule.severity,
-        category: CLAIM_TYPE_CATEGORY[hit.rule.claimType] ?? 'quality',
-        title: hit.rule.title,
-        body: hit.rule.body,
-        evidence: hit.line.content,
-        anchorHash,
-        claimType: hit.rule.claimType,
-        fingerprint: buildFindingFingerprint(file.path, `${hit.rule.title} @${anchorHash}`),
-        fingerprintV2: buildFindingFingerprintV2(file.path, hit.rule.claimType, anchorHash),
-        source: 'rule' as const,
-        ruleId: hit.rule.id,
-      } satisfies ParsedReviewComment;
-    });
+  const comments: ParsedReviewComment[] = [];
+  for (const hit of result.hits) {
+    if (hit.shadow) continue;
+
+    const { rule, line } = hit;
+    const anchorHash = buildAnchorHash(line.content);
+    comments.push({
+      path: file.path,
+      line: line.newLineNumber ?? null,
+      position: line.position ?? null,
+      severity: rule.severity,
+      category: CLAIM_TYPE_CATEGORY[rule.claimType] ?? 'quality',
+      title: rule.title,
+      body: rule.body,
+      evidence: line.content,
+      anchorHash,
+      claimType: rule.claimType,
+      fingerprint: buildFindingFingerprint(file.path, `${rule.title} @${anchorHash}`),
+      fingerprintV2: buildFindingFingerprintV2(file.path, rule.claimType, anchorHash),
+      source: 'rule' as const,
+      ruleId: rule.id,
+    } satisfies ParsedReviewComment);
+  }
+
+  return comments;
 }

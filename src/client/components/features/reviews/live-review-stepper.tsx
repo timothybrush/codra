@@ -4,6 +4,14 @@ interface LiveReviewStepperProps {
   job: JobSummary;
 }
 
+const styles: Record<string, string> = {
+  running:    'bg-info/10 text-info border-info/20',
+  queued:     'bg-secondary text-muted-foreground border-border/60',
+  done:       'bg-success/10 text-success border-success/20',
+  failed:     'bg-danger/10 text-danger border-danger/20',
+  superseded: 'bg-secondary text-muted-foreground border-border/40',
+};
+
 export function LiveReviewStepper({ job }: LiveReviewStepperProps) {
   const { status, steps = [] } = job;
 
@@ -38,14 +46,6 @@ export function LiveReviewStepper({ job }: LiveReviewStepperProps) {
   } else if (status === 'superseded') {
     activeLabel = 'Superseded';
   }
-
-  const styles: Record<string, string> = {
-    running:    'bg-info/10 text-info border-info/20',
-    queued:     'bg-secondary text-muted-foreground border-border/60',
-    done:       'bg-success/10 text-success border-success/20',
-    failed:     'bg-danger/10 text-danger border-danger/20',
-    superseded: 'bg-secondary text-muted-foreground border-border/40',
-  };
 
   const cls = styles[status] ?? styles.queued;
 

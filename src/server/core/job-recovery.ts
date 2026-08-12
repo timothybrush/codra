@@ -8,6 +8,9 @@ const MAX_RECOVERY_COUNT = 3;
 export async function recoverJobs(env: AppBindings) {
   try {
     const recovered = await recoverExpiredJobLeases(env, MAX_RECOVERY_COUNT);
+    // Sent one at a time on purpose: the recovery query returns up to 25 ids and each send is a
+    // subrequest, so fanning out would spend the invocation's budget the maintenance tick shares
+    // with completeTerminalCheckRuns below.
     for (const jobId of recovered.requeuedJobIds) {
       await env.REVIEW_QUEUE.send({
         jobId,

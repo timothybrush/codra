@@ -5,12 +5,12 @@ import { SteppedSlider } from '@client/components/motion/stepped-slider';
 import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
 import type { ReviewSettings } from '@shared/schema';
 import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange } from '@shared/review-limits';
+import { FieldLabel } from './field-label';
 import {
   CONCURRENCY_LEVEL_LABEL,
   CONCURRENCY_MAX_VALUE,
   CONCURRENCY_STEPS,
   CONCURRENCY_VALUE_TO_LEVEL,
-  FieldLabel,
   MAX_COMMENTS_CEILING,
   MAX_COMMENTS_STEPS,
 } from './settings-support';

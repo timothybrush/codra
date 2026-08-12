@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from './components/layout/app-shell';
+import { RouteErrorBoundary } from './components/shared/route-error-boundary';
 
 const LandingPage = React.lazy(() => import('./pages/landing').then(m => ({ default: m.LandingPage })));
 const DashboardPage = React.lazy(() => import('./pages/dashboard').then(m => ({ default: m.DashboardPage })));
@@ -52,62 +53,45 @@ function ToasterWrapper() {
   );
 }
 
-class ErrorBoundary extends React.Component<{ fallback?: React.ReactNode, children: React.ReactNode }, { error: Error | null }> {
-  constructor(props: { fallback?: React.ReactNode, children: React.ReactNode }) {
-    super(props);
-    this.state = { error: null };
-  }
-  static getDerivedStateFromError(error: Error) { return { error }; }
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
-  }
-  render() {
-    if (this.state.error) {
-      if (this.props.fallback) return this.props.fallback;
-      return (
-        <div className="flex flex-col items-center justify-center p-8 text-destructive">
-          <p className="font-bold">An error occurred rendering this component:</p>
-          <pre className="mt-2 rounded bg-muted p-4 text-xs font-mono">{this.state.error.toString()}</pre>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
+// Render failures (including a failed lazy chunk) bubble to the branch's
+// `errorElement` so there is one styled fallback instead of two.
 const withSuspense = (Component: React.ComponentType, isFullPage = false) => (
-  <ErrorBoundary>
-    <Suspense fallback={<div role="status" aria-busy="true" className={`flex items-center justify-center ${isFullPage ? 'h-screen' : 'h-full w-full'}`} />}>
-      <Component />
-    </Suspense>
-  </ErrorBoundary>
+  <Suspense fallback={<div role="status" aria-busy="true" className={`flex items-center justify-center ${isFullPage ? 'h-screen' : 'h-full w-full'}`} />}>
+    <Component />
+  </Suspense>
 );
 
 const router = createBrowserRouter([
   {
     path: '/',
     element: withSuspense(LandingPage, true),
+    errorElement: <RouteErrorBoundary />,
   },
   {
     path: '/login',
     element: withSuspense(LoginPage, true),
+    errorElement: <RouteErrorBoundary />,
   },
   {
     element: <AppShell />,
+    errorElement: <RouteErrorBoundary />,
+    // Per child too, not just on the layout: React Router replaces the whole matched branch, so a
+    // boundary only on the branch would take the sidebar and header down with a single page.
     children: [
-      { path: 'dashboard', element: withSuspense(DashboardPage) },
-      { path: 'jobs', element: withSuspense(JobsPage) },
-      { path: 'jobs/:id', element: withSuspense(JobDetailPage) },
-      { path: 'jobs/:id/logs', element: withSuspense(JobLogsPage) },
-      { path: 'repos', element: withSuspense(ReposPage) },
-      { path: 'stats', element: withSuspense(StatsPage) },
-      { path: 'settings', element: withSuspense(SettingsPage) },
-      { path: 'account', element: withSuspense(AccountPage) },
+      { path: 'dashboard', element: withSuspense(DashboardPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'jobs', element: withSuspense(JobsPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'jobs/:id', element: withSuspense(JobDetailPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'jobs/:id/logs', element: withSuspense(JobLogsPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'repos', element: withSuspense(ReposPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'stats', element: withSuspense(StatsPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'settings', element: withSuspense(SettingsPage), errorElement: <RouteErrorBoundary inline /> },
+      { path: 'account', element: withSuspense(AccountPage), errorElement: <RouteErrorBoundary inline /> },
     ],
   },
   {
     path: '*',
     element: withSuspense(NotFoundPage, true),
+    errorElement: <RouteErrorBoundary />,
   },
 ]);
 
