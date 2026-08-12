@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChevronRight } from 'lucide-react';
-import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
+import type { FileReviewRecord, ParsedReviewComment } from '@codra/schema';
 import { CommentCard } from './comment-card';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
 import { MonoPath, StatusDot, VerdictPill } from './job-chips';

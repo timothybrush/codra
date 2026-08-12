@@ -3,7 +3,7 @@ import { isRetryableModelError, ModelService } from '@server/services/model';
 
 
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { TokenTracker } from '@server/core/token-tracker';
 
 // Walking the model chain: fallback, the two subrequest-budget breakers, and marking a provider

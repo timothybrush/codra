@@ -6,7 +6,7 @@ import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
 import { usePolling } from '@client/hooks/use-polling';
 import { useStatsRange } from '@client/hooks/use-stats-range';
 import { api } from '@client/lib/api';
-import type { StatsPayload } from '@shared/schema';
+import type { StatsPayload } from '@codra/schema';
 
 
 import { MetricsGridSkeleton } from '@client/components/features/stats/chart-primitives';

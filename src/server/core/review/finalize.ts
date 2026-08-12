@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, type ParsedReviewComment, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import { bulkMarkFilesFailed, getFileReviewsForJobs, markCommentDispositions, markCommentsPosted } from '@server/db/file-reviews';
 import { completeJob, markJobCheckRunCompleted, updateJobStep } from '@server/db/jobs';

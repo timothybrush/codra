@@ -5,7 +5,7 @@ import { api } from '@client/lib/api';
 import { Button } from '@client/components/ui/button';
 import { Alert } from '@client/components/ui/alert';
 import { Save, RotateCcw, X } from 'lucide-react';
-import type { RepoConfigRecord } from '@shared/schema';
+import type { RepoConfigRecord } from '@codra/schema';
 import { ModelRouteEditor } from '@client/components/features/models/model-chain';
 import {
   EMPTY_MODEL_ROUTE,

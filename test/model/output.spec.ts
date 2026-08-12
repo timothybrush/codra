@@ -1,6 +1,6 @@
 import { parseFileReviewResponse, dedupeFindings } from '@server/core/model-output';
 import type { FileDiff } from '@server/core/diff';
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 
 describe('Model Output Parsing Deep Dive', () => {
   const mockFile: FileDiff = {

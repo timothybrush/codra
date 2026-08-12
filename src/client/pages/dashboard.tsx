@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '@client/lib/api';
-import type { StatsPayload, JobSummary } from '@shared/schema';
+import type { StatsPayload, JobSummary } from '@codra/schema';
 import { ArrowRight, GitPullRequest, Activity } from 'lucide-react';
 import { JobsTable } from '@client/components/shared/jobs-table';
 import { EmptyState } from '@client/components/shared/empty-state';

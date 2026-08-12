@@ -4,7 +4,7 @@ import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
 import { MODEL_TIMEOUT_MAX_MS } from '@server/models/limits';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 // The retry ladder: inline retries, Retry-After, and which exhausted runs report as retryable.
 describe('ModelService: transient failures and the retry ladder', () => {

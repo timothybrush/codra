@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isRetryableModelError, ModelService } from '@server/services/model';
 import { reviewWithGoogle } from '@server/models/google';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 const file = {
   path: 'src/app.ts',

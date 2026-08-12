@@ -1,4 +1,4 @@
-import type { LlmApiFormat } from '@shared/schema';
+import type { LlmApiFormat } from '@codra/schema';
 import { withTimeout } from '@server/core/timeout';
 import { assertPublicBaseUrl } from './url-guard';
 

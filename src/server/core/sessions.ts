@@ -1,4 +1,4 @@
-import { randomHex } from '@shared/hex';
+import { randomHex } from '@codra/schema/hex';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import type { AppEnv, DashboardSessionUser } from '@server/env';

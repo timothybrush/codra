@@ -1,5 +1,5 @@
 import type { AppBindings } from '@server/env';
-import { reviewMaxFilesRange, type RepoConfig } from '@shared/schema';
+import { reviewMaxFilesRange, type RepoConfig } from '@codra/schema';
 import { filterReviewableFiles, parseUnifiedDiff, type FileDiff } from '../diff';
 import type { GitHubService } from '../../services/github';
 import { logger } from '../logger';

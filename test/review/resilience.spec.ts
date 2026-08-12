@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getDiffFiles, failJobAndCheckRun } from '@server/core/review';
 import { createTestEnv, generateMockDiff } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 // Regression coverage for the subrequest-exhaustion incident (job bb9cf692...): a large PR's
 // review workflow re-fetched the PR diff from GitHub on every phase/chunk and, once the

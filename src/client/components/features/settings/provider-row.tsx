@@ -5,7 +5,7 @@ import { Select } from '@client/components/ui/select';
 import { Switch } from '@client/components/ui/switch';
 import { Badge } from '@client/components/ui/badge';
 import { cn } from '@client/lib/utils';
-import type { LlmApiFormat, LlmProvider } from '@shared/schema';
+import type { LlmApiFormat, LlmProvider } from '@codra/schema';
 import { FieldLabel } from './field-label';
 import {
   API_FORMAT_OPTIONS,

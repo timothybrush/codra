@@ -1,8 +1,8 @@
-import type { ClaimType, ParsedReviewComment } from '@shared/schema';
+import type { ClaimType, ParsedReviewComment } from '@codra/schema';
 import type { DiffLine, FileDiff } from '../diff';
 import { commentSyntaxFor, stripCommentsAndStrings } from '../claim-checks';
 import { buildAnchorHash, buildFindingFingerprint, buildFindingFingerprintV2, normalizeDiffText } from '../fingerprint';
-import { CLAIM_TYPE_CATEGORY } from '@shared/schema';
+import { CLAIM_TYPE_CATEGORY } from '@codra/schema';
 import { RULES, type Rule } from './table';
 
 // Cap on added lines scanned per file: the binding constraint is the 10ms CPU budget, not memory. Reported as `truncated` rather than silently applied.

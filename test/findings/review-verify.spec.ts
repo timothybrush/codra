@@ -1,5 +1,5 @@
 import { verifyFindings } from '@server/core/review';
-import { defaultRepoConfig, type ParsedReviewComment } from '@shared/schema';
+import { defaultRepoConfig, type ParsedReviewComment } from '@codra/schema';
 import type { FileDiff } from '@server/core/diff';
 
 const files: FileDiff[] = [

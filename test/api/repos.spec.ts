@@ -5,8 +5,8 @@ import { getRepoConfigRecord } from '@server/db/repo-configs';
 import { loadRepoConfig, updateGlobalConfig } from '@server/core/config';
 import { GitHubClient } from '@server/core/github';
 
-import { defaultRepoConfig } from '@shared/schema';
-import type { RepoConfigsResponse } from '@shared/api';
+import { defaultRepoConfig } from '@codra/schema';
+import type { RepoConfigsResponse } from '@codra/schema/api';
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';
 

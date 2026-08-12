@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import { queryRows, queryTransaction } from './client';
 import {

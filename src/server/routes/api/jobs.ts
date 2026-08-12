@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@shared/schema';
+import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codra/schema';
 import { getFindingLabelTarget } from '@server/db/file-reviews';
 import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
 import type { AppBindings, AppEnv } from '@server/env';

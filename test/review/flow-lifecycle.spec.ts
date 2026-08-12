@@ -3,7 +3,7 @@ import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '..
 import { afterAll, vi } from 'vitest';
 import { findExistingJobForHead, getJobForProcessing, insertJob, updateJobStep } from '@server/db/jobs';
 import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { runWithDb, queryRows } from '@server/db/client';
 import { makeRunAndDrain, REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
@@ -23,7 +23,7 @@ const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@shared/schema');
+  const { reviewSettingsSchema } = await import('@codra/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });

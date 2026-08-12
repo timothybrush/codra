@@ -19,27 +19,15 @@ export const reviewConfigSchema = z.object({
   skip_files: z
     .array(z.string().min(1))
     .default(['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**']),
-  // max_files moved to reviewSettingsSchema.maxFiles: the limit it protects (subrequest budget,
-  // provider rate limits) is shared across repos, not owned by one. Stale keys are ignored on parse.
   large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
-  // Packs small files into shared model calls, amortising the ~2,800-token preamble. Config-driven
-  // so it lands in configSnapshot and a retry re-derives the same bin plan.
   batch_small_files: z.boolean().default(true),
   max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
   max_comments: z.number().int().min(1).max(150).default(10),
-  // 'P3', not 'nit': model-flagged cosmetic findings are what gets a review bot ignored. Applies
-  // only to new repos -- changing this needs a data migration plus a cache-version bump.
   min_severity: z.enum(reviewSeverities).default('P3'),
-  // Defaults OFF: confidence is not weak here but INVERTED -- the worst claim family averaged 0.964
-  // while the only area with a true positive averaged 0.775. Kept and provider-independent for an
-  // operator who opts in; grounding is enforced by evidence provenance instead.
   min_confidence: z.number().min(0).max(1).default(0),
   focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),
-  // Enforced at parse time so it binds every provider. Config-driven so it lands in the job's
-  // replayable snapshot, and a retried job filters against the same list it originally ran with.
   deny_claim_types: z.array(z.enum(claimTypes)).default([...DEFAULT_DENIED_CLAIM_TYPES]),
-  // Deterministic rule channel (no model call). shadow_rule_ids lists rules scored but never posted -- every rule starts there since the triage filter is zero-shot.
   rules: z
     .object({
       enabled: z.boolean().default(true),
@@ -161,6 +149,4 @@ export function normalizeRepoConfig(config: RepoConfig): RepoConfig {
   };
 }
 
-// Textually last: this is a module-load side effect (repoConfigSchema.parse({})), so anything
-// added below it would silently run before this line executes.
 export const defaultRepoConfig = repoConfigSchema.parse({});

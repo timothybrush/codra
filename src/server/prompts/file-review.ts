@@ -1,4 +1,4 @@
-import { claimTypes, type RepoConfig } from '@shared/schema';
+import { claimTypes, type RepoConfig } from '@codra/schema';
 import type { FileDiff } from '@server/core/diff';
 import type { ModelResponseSchema } from '@server/models/types';
 import { getLanguageForFile } from './languages';

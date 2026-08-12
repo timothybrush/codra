@@ -1,5 +1,5 @@
 // Batched-response payload extraction. Separate from the single-file parser, whose force-filled `findings: []` would approve an unexamined file here.
-import { batchReviewModelOutputSchema, fileReviewModelOutputSchema } from '@shared/schema';
+import { batchReviewModelOutputSchema, fileReviewModelOutputSchema } from '@codra/schema';
 import { jsonrepair } from 'jsonrepair';
 import { z } from 'zod';
 import { logger } from '../logger';

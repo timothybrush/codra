@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { FileText } from 'lucide-react';
-import type { JobDetail } from '@shared/schema';
-import { reviewSeverities } from '@shared/review-limits';
+import type { JobDetail } from '@codra/schema';
+import { reviewSeverities } from '@codra/schema/review-limits';
 import { Tabs, TabsList, TabsTrigger } from '@client/components/motion/tabs';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
-import type { ReviewSettings } from '@shared/schema';
-import { reviewMaxFilesRange } from '@shared/review-limits';
+import type { ReviewSettings } from '@codra/schema';
+import { reviewMaxFilesRange } from '@codra/schema/review-limits';
 import {
   CONCURRENCY_LEVEL_LABEL,
   CONCURRENCY_MAX_VALUE,

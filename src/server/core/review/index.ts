@@ -1,6 +1,6 @@
 import { logger } from '../logger';
-import { isSupportedGitHubWebhookEvent, type GitHubWebhookPayload, type PullRequestWebhookPayload } from '@shared/github';
-import { REVIEW_CONCURRENCY_LIMITS, type ReviewJobMessage } from '@shared/schema';
+import { isSupportedGitHubWebhookEvent, type GitHubWebhookPayload, type PullRequestWebhookPayload } from '@codra/schema/github';
+import { REVIEW_CONCURRENCY_LIMITS, type ReviewJobMessage } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import { getFileReviewsForJobs } from '@server/db/file-reviews';
 import {

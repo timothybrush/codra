@@ -10,7 +10,7 @@ import { Input } from '@client/components/ui/input';
 import { Select } from '@client/components/ui/select';
 import { GitBranch, RefreshCw, ArrowUpRight, Search } from 'lucide-react';
 import { cn } from '@client/lib/utils';
-import type { RepoConfigRecord } from '@shared/schema';
+import type { RepoConfigRecord } from '@codra/schema';
 import {
   EMPTY_MODEL_ROUTE,
   normalizeModelRoute,

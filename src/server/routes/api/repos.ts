@@ -5,7 +5,7 @@ import { getRepoConfigRecord, listRepoConfigs, upsertRepoConfig, syncRepoConfig,
 import { jsonError } from '@server/core/http';
 import { GitHubClient, type GitHubRepository } from '@server/core/github';
 import { invalidateRepoConfigCache } from '@server/core/config';
-import { repoConfigSchema } from '@shared/schema';
+import { repoConfigSchema } from '@codra/schema';
 
 const repoConfigPatchSchema = z
   .strictObject({

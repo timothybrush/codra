@@ -5,7 +5,7 @@ import { reviewWithCloudflare } from '../models/cloudflare';
 import { reviewWithOpenAI } from '../models/openai';
 import { reviewWithAnthropic } from '../models/anthropic';
 import type { VerifyCandidate } from '../prompts/verify';
-import type { RepoConfig } from '@shared/schema';
+import type { RepoConfig } from '@codra/schema';
 import type { TokenTracker } from '../core/token-tracker';
 import type { ModelInput, ModelResponse } from '../models/types';
 import { logger } from '../core/logger';

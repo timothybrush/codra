@@ -8,7 +8,7 @@ import {
   resolvedTimeZone,
   setStoredTimeZone,
 } from '@client/lib/timezone';
-import type { AccountSettings, AuthSessionUser } from '@shared/api';
+import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
 
 import { ProfileCard } from '@client/components/features/account/profile-card';
 import { AccountDetailsSection } from '@client/components/features/account/details-section';

@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { type ParsedReviewComment, type RepoConfig } from '@shared/schema';
+import { type ParsedReviewComment, type RepoConfig } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import { recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
 import { parseUnifiedDiff, type FileDiff } from '../diff';

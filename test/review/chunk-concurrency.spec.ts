@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { budgetAwareFileLimit, estimatedSubrequestsPerFile } from '@server/core/review';
 import { TokenTracker } from '@server/core/token-tracker';
-import { REVIEW_CONCURRENCY_LIMITS, reviewConcurrencyLevels } from '@shared/schema';
+import { REVIEW_CONCURRENCY_LIMITS, reviewConcurrencyLevels } from '@codra/schema';
 
 // Regression guard for "concurrency slider is dead above medium": the per-chunk budget cap must
 // NOT silently override the configured concurrency at a healthy budget. Exercises the REAL

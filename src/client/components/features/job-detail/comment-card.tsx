@@ -6,7 +6,7 @@ import { cn } from '@client/lib/utils';
 import { api } from '@client/lib/api';
 import { CopyButton } from '@client/components/shared/copy-button';
 import { preventToggleOnTextSelection } from '@client/lib/selection';
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 import { severityConfig } from './constants';
 import { ContextSnippet } from './context-snippet';
 

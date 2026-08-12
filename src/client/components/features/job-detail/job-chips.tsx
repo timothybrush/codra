@@ -7,7 +7,7 @@ import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
 import { cn } from '@client/lib/utils';
 import { STATUS_DOT, jobDuration, statusLabel } from '@client/lib/job-format';
 
-import type { JobDetail, JobSummary } from '@shared/schema';
+import type { JobDetail, JobSummary } from '@codra/schema';
 
 
 /** Status dot alone, for rows that render their own label. */

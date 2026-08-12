@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { queryRows } from '@server/db/client';
 import { insertJob } from '@server/db/jobs';
 import { upsertFileReview } from '@server/db/file-reviews';

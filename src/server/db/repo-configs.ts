@@ -1,6 +1,6 @@
 import type { AppBindings } from '@server/env';
 import { parseJsonColumn, queryRows } from './client';
-import { defaultRepoConfig, normalizeRepoConfig, repoConfigRecordSchema, repoConfigSchema, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, normalizeRepoConfig, repoConfigRecordSchema, repoConfigSchema, type RepoConfig } from '@codra/schema';
 import { getOrCreateRepository } from './repositories';
 
 type RepoConfigRow = {

@@ -1,4 +1,4 @@
-import type { ClaimType, reviewSeverities } from '@shared/schema';
+import type { ClaimType, reviewSeverities } from '@codra/schema';
 
 type ReviewSeverity = typeof reviewSeverities[number];
 

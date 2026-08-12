@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { type VariantProps } from 'class-variance-authority';
 import { cn } from '@client/lib/utils';
-import type { JobSummary } from '@shared/schema';
+import type { JobSummary } from '@codra/schema';
 import { LiveReviewStepper } from '@client/components/features/reviews/live-review-stepper';
 import { badgeVariants } from '@client/components/ui/badge-variants';
 

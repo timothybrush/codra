@@ -3,7 +3,7 @@ import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type V
 import { adaptiveModelTimeoutMs, clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../models/limits';
 import { isCloudflareAllocationError, isTransientModelFailure, RetryableModelError } from './model-support';
 import { logger } from '../core/logger';
-import type { RepoConfig } from '@shared/schema';
+import type { RepoConfig } from '@codra/schema';
 import type { TokenTracker } from '../core/token-tracker';
 import type { ModelInput, ModelResponse } from '../models/types';
 import type { ResolvedModelConfig } from '@server/db/model-configs';

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
-import type { JobDetail } from '@shared/schema';
+import type { JobDetail } from '@codra/schema';
 
 /* Job detail carries every file's full diff, so cache writes are best-effort (quota is swallowed). */
 function jobCacheKey(id: string) {

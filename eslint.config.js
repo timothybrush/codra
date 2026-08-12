@@ -22,8 +22,6 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx,js,mjs}'],
     plugins: { 'import-x': importX, 'react-hooks': reactHooks },
     settings: {
-      // The resolver has to understand the @server/@client/@shared aliases from tsconfig, or every
-      // internal import reads as unresolved and no-cycle/no-self-import are silently useless.
       'import-x/resolver-next': [
         createTypeScriptImportResolver({ project: './tsconfig.json' }),
       ],
@@ -101,7 +99,7 @@ export default tseslint.config(
           { group: ['**/core/review/*', '@server/core/review/*'], message: 'Import from @server/core/review, not a sibling. One spec vi.mocks that specifier and workflows/review.ts imports only runReviewJob from it.' },
           { group: ['**/core/model-output/*', '@server/core/model-output/*'], message: 'Import from @server/core/model-output, not a sibling.' },
           { group: ['**/core/diff/position', '@server/core/diff/position'], message: 'Import from @server/core/diff, not a sibling.' },
-          { group: ['**/shared/schema-claims', '**/shared/schema-repo-config', '**/shared/schema-enums', '@shared/schema-claims', '@shared/schema-repo-config', '@shared/schema-enums'], message: 'Import from @shared/schema, not a sibling. (@shared/review-limits is exempt: the client imports it directly to keep zod out of the browser bundle.)' },
+          { group: ['**/schema-claims', '**/schema-repo-config', '**/schema-enums', '@codra/schema/schema-claims', '@codra/schema/schema-repo-config', '@codra/schema/schema-enums'], message: 'Import from @codra/schema, not a sibling. (@codra/schema/review-limits is exempt: the client imports it directly to keep zod out of the browser bundle.)' },
         ],
       }],
     },
@@ -129,7 +127,7 @@ export default tseslint.config(
       'src/server/core/review/index.ts',
       'src/server/core/diff/index.ts',
       'src/server/core/model-output/index.ts',
-      'src/shared/schema.ts',
+      'packages/schema/src/schema.ts',
     ],
     rules: {
       'no-restricted-imports': 'off',

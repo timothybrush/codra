@@ -3,7 +3,7 @@ import { ModelService } from '@server/services/model';
 import { reviewWithGoogle } from '@server/models/google';
 import { buildReviewResponseSchema } from '@server/prompts/file-review';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 // Split out of service-retries.spec.ts: a 400 matches no transient pattern, so grammar rejection is
 // its own ladder rung -- drop responseJsonSchema, retry once, latch it off -- not part of the

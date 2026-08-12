@@ -6,7 +6,7 @@ import { reviewWithGoogle } from '@server/models/google';
 import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@server/prompts/file-review';
 import { VERIFY_RESPONSE_SCHEMA } from '@server/prompts/verify';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 
 describe('ModelService: request shape and response handling', () => {

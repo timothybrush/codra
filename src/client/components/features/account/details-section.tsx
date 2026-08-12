@@ -12,7 +12,7 @@ import {
   resolvedTimeZone,
   timeZoneOffsetLabel,
 } from '@client/lib/timezone';
-import type { AccountSettings, AuthSessionUser } from '@shared/api';
+import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
 
 import { DetailGroup, RevealOnClick, DetailRow } from './detail-rows';
 

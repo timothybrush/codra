@@ -3,8 +3,8 @@ import type {
   GitHubWebhookPayload,
   IssueCommentWebhookPayload,
   PullRequestWebhookPayload,
-} from '@shared/github';
-import type { RepoConfig } from '@shared/schema';
+} from '@codra/schema/github';
+import type { RepoConfig } from '@codra/schema';
 
 // Pure (no env/I/O) so the webhook-to-review-request mapping stays testable in isolation.
 function shouldTriggerFromPullRequest(action: PullRequestWebhookPayload['action'], config: RepoConfig['review']) {

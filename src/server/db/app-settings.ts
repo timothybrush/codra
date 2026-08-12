@@ -1,7 +1,7 @@
 import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
 import { logger } from '@server/core/logger';
-import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@shared/schema';
+import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@codra/schema';
 
 const CONCURRENCY_KEY = 'review_concurrency_level';
 const MAX_COMMENTS_KEY = 'review_max_comments';

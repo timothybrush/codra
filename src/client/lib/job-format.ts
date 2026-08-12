@@ -1,4 +1,4 @@
-import type { JobSummary } from '@shared/schema';
+import type { JobSummary } from '@codra/schema';
 
 /** Shared job status/duration formatting - keep it here, not duplicated per-component (previous copies diverged). */
 

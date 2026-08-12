@@ -2,8 +2,8 @@ import { createApp } from '@server/app';
 import { getJobForProcessing, insertJob } from '@server/db/jobs';
 import { upsertFileReview } from '@server/db/file-reviews';
 
-import { defaultRepoConfig, reviewJobMessageSchema } from '@shared/schema';
-import type { JobDetailResponse, StatsResponse } from '@shared/api';
+import { defaultRepoConfig, reviewJobMessageSchema } from '@codra/schema';
+import type { JobDetailResponse, StatsResponse } from '@codra/schema/api';
 import { createTestEnv, uniqueName, uniqueRepo } from '../helpers';
 import { vi } from 'vitest';
 

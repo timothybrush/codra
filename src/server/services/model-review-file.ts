@@ -13,7 +13,7 @@ import { generatorFindingCap } from '../prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
 import { logger } from '../core/logger';
-import type { RepoConfig } from '@shared/schema';
+import type { RepoConfig } from '@codra/schema';
 import type { ModelResponse } from '../models/types';
 
 // Import from the services/model barrel, not here (four specs vi.mock it).

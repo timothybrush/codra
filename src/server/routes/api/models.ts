@@ -18,7 +18,7 @@ import {
 import { jsonError } from '@server/core/http';
 import { getGlobalConfig, updateGlobalConfig } from '@server/core/config';
 import { encryptLlmApiKey, decryptLlmApiKey } from '@server/core/llm-crypto';
-import { llmApiFormats } from '@shared/schema';
+import { llmApiFormats } from '@codra/schema';
 import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
 import { reviewWithVertex } from '@server/models/vertex';

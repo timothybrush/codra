@@ -6,7 +6,7 @@ import { cn } from '@client/lib/utils';
 import { formatDateTime } from '@client/lib/timezone';
 import { STATUS_DOT, formatRelativeDate, jobDuration, statusLabel } from '@client/lib/job-format';
 
-import type { JobSummary } from '@shared/schema';
+import type { JobSummary } from '@codra/schema';
 
 type Column =
   | 'title'

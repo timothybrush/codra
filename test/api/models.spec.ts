@@ -1,6 +1,6 @@
 import { createApp } from '@server/app';
 
-import type { ModelConfigsResponse } from '@shared/api';
+import type { ModelConfigsResponse } from '@codra/schema/api';
 import { createTestEnv, saveTestProviderApiKey, uniqueName } from '../helpers';
 import { vi } from 'vitest';
 

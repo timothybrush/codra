@@ -1,7 +1,7 @@
-import { isSupportedTimeZone } from '@shared/timezone';
+import { isSupportedTimeZone } from '@codra/schema/timezone';
 import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
-import { statsSchema, jobStatuses, reviewTriggers, reviewSeverities, reviewCategories } from '@shared/schema';
+import { statsSchema, jobStatuses, reviewTriggers, reviewSeverities, reviewCategories } from '@codra/schema';
 import { getModelUsageStats } from './file-reviews';
 
 // Guard the zone before it reaches SQL, so an unknown name can't error the query.

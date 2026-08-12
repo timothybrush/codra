@@ -7,7 +7,7 @@ import {
   buildReviewResponseSchema,
   generatorFindingCap,
 } from '@server/prompts/file-review';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import type { FileDiff } from '@server/core/diff';
 
 function fileAt(path: string): FileDiff {

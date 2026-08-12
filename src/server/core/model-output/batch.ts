@@ -1,5 +1,5 @@
 // Splits one batched response into per-file reviews, then grounds each through the same groundParsedFindings the single-file path uses.
-import type { ClaimType } from '@shared/schema';
+import type { ClaimType } from '@codra/schema';
 import type { FileDiff } from '../diff';
 import { generatorFindingCap } from '@server/prompts/file-review';
 import { logger } from '../logger';

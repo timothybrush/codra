@@ -3,7 +3,7 @@ import { Activity, ArrowUpRight, Cpu, MessageSquare } from 'lucide-react';
 import { StatsGrid, type StatDelta } from './stats-grid';
 import { fmtStat } from '@client/lib/utils';
 import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
-import type { StatsPayload } from '@shared/schema';
+import type { StatsPayload } from '@codra/schema';
 
 interface OverviewStatsProps {
   stats: StatsPayload | null;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { scanFileForRuleHits, ruleHitsToComments } from '@server/core/rules/detect';
 import { RULES } from '@server/core/rules/table';
-import { CLAIM_TYPE_DECIDABILITY, DEFAULT_SHADOW_RULE_IDS } from '@shared/schema';
+import { CLAIM_TYPE_DECIDABILITY, DEFAULT_SHADOW_RULE_IDS } from '@codra/schema';
 
 import { addedLinesFile } from '../mocks/fixtures';
 

@@ -1,4 +1,4 @@
-import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@shared/schema';
+import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@codra/schema';
 import type { FileDiff } from './diff';
 import type { ModelService } from '../services/model';
 import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from '../prompts/verify';

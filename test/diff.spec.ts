@@ -7,7 +7,7 @@ import {
   parseUnifiedDiff,
   truncateFileDiff,
 } from '@server/core/diff';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 describe('Diff Engine Deep Dive', () => {
   const sampleDiff = `diff --git a/src/example.ts b/src/example.ts

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { groupBatches } from '@client/lib/batch-groups';
-import type { FileReviewRecord } from '@shared/schema';
+import type { FileReviewRecord } from '@codra/schema';
 
 // Which files shared a model call is NOT stored -- pack.ts derives bins and never persists them.
 // The logs view reconstructs them from the shared response body, so these pin that reconstruction.

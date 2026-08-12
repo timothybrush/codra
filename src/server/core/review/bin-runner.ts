@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import type { RepoConfig } from '@shared/schema';
+import type { RepoConfig } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import {
   type BulkFileReviewInput,

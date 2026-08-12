@@ -7,7 +7,7 @@ import {
   DEFAULT_DENIED_CLAIM_TYPES,
   claimTypes,
   toClaimType,
-} from '@shared/schema';
+} from '@codra/schema';
 import { buildReviewResponseSchema, fileReviewSystemPromptBase } from '@server/prompts/file-review';
 import type { FileDiff } from '@server/core/diff';
 

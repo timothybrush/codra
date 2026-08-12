@@ -7,7 +7,7 @@ import { Badge } from '@client/components/ui/badge';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { GithubMark } from '@client/components/shared/github-mark';
 import { ExternalLink, Pencil, Check, X } from 'lucide-react';
-import type { AccountSettings, AuthSessionUser } from '@shared/api';
+import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
 
 export function ProfileCard({
   user,

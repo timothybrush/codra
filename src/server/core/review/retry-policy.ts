@@ -1,6 +1,6 @@
 import { logger } from '../logger';
-import { normalizeModelId, type RepoConfig } from '@shared/schema';
-import { isSubrequestBudgetMessage, isTimeoutMessage, matchesAnyTransientSubstring } from '@shared/transient-errors';
+import { normalizeModelId, type RepoConfig } from '@codra/schema';
+import { isSubrequestBudgetMessage, isTimeoutMessage, matchesAnyTransientSubstring } from '@codra/schema/transient-errors';
 import type { AppBindings } from '@server/env';
 import { getResolvedModelConfig } from '@server/db/model-configs';
 import { RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS } from './phase-control';

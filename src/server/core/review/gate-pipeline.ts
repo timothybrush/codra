@@ -1,6 +1,6 @@
 import { dedupeFindings } from '../model-output';
 import { verifyFindings } from '../finding-gates';
-import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@shared/schema';
+import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import type { FileDiff } from '../diff';
 import type { PersistedReviewJob } from './phase-control';

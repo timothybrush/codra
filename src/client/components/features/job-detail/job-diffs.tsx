@@ -12,7 +12,7 @@ import { api } from '@client/lib/api';
 import { buildTree } from '@client/lib/file-tree';
 import { diffStats } from '@client/lib/prompt-diff';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
-import type { FileReviewRecord, JobDetail } from '@shared/schema';
+import type { FileReviewRecord, JobDetail } from '@codra/schema';
 
 import { FileDiff } from './diff-file-panel';
 import { panelCvStyle, fileAnchorId } from './diff-file-panel-utils';

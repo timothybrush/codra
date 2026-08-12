@@ -7,14 +7,14 @@
 // than being divided; the account/session half could move out, but the settings half cannot.
 
 import { getReviewSettings, updateReviewSettings } from '@server/db/app-settings';
-import { reviewMaxFilesRange } from '@shared/schema';
+import { reviewMaxFilesRange } from '@codra/schema';
 import { createApp } from '@server/app';
 
 import { queryRows, runWithDb } from '@server/db/client';
 
 import { syncUpdatesEmail } from '@server/core/updates-email';
 
-import type { AccountResponse, AuthSessionResponse, JobsResponse, UpdatesEmailResponse } from '@shared/api';
+import type { AccountResponse, AuthSessionResponse, JobsResponse, UpdatesEmailResponse } from '@codra/schema/api';
 import { createTestEnv, dbDescribe } from '../helpers';
 import { vi } from 'vitest';
 

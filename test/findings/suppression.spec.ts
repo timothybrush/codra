@@ -4,7 +4,7 @@ import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comm
 import { runWithDb, queryRows } from '@server/db/client';
 import { insertJob } from '@server/db/jobs';
 import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@server/db/file-reviews';
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 
 
 

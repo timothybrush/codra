@@ -5,7 +5,7 @@ import { ModelService } from '@server/services/model';
 
 
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { TokenTracker } from '@server/core/token-tracker';
 import { geminiThinkingBudgetTokens, reviewOutputBudgetTokens } from '@server/models/limits';
 import { generatorFindingCap } from '@server/prompts/file-review';

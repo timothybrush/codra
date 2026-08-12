@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, type RepoConfig } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import {
   completePreparationStep,

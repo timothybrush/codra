@@ -1,5 +1,5 @@
 import { FileCode2, Hourglass } from 'lucide-react';
-import type { JobDetail } from '@shared/schema';
+import type { JobDetail } from '@codra/schema';
 
 interface JobProgressProps {
   job: JobDetail;

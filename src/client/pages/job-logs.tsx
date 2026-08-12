@@ -15,7 +15,7 @@ import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
 import { Badge } from '@client/components/ui/badge';
 import { api } from '@client/lib/api';
-import type { FileReviewRecord } from '@shared/schema';
+import type { FileReviewRecord } from '@codra/schema';
 
 import { formatPreciseDuration } from '@client/lib/utils';
 

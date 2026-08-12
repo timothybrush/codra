@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { defaultRepoConfig, reviewMaxFilesRange, reviewSettingsSchema } from '@shared/schema';
+import { defaultRepoConfig, reviewMaxFilesRange, reviewSettingsSchema } from '@codra/schema';
 
 describe('review max files settings', () => {
   it('defaults to 200', () => {

@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
 import type { AppBindings } from '@server/env';
 import { bulkInheritFileReviews, getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
 import { markJobContinuationQueued, resetJobContinuationCount, updateJobStep } from '@server/db/jobs';
