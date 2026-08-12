@@ -1,34 +1,24 @@
 import { logger } from '../logger';
 import { defaultRepoConfig, type RepoConfig } from '@codra/schema';
-import type { AppBindings } from '@server/env';
-import {
-  completePreparationStep,
-  heartbeatJobLease,
-  setJobPullRequestMeta,
-  updateJobCheckRun,
-  updateJobStep,
-} from '@server/db/jobs';
+import type { ReviewGitHub, ReviewRuntime } from '../ports';
 import { getDiffFiles } from './diff-cache';
-import { getRejectedExemplars, getRepositoryIdForJob } from '@server/db/learning';
-import type { RejectedExemplar } from '@server/prompts/file-review';
-import { GitHubService } from '../../services/github';
-import { getReviewSettings } from '@server/db/app-settings';
+import type { RejectedExemplar } from '../prompts/file-review';
 import { type PersistedReviewJob, JOB_LEASE_SECONDS, FRESH_INVOCATION_YIELD_SECONDS, enqueueJobPhase } from './phase-control';
 // Sibling of core/review.ts -- import from that barrel, not from here.
 
 export async function runPreparePhase(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: GitHubService,
+  github: ReviewGitHub,
 ) {
-  await updateJobStep(env, job.id, 'Preparation', { status: 'running' });
+  await env.jobs.updateJobStep(job.id, 'Preparation', { status: 'running' });
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
 
   // Refresh cached PR title/author: these are snapshotted at job creation and copied onto retries, so a title edited on GitHub afterwards would otherwise stay stale.
   try {
-    await setJobPullRequestMeta(env, job.id, {
+    await env.jobs.setJobPullRequestMeta(job.id, {
       prTitle: pr.title ?? null,
       prAuthor: pr.user?.login ?? null,
     });
@@ -44,16 +34,16 @@ export async function runPreparePhase(
       summary: 'Codra has started reviewing this pull request.',
     });
     checkRunId = checkRun.id;
-    await updateJobCheckRun(env, job.id, checkRun.id);
+    await env.jobs.updateJobCheckRun(job.id, checkRun.id);
   }
 
-  const { maxFiles } = await getReviewSettings(env);
+  const { maxFiles } = await env.settings.getReviewSettings();
   const { files } = await getDiffFiles(env, job, github, config, maxFiles);
-  await completePreparationStep(env, job.id, files.length);
-  await heartbeatJobLease(env, job.id, leaseOwner, JOB_LEASE_SECONDS);
+  await env.jobs.completePreparationStep(job.id, files.length);
+  await env.jobs.heartbeatJobLease(job.id, leaseOwner, JOB_LEASE_SECONDS);
 
   if (files.length === 0) {
-    await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+    await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'done' });
     await enqueueJobPhase(env, job.id, 'finalize', FRESH_INVOCATION_YIELD_SECONDS);
     return;
   }
@@ -74,11 +64,11 @@ export async function runPreparePhase(
 }
 
 // Negative few-shot exemplars for this repository. Best-effort, and per chunk so it costs one query rather than one per file.
-export async function loadRejectedExemplars(env: AppBindings, job: PersistedReviewJob): Promise<RejectedExemplar[]> {
+export async function loadRejectedExemplars(env: Pick<ReviewRuntime, 'learning'>, job: PersistedReviewJob): Promise<RejectedExemplar[]> {
   try {
-    const repositoryId = await getRepositoryIdForJob(env, job.id);
+    const repositoryId = await env.learning.getRepositoryIdForJob(job.id);
     if (repositoryId === null) return [];
-    const rows = await getRejectedExemplars(env, { repositoryId, limit: 5 });
+    const rows = await env.learning.getRejectedExemplars({ repositoryId, limit: 5 });
     return rows.map((row) => ({ title: row.title, claimType: row.claim_type }));
   } catch (error) {
     logger.warn('Could not load rejected exemplars; reviewing without them', {

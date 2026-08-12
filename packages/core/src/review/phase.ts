@@ -1,16 +1,11 @@
 import { logger } from '../logger';
 import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
-import type { AppBindings } from '@server/env';
-import { bulkInheritFileReviews, getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
-import { markJobContinuationQueued, resetJobContinuationCount, updateJobStep } from '@server/db/jobs';
 import { budgetAwareFileLimit } from './budget';
 import { narrowUnit, planReviewUnits } from './pack';
 import { reviewAndPersistBin } from './bin-runner';
 import { getDiffFiles } from './diff-cache';
-import { GitHubService } from '../../services/github';
-import { isRetryableModelError, ModelService } from '../../services/model';
+import type { ReviewGitHub, ReviewModel, ReviewRuntime } from '../ports';
 import { TokenTracker } from '../token-tracker';
-import { getReviewSettings } from '@server/db/app-settings';
 import {
   type PersistedReviewJob,
   ASYNC_BATCH_POLL_DELAY_SECONDS,
@@ -34,11 +29,11 @@ import { persistCompletedReview, persistFailedFileReview, reviewAndPersistFile }
 // Import via the core/review.ts barrel, not from here: several specs mock that specifier.
 
 export async function runReviewPhase(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: GitHubService,
-  model: ModelService,
+  github: ReviewGitHub,
+  model: ReviewModel,
   tracker: TokenTracker,
 ) {
   if (!hasCompletedStep(job, 'Preparation')) {
@@ -46,7 +41,7 @@ export async function runReviewPhase(
     return;
   }
 
-  await updateJobStep(env, job.id, 'Reviewing Files', { status: 'running' });
+  await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'running' });
 
   // One DB read and one GitHub read with nothing between them; two in flight cannot breach the subrequest cap.
   const [rejectedExemplars, pr] = await Promise.all([
@@ -60,7 +55,7 @@ export async function runReviewPhase(
     failureModelProviderPromise ??= resolveModelProviderName(env, failureModelId);
     return failureModelProviderPromise;
   };
-  const { concurrencyLevel, maxFiles } = await getReviewSettings(env);
+  const { concurrencyLevel, maxFiles } = await env.settings.getReviewSettings();
   const { files } = await getDiffFiles(env, job, github, config, maxFiles);
   const totalLineCount = files.reduce((sum, file) => sum + file.lineCount, 0);
   const configuredChunkFileLimit = REVIEW_CONCURRENCY_LIMITS[concurrencyLevel];
@@ -74,12 +69,12 @@ export async function runReviewPhase(
   if (reviewChunkFileLimit <= 0) {
     throw new Error('Subrequest budget for this invocation was exhausted before starting the next review chunk.');
   }
-  const startedAt = Date.now();
+  const startedAt = env.clock.now();
   let processedThisChunk = 0;
 
   const jobIdsToQuery = [job.id];
   if (job.retryOfJobId) jobIdsToQuery.push(job.retryOfJobId);
-  const allExistingReviews = await getFileReviewsForJobs(env, jobIdsToQuery);
+  const allExistingReviews = await env.fileReviews.getFileReviewsForJobs(jobIdsToQuery);
   type ExistingReview = (typeof allExistingReviews)[number];
   const currentReviews = new Map<string, ExistingReview>();
   const parentReviews = new Map<string, ExistingReview>();
@@ -102,7 +97,7 @@ export async function runReviewPhase(
     });
 
     if (inheritablePaths.length > 0) {
-      const inheritedPaths = await bulkInheritFileReviews(env, {
+      const inheritedPaths = await env.fileReviews.bulkInheritFileReviews({
         jobId: job.id,
         parentJobId: job.retryOfJobId,
         filePaths: inheritablePaths,
@@ -140,7 +135,7 @@ export async function runReviewPhase(
     for (const unit of plannedBins) {
       // A bin is one unit (one model chain + one bulk write); counting its files would stop the chunk after a single bin.
       if (processedThisChunk >= reviewChunkFileLimit) break;
-      if (Date.now() - startedAt >= REVIEW_CHUNK_WALL_CLOCK_MS) break;
+      if (env.clock.now() - startedAt >= REVIEW_CHUNK_WALL_CLOCK_MS) break;
 
       const binFiles = unit.kind === 'bin' ? unit.files : [];
       binFiles.forEach((file) => binnedPaths.add(file.path));
@@ -218,7 +213,7 @@ export async function runReviewPhase(
           compactPrompt: (existingReview?.transient_error_count ?? 0) > 0,
         });
         if (submitted) {
-          await upsertFileReview(env, job.id, {
+          await env.fileReviews.upsertFileReview(job.id, {
             filePath: file.path,
             fileStatus: 'pending',
             modelUsed: submitted.model,
@@ -251,7 +246,7 @@ export async function runReviewPhase(
         await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
         terminalProgress += 1;
       } else {
-        await upsertFileReview(env, job.id, {
+        await env.fileReviews.upsertFileReview(job.id, {
           filePath: file.path,
           fileStatus: 'done',
           modelUsed: inherited.model_used,
@@ -278,7 +273,7 @@ export async function runReviewPhase(
     // A poll is one subrequest, not a review: charging it would strand every in-flight batch.
     if (!awaitingReview) processedThisChunk += 1;
 
-    if (Date.now() - startedAt >= REVIEW_CHUNK_WALL_CLOCK_MS) {
+    if (env.clock.now() - startedAt >= REVIEW_CHUNK_WALL_CLOCK_MS) {
       break;
     }
   }
@@ -288,7 +283,7 @@ export async function runReviewPhase(
 
   // Only terminal rows count as progress; a submit/poll-only chunk must not reset the counter.
   if (terminalProgress > 0) {
-    await resetJobContinuationCount(env, job.id);
+    await env.jobs.resetJobContinuationCount(job.id);
   }
 
   // Before the throw paths on purpose: a chunk that defers is exactly when waste is highest.
@@ -308,7 +303,7 @@ export async function runReviewPhase(
     });
 
     // Surface as a single error so the orchestrator reschedules instead of failing on AggregateError.
-    const deferrableError = rejected.map(r => r.reason).find(r => isRetryableModelError(r) || isSubrequestBudgetError(r));
+    const deferrableError = rejected.map(r => r.reason).find(r => env.modelErrors.isRetryableModelError(r) || isSubrequestBudgetError(r));
     if (deferrableError) {
       throw deferrableError;
     }
@@ -318,7 +313,7 @@ export async function runReviewPhase(
       : new AggregateError(rejected.map((result) => result.reason), `${rejected.length} review chunk tasks failed`);
   }
 
-  const latestReviews = await getFileReviewsForJobs(env, [job.id]);
+  const latestReviews = await env.fileReviews.getFileReviewsForJobs([job.id]);
   // Exclude files awaiting async results so the job doesn't finalize with pending reviews.
   const reviewedPaths = new Set(
     latestReviews.flatMap((review) => (
@@ -328,7 +323,7 @@ export async function runReviewPhase(
   const completedCount = files.filter((file) => reviewedPaths.has(file.path)).length;
 
   if (completedCount >= files.length) {
-    await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+    await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'done' });
     // Finalize needs a fresh budget: TokenTracker under-reports usage, so a conditional yield let finalize die with "Too many subrequests".
     await enqueueJobPhase(env, job.id, 'finalize', FRESH_INVOCATION_YIELD_SECONDS);
     return;
@@ -336,7 +331,7 @@ export async function runReviewPhase(
 
   // Only in-flight batches left: poll after a delay, degrading to a partial review if they never land.
   if (awaitingAsync > 0 && terminalProgress === 0) {
-    const pollCount = await markJobContinuationQueued(env, job.id, ASYNC_BATCH_POLL_DELAY_SECONDS);
+    const pollCount = await env.jobs.markJobContinuationQueued(job.id, ASYNC_BATCH_POLL_DELAY_SECONDS);
     if (pollCount > MAX_JOB_CONTINUATIONS) {
       logger.error(`Async batch reviews did not complete after ${pollCount} polls; degrading to a partial review: ${job.owner}/${job.repo} PR #${job.prNumber}`);
       for (const review of latestReviews.filter(isAwaitingAsyncReview)) {
@@ -348,7 +343,7 @@ export async function runReviewPhase(
           clearAsync: true,
         });
       }
-      await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+      await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'done' });
       throw new NextPhaseError('finalize', FRESH_INVOCATION_YIELD_SECONDS);
     }
     throw new NextPhaseError('review', ASYNC_BATCH_POLL_DELAY_SECONDS);

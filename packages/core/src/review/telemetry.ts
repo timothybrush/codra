@@ -1,14 +1,12 @@
 import { logger } from '../logger';
-import type { AppBindings } from '@server/env';
-import { getSuppressedFindings } from '@server/db/file-reviews';
-import { sendTelemetryEvent } from '../telemetry';
+import type { ReviewRuntime } from '../ports';
 import { type PersistedReviewJob } from './phase-control';
 import { bareModelId } from './retry-policy';
 // Sibling of core/review.ts -- import from that barrel, not from here.
 
 // Success/all-failed fields come in as `overrides`. Token/model data comes from `done` reviews only, so failed or inherited rows don't deflate totals.
 export async function sendReviewTelemetry(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: PersistedReviewJob,
   files: Array<{ path: string; lineCount: number }>,
   reviews: Array<{ file_status: string; input_tokens: number | null; output_tokens: number | null; model_used: string }>,
@@ -34,7 +32,7 @@ export async function sendReviewTelemetry(
       return name.slice(dotIndex + 1).toLowerCase();
     };
 
-    await sendTelemetryEvent(env, {
+    await env.telemetry.send({
       linesReviewed: files.reduce((sum, file) => sum + file.lineCount, 0),
       inputTokens: doneReviews.reduce((sum, r) => sum + (r.input_tokens ?? 0), 0),
       outputTokens: doneReviews.reduce((sum, r) => sum + (r.output_tokens ?? 0), 0),
@@ -44,7 +42,7 @@ export async function sendReviewTelemetry(
         return extension ? [extension] : [];
       }))),
       triggerType: job.trigger,
-      reviewDurationMs: Math.max(0, Date.now() - new Date(job.createdAt).getTime()),
+      reviewDurationMs: Math.max(0, env.clock.now() - new Date(job.createdAt).getTime()),
       filesReviewed: files.length,
       concurrencyLevel: meta.concurrencyLevel,
       prTotalLinesChanged: files.reduce((sum, file) => sum + file.lineCount, 0),
@@ -57,7 +55,7 @@ export async function sendReviewTelemetry(
 }
 
 // `posted` requires both fingerprint and anchor hash to match, so an edit to the flagged line re-raises it; `rejected` suppresses on fingerprint alone.
-export async function loadSuppressedFingerprints(env: AppBindings, jobId: string) {
+export async function loadSuppressedFingerprints(env: Pick<ReviewRuntime, 'fileReviews'>, jobId: string) {
   const posted = new Map<string, Set<string>>();
   const rejected = new Set<string>();
   // v2 already contains the anchor hash, so membership alone means "same file, same claim class, byte-identical line".
@@ -65,7 +63,7 @@ export async function loadSuppressedFingerprints(env: AppBindings, jobId: string
   const rejectedV2 = new Set<string>();
 
   try {
-    for (const row of await getSuppressedFindings(env, jobId)) {
+    for (const row of await env.fileReviews.getSuppressedFindings(jobId)) {
       if (!row.anchored) {
         if (row.fingerprint) rejected.add(row.fingerprint);
         if (row.fingerprint_v2) rejectedV2.add(row.fingerprint_v2);

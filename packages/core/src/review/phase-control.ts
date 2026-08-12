@@ -1,19 +1,12 @@
 import { logger } from '../logger';
-import type { AppBindings } from '@server/env';
-import {
-  failJob,
-  getJobForProcessing,
-  heartbeatJobLease,
-  mapJob,
-  markJobCheckRunCompleted,
-  markJobContinuationQueued,
-} from '@server/db/jobs';
-import type { GitHubService } from '../../services/github';
+import type { PersistedReviewJob, ReviewGitHub, ReviewRuntime } from '../ports';
 
 // Sibling of core/review.ts -- import from that barrel, not from here.
 // THE LEAF OF THE REVIEW FAMILY: phase.ts and finalize.ts both need exports from here, so this module must import NOTHING from any other review-* sibling or import-x/no-cycle fires.
 
-export type PersistedReviewJob = ReturnType<typeof mapJob>;
+// Re-exported so the review family keeps its single source for the job type. It resolves to
+// JobSummary, which is exactly what mapJob returns; see the note on the port.
+export type { PersistedReviewJob };
 
 export const REVIEW_CHUNK_WALL_CLOCK_MS = 12 * 60 * 1000;
 export const JOB_LEASE_SECONDS = 15 * 60;
@@ -35,9 +28,9 @@ export const MAX_JOB_CONTINUATIONS = 20;
 // Lower than review's: finalize either fits a fresh invocation's budget or it doesn't; the check-run reconciler recovers past that.
 export const MAX_FINALIZE_CONTINUATIONS = 3;
 
-export async function heartbeatAndCheckSuperseded(env: AppBindings, jobId: string, leaseOwner: string) {
-  await heartbeatJobLease(env, jobId, leaseOwner, JOB_LEASE_SECONDS);
-  const currentJob = await getJobForProcessing(env, jobId);
+export async function heartbeatAndCheckSuperseded(env: ReviewRuntime, jobId: string, leaseOwner: string) {
+  await env.jobs.heartbeatJobLease(jobId, leaseOwner, JOB_LEASE_SECONDS);
+  const currentJob = await env.jobs.getJobForProcessing(jobId);
   if (currentJob?.status === 'superseded') {
     throw new Error('JOB_SUPERSEDED');
   }
@@ -50,12 +43,12 @@ export class NextPhaseError extends Error {
 }
 
 export async function enqueueJobPhase(
-  env: AppBindings,
+  env: ReviewRuntime,
   jobId: string,
   phase: 'prepare' | 'review' | 'finalize',
   delaySeconds = 0,
 ) {
-  await markJobContinuationQueued(env, jobId, delaySeconds);
+  await env.jobs.markJobContinuationQueued(jobId, delaySeconds);
   throw new NextPhaseError(phase, delaySeconds);
 }
 
@@ -64,14 +57,14 @@ export function hasCompletedStep(job: PersistedReviewJob, stepName: string) {
 }
 
 export async function failJobAndCheckRun(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: Pick<PersistedReviewJob, 'id' | 'owner' | 'repo' | 'checkRunId'>,
-  github: Pick<GitHubService, 'updateCheckRun'>,
+  github: Pick<ReviewGitHub, 'updateCheckRun'>,
   message: string,
 ) {
   // Must-not-lose write: marks the job terminal so it stops retrying, and eligible for completeTerminalCheckRuns if the GitHub call below fails.
   try {
-    await failJob(env, job.id, message);
+    await env.jobs.failJob(job.id, message);
   } catch (dbError) {
     logger.error(`Critical: failed to mark job ${job.id} as failed in the DB; it may remain stuck until lease-expiry recovery reclaims it`, dbError);
     return;
@@ -79,7 +72,7 @@ export async function failJobAndCheckRun(
 
   // Best-effort: the job is already durably marked failed above, and completeTerminalCheckRuns retries this later.
   try {
-    const latest = await getJobForProcessing(env, job.id);
+    const latest = await env.jobs.getJobForProcessing(job.id);
     const checkRunId = latest?.check_run_id ?? job.checkRunId;
     if (checkRunId) {
       await github.updateCheckRun(job.owner, job.repo, checkRunId, {
@@ -88,7 +81,7 @@ export async function failJobAndCheckRun(
         title: 'Review failed',
         summary: message,
       });
-      await markJobCheckRunCompleted(env, job.id);
+      await env.jobs.markJobCheckRunCompleted(job.id);
     }
   } catch (checkRunError) {
     logger.warn(`Failed to update GitHub check run for failed job ${job.id}; opportunistic maintenance will retry it`, checkRunError);

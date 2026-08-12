@@ -1,10 +1,8 @@
 import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@codra/schema';
 import type { FileDiff } from './diff';
-import type { ModelService } from '../services/model';
-import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from '../prompts/verify';
+import type { ReviewModel } from './ports';
+import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from './prompts/verify';
 import { logger } from './logger';
-
-// Keep the ModelService import type-only, or it closes a cycle through core/model-output.
 
 type VerifiableJob = { id: string };
 
@@ -57,7 +55,7 @@ export async function verifyFindings(params: {
   config: RepoConfig;
   files: FileDiff[];
   comments: ParsedReviewComment[];
-  model: Pick<ModelService, 'verifyFindings'>;
+  model: Pick<ReviewModel, 'verifyFindings'>;
   maxCandidates?: number;
 }): Promise<VerifyOutcome> {
   const { comments, files, model, config, job } = params;

@@ -2,8 +2,36 @@
   "name": "@codra/core",
   "version": "0.9.4",
   "private": true,
-  "main": "src/index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ports": "./src/ports/index.ts",
+    "./logger": "./src/logger.ts",
+    "./diff": "./src/diff/index.ts",
+    "./model-output": "./src/model-output/index.ts",
+    "./rules/detect": "./src/rules/detect.ts",
+    "./rules/table": "./src/rules/table.ts",
+    "./claim-checks": "./src/claim-checks.ts",
+    "./verify": "./src/verify.ts",
+    "./fingerprint": "./src/fingerprint.ts",
+    "./timeout": "./src/timeout.ts",
+    "./token-tracker": "./src/token-tracker.ts",
+    "./prompts/file-review": "./src/prompts/file-review.ts",
+    "./prompts/languages": "./src/prompts/languages.ts",
+    "./prompts/summary": "./src/prompts/summary.ts",
+    "./prompts/verify": "./src/prompts/verify.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
   "dependencies": {
-    "@codra/schema": "*"
+    "@codra/schema": "*",
+    "jsonrepair": "^3.15.0",
+    "picomatch": "^4.0.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/picomatch": "^4.0.3"
   }
 }

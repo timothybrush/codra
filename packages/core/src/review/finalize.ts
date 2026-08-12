@@ -1,14 +1,8 @@
 import { logger } from '../logger';
 import { defaultRepoConfig, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
-import type { AppBindings } from '@server/env';
-import { bulkMarkFilesFailed, getFileReviewsForJobs, markCommentDispositions, markCommentsPosted } from '@server/db/file-reviews';
-import { completeJob, markJobCheckRunCompleted, updateJobStep } from '@server/db/jobs';
 import { shadowEvaluate } from '../finding-gates';
 import { getDiffFiles } from './diff-cache';
-import { GitHubService } from '../../services/github';
-import { ModelService } from '../../services/model';
-import { FormatterService } from '../../services/formatter';
-import { getReviewSettings } from '@server/db/app-settings';
+import type { ReviewFormatter, ReviewGitHub, ReviewModel, ReviewRuntime } from '../ports';
 import {
   type PersistedReviewJob,
   FRESH_INVOCATION_YIELD_SECONDS,
@@ -20,23 +14,23 @@ import { applyFindingGates } from './gate-pipeline';
 // Reconciles reviews, gates findings, then composes and posts the review. Import from the core/review barrel, not here.
 
 export async function runFinalizePhase(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: GitHubService,
-  formatter: FormatterService,
-  model: ModelService,
+  github: ReviewGitHub,
+  formatter: ReviewFormatter,
+  model: ReviewModel,
 ) {
-  await updateJobStep(env, job.id, 'Generating Summary', { status: 'running' });
+  await env.jobs.updateJobStep(job.id, 'Generating Summary', { status: 'running' });
 
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
   // One lookup supplies both the file ceiling and the gating comment cap.
-  const reviewSettings = await getReviewSettings(env);
+  const reviewSettings = await env.settings.getReviewSettings();
   // The diff (KV/GitHub) and the file reviews (Postgres) share no state; two in flight cannot breach the subrequest cap.
   const [{ files, skipped: filesOverCap }, initialReviews] = await Promise.all([
     getDiffFiles(env, job, github, config, reviewSettings.maxFiles),
-    getFileReviewsForJobs(env, [job.id]),
+    env.fileReviews.getFileReviewsForJobs([job.id]),
   ]);
   let reviews = initialReviews;
 
@@ -48,24 +42,23 @@ export async function runFinalizePhase(
     if (missingFiles.length > 0) {
       logger.warn(`Job ${job.id} reached finalize phase with ${missingFiles.length} missing file reviews. Forcing them to failed state.`);
       // One INSERT: per-file writes would exhaust the subrequest budget right before posting.
-      await bulkMarkFilesFailed(
-        env,
+      await env.fileReviews.bulkMarkFilesFailed(
         job.id,
         missingFiles.map((file) => ({ filePath: file.path, diffLineCount: file.lineCount })),
         { modelUsed: config.model?.main ?? 'unconfigured', errorMessage: 'This file was not reviewed before the review run completed.' },
       );
 
-      reviews = await getFileReviewsForJobs(env, [job.id]);
+      reviews = await env.fileReviews.getFileReviewsForJobs([job.id]);
     } else if (reviews.length < files.length) {
       // Every path covered but fewer rows than files: review isn't done, so bounce back. Must stay an `else if`, or the healthy path loops finalize forever.
-      await updateJobStep(env, job.id, 'Reviewing Files', { status: 'running' });
+      await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'running' });
       await enqueueJobPhase(env, job.id, 'review', FRESH_INVOCATION_YIELD_SECONDS);
       return;
     }
   }
 
   // The continuation-ceiling degrade reaches finalize unmarked, stranding the step "In progress".
-  await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
+  await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'done' });
 
   const reviewedComments = reviews.flatMap((review) => review.parsed_comments as ParsedReviewComment[]);
   const fileSummaries = reviews.map((review) => ({
@@ -82,7 +75,7 @@ export async function runFinalizePhase(
   const retryCount = job.retryOfJobId ? 1 : 0;
 
   if (fileSummaries.length > 0 && fileSummaries.every((file) => file.verdict === 'failed')) {
-    await updateJobStep(env, job.id, 'Generating Summary', { status: 'failed', error: 'All files failed to review' });
+    await env.jobs.updateJobStep(job.id, 'Generating Summary', { status: 'failed', error: 'All files failed to review' });
 
     await sendReviewTelemetry(
       env,
@@ -159,10 +152,10 @@ export async function runFinalizePhase(
   const verdictSummary = everythingWithheld && rawVerdict.verdict === 'approve'
     ? { ...rawVerdict, verdict: 'comment' as const }
     : rawVerdict;
-  await updateJobStep(env, job.id, 'Generating Summary', { status: 'done' });
+  await env.jobs.updateJobStep(job.id, 'Generating Summary', { status: 'done' });
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
-  let formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.BOT_USERNAME);
+  let formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.botUsername);
 
   // Reviewing 100 of 106 files and calling it done looks identical to finding the other six clean.
   if (filesOverCap > 0) {
@@ -177,9 +170,9 @@ export async function runFinalizePhase(
   const finalizeRetriedPastPost = job.steps.some(
     (step) => step.name === 'Completing' && (step.status === 'running' || step.status === 'done'),
   );
-  await updateJobStep(env, job.id, 'Completing', { status: 'running' });
+  await env.jobs.updateJobStep(job.id, 'Completing', { status: 'running' });
   const existingReview: { id: number; postedIndices?: number[] } | null = finalizeRetriedPastPost
-    ? await github.findBotReviewForCommit(job.owner, job.repo, job.prNumber, pr.head.sha, env.BOT_USERNAME)
+    ? await github.findBotReviewForCommit(job.owner, job.repo, job.prNumber, pr.head.sha, env.botUsername)
     : null;
   const review = existingReview ?? await github.createReview(job.owner, job.repo, job.prNumber, {
     commitSha: pr.head.sha,
@@ -200,7 +193,7 @@ export async function runFinalizePhase(
     const postedFingerprints = review.postedIndices
       .map((index) => finalComments[index]?.fingerprint)
       .filter((fingerprint): fingerprint is string => Boolean(fingerprint));
-    await markCommentsPosted(env, job.id, postedFingerprints);
+    await env.fileReviews.markCommentsPosted(job.id, postedFingerprints);
   }
 
   // Measurement only: a failure here must never fail a review already on GitHub.
@@ -213,7 +206,7 @@ export async function runFinalizePhase(
         reason: verifyReasons.get(fingerprint) ?? null,
       });
     }
-    await markCommentDispositions(env, job.id, withReasons);
+    await env.fileReviews.markCommentDispositions(job.id, withReasons);
   } catch (error) {
     logger.warn('Could not record finding dispositions', {
       jobId: job.id,
@@ -234,7 +227,7 @@ export async function runFinalizePhase(
     ? `Partial review: ${failedFileCount} of ${files.length} file${files.length === 1 ? '' : 's'} could not be reviewed.`
     : null;
   // Done immediately after createReview: the review is on GitHub, so a budget-exhausted cosmetic call must not strand the job.
-  await completeJob(env, job.id, {
+  await env.jobs.completeJob(job.id, {
     verdict: verdictSummary.verdict,
     fileCount: files.length,
     commentCount: finalComments.length,
@@ -258,7 +251,7 @@ export async function runFinalizePhase(
         summary: `${finalComments.length} inline comments across ${files.length} files.${hasFailures ? ` ${failedFileCount} file${failedFileCount === 1 ? '' : 's'} could not be reviewed.` : ''}`,
       });
       // Record completion so the maintenance sweep skips it.
-      await markJobCheckRunCompleted(env, job.id);
+      await env.jobs.markJobCheckRunCompleted(job.id);
     }
 
     if (config.review.labels !== false) {

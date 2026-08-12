@@ -1,8 +1,7 @@
 import { logger } from '../logger';
 import { normalizeModelId, type RepoConfig } from '@codra/schema';
 import { isSubrequestBudgetMessage, isTimeoutMessage, matchesAnyTransientSubstring } from '@codra/schema/transient-errors';
-import type { AppBindings } from '@server/env';
-import { getResolvedModelConfig } from '@server/db/model-configs';
+import type { ReviewRuntime } from '../ports';
 import { RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS } from './phase-control';
 
 // Sibling of core/review.ts -- import from that barrel, not from here.
@@ -97,11 +96,11 @@ export function canInheritParentFileReview(config: RepoConfig, review: { model_u
   return configuredModelSet(config).has(bareModelId(review.model_used));
 }
 
-export async function resolveModelProviderName(env: Pick<AppBindings, 'HYPERDRIVE'>, modelId: string | null | undefined) {
+export async function resolveModelProviderName(env: Pick<ReviewRuntime, 'modelConfigs'>, modelId: string | null | undefined) {
   if (!modelId || modelId === 'unconfigured') return null;
 
   try {
-    const resolved = await getResolvedModelConfig(env, normalizeModelId(modelId));
+    const resolved = await env.modelConfigs.getResolvedModelConfig(normalizeModelId(modelId));
     return resolved?.providerName ?? null;
   } catch (error) {
     logger.warn(`Failed to resolve provider for model ${modelId}`, {

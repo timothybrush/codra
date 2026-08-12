@@ -1,20 +1,19 @@
 import { dedupeFindings } from '../model-output';
 import { verifyFindings } from '../finding-gates';
 import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@codra/schema';
-import type { AppBindings } from '@server/env';
 import type { FileDiff } from '../diff';
 import type { PersistedReviewJob } from './phase-control';
-import type { ModelService } from '../../services/model';
+import type { ReviewModel, ReviewRuntime } from '../ports';
 import { loadSuppressedFingerprints } from './telemetry';
 
 // The finding funnel. Order is load-bearing: severity/confidence gates, cross-run suppression (before dedupe/verification), dedupe, a severity sort, then verification and the max_comments cap.
 // Returns per-stage counts, since `posted = false` alone conflated six outcomes. Import from the core/review barrel, not here.
 export async function applyFindingGates(params: {
-  env: AppBindings;
+  env: Pick<ReviewRuntime, 'fileReviews'>;
   job: PersistedReviewJob;
   config: RepoConfig;
   files: FileDiff[];
-  model: Pick<ModelService, 'verifyFindings'>;
+  model: Pick<ReviewModel, 'verifyFindings'>;
   effectiveMaxComments: number;
   reviewedComments: ParsedReviewComment[];
   reviews: Array<{ withheld_counts?: { evidence?: number; claimDenied?: number } | null }>;

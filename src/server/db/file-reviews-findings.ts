@@ -1,15 +1,9 @@
+import type { SuppressedFinding } from '@codra/core/ports';
 import type { AppBindings } from '@server/env';
 import { queryRows } from './client';
 
-export type SuppressedFinding = {
-  fingerprint: string | null;
-  // Null for repo-wide rejections, which suppress regardless of what the code now says.
-  anchor_hash: string | null;
-  // Title-independent identity; already includes the anchor, so it needs no separate anchor check.
-  fingerprint_v2: string | null;
-  // True when this came from an earlier posted comment rather than from human rejection.
-  anchored: boolean;
-};
+// Part of the FileReviewStore port contract; @codra/core/ports owns it and this module re-exports.
+export type { SuppressedFinding } from '@codra/core/ports';
 
 // Findings already posted on an EARLIER commit with the anchored line unchanged, or rejected by a human anywhere in this repository.
 // `j.commit_sha <> me.commit_sha` is load-bearing: retries and mention-triggered re-reviews reuse the SAME head commit.

@@ -32,6 +32,13 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",
-    "test/**/*.tsx"
+    "test/**/*.tsx",
+    // Package sources are already pulled in transitively wherever src/ imports them, but their own
+    // tests are not reachable that way -- without these two lines `npm run typecheck` silently skips
+    // every spec under packages/*/test. This is coverage, not strictness: each package's own
+    // `tsc -p` (npm run typecheck:all) is the narrower program that enforces its boundaries, since
+    // this one has worker-configuration.d.ts in scope and would happily accept a KVNamespace.
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts"
   ]
 }

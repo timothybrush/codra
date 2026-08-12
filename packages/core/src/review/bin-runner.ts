@@ -1,15 +1,8 @@
 import { logger } from '../logger';
 import type { RepoConfig } from '@codra/schema';
-import type { AppBindings } from '@server/env';
-import {
-  type BulkFileReviewInput,
-  bulkRecordRetryableFileReviewFailures,
-  bulkUpsertFileReviews,
-} from '@server/db/file-reviews';
 import type { FileDiff } from '../diff';
-import { renderFileDiff, type RejectedExemplar } from '@server/prompts/file-review';
-import { GitHubService } from '../../services/github';
-import { isRetryableModelError, ModelService, nextChainIndexOf } from '../../services/model';
+import { renderFileDiff, type RejectedExemplar } from '../prompts/file-review';
+import type { BulkFileReviewInput, PullRequestRecord, ReviewModel, ReviewRuntime } from '../ports';
 import { type PersistedReviewJob, FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from './phase-control';
 import { isSubrequestBudgetError, retryableModelFailureDelaySeconds } from './retry-policy';
 import { scanRuleChannel } from './file-runner';
@@ -39,17 +32,17 @@ export function proportionalSplit(total: number, weights: number[]): number[] {
 
 // Reviews a packed bin in one model call, one row per file. Returns how many files reached a terminal state; re-queued files are excluded, or the wedge counter never advances.
 export async function reviewAndPersistBin(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: PersistedReviewJob,
   files: FileDiff[],
-  pr: Awaited<ReturnType<GitHubService['getPullRequest']>>,
+  pr: PullRequestRecord,
   config: RepoConfig,
   totalLineCount: number,
-  model: ModelService,
+  model: ReviewModel,
   resolveFailureModelProvider: () => Promise<string | null>,
   rejectedExemplars: readonly RejectedExemplar[] = [],
 ): Promise<number> {
-  const startedAt = Date.now();
+  const startedAt = env.clock.now();
 
   // Scanned before the model call, so a rule hit reaches finalize even when the chain fails.
   const ruleScans = new Map(files.map((file) => [file.path, scanRuleChannel(file, config)]));
@@ -70,7 +63,7 @@ export async function reviewAndPersistBin(
     parsedComments: ruleScans.get(file.path)?.comments ?? [],
     inputTokens: null,
     outputTokens: null,
-    durationMs: Date.now() - startedAt,
+    durationMs: env.clock.now() - startedAt,
     verdict: null,
     fileSummary: null,
     errorMessage,
@@ -91,7 +84,7 @@ export async function reviewAndPersistBin(
     const weights = reviewed.map((file) => renderFileDiff(file).length);
     const inputSplit = proportionalSplit(response.inputTokens, weights);
     const outputSplit = proportionalSplit(response.outputTokens, weights);
-    const durationMs = Date.now() - startedAt;
+    const durationMs = env.clock.now() - startedAt;
 
     const rows: BulkFileReviewInput[] = reviewed.map((file, index) => {
       const parsed = response.batch.reviews.get(file.path)!;
@@ -126,14 +119,14 @@ export async function reviewAndPersistBin(
     });
 
     if (rows.length > 0) {
-      await bulkUpsertFileReviews(env, job.id, rows);
+      await env.fileReviews.bulkUpsertFileReviews(job.id, rows);
       for (const row of rows) persisted.add(row.filePath);
       terminalCount += rows.length;
     }
 
     // Never done-and-clean (that approves unexamined code), and not terminal progress either.
     if (response.batch.missing.length > 0) {
-      const counts = await bulkRecordRetryableFileReviewFailures(env, job.id, response.batch.missing.map((path) => ({
+      const counts = await env.fileReviews.bulkRecordRetryableFileReviewFailures(job.id, response.batch.missing.map((path) => ({
         filePath: path,
         modelUsed: response.modelUsed,
         diffLineCount: files.find((f) => f.path === path)?.lineCount ?? 0,
@@ -144,7 +137,7 @@ export async function reviewAndPersistBin(
       // Otherwise a file omitted every time never terminates through this path.
       const exhausted = counts.filter((c) => c.transientErrorCount >= MAX_RETRYABLE_FILE_REVIEW_FAILURES);
       if (exhausted.length > 0) {
-        await bulkUpsertFileReviews(env, job.id, exhausted.map((c) => failedRow(
+        await env.fileReviews.bulkUpsertFileReviews(job.id, exhausted.map((c) => failedRow(
           files.find((f) => f.path === c.filePath)!,
           `Review skipped after the model omitted this file ${c.transientErrorCount} times.`,
         )));
@@ -200,12 +193,12 @@ export async function reviewAndPersistBin(
       return terminalCount;
     }
 
-    if (isRetryableModelError(error)) {
+    if (env.modelErrors.isRetryableModelError(error)) {
       // Set when the chain still has untried models: the next invocation resumes at that index, so
       // this deferral is progress and must not spend one of the three allowed attempts. Keeping the
       // count also keeps the bin intact, which is what we want while only the model is changing.
-      const advancedTo = nextChainIndexOf(error);
-      const counts = await bulkRecordRetryableFileReviewFailures(env, job.id, outstanding.map((file) => ({
+      const advancedTo = env.modelErrors.nextChainIndexOf(error);
+      const counts = await env.fileReviews.bulkRecordRetryableFileReviewFailures(job.id, outstanding.map((file) => ({
         filePath: file.path,
         modelUsed: modelId,
         diffLineCount: file.lineCount,
@@ -215,7 +208,7 @@ export async function reviewAndPersistBin(
       const exhausted = counts.filter((c) => c.transientErrorCount >= MAX_RETRYABLE_FILE_REVIEW_FAILURES);
       if (exhausted.length > 0) {
         // Terminal, but rule-channel findings survive the model's failure.
-        await bulkUpsertFileReviews(env, job.id, exhausted.map((c) => failedRow(
+        await env.fileReviews.bulkUpsertFileReviews(job.id, exhausted.map((c) => failedRow(
           files.find((f) => f.path === c.filePath)!,
           `Review skipped after ${c.transientErrorCount} repeated model provider outages.`,
           modelProvider,
@@ -245,7 +238,7 @@ export async function reviewAndPersistBin(
 
     logger.error('Batched review failed', { jobId: job.id, paths: outstanding.map((f) => f.path), error });
 
-    await bulkUpsertFileReviews(env, job.id, outstanding.map((file) => failedRow(file, errorMessage, modelProvider)));
+    await env.fileReviews.bulkUpsertFileReviews(job.id, outstanding.map((file) => failedRow(file, errorMessage, modelProvider)));
     terminalCount += outstanding.length;
   }
 

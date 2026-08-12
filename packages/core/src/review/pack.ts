@@ -1,5 +1,5 @@
 // Groups small files into shared model calls, the inverse of chunkFileDiff, so a 4-line file does not pay the full ~2,800-token preamble.
-import { renderFileDiff } from '@server/prompts/file-review';
+import { renderFileDiff } from '../prompts/file-review';
 import type { FileDiff } from '../diff';
 
 // Above this a file is reviewed alone -- it already amortises its own preamble.

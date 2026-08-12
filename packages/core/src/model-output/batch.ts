@@ -1,7 +1,7 @@
 // Splits one batched response into per-file reviews, then grounds each through the same groundParsedFindings the single-file path uses.
 import type { ClaimType } from '@codra/schema';
 import type { FileDiff } from '../diff';
-import { generatorFindingCap } from '@server/prompts/file-review';
+import { generatorFindingCap } from '../prompts/file-review';
 import { logger } from '../logger';
 import { buildBinAmbiguityIndex } from './evidence';
 import { type GroundedFileReview, groundParsedFindings, samePath } from './index';

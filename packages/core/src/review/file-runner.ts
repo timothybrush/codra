@@ -1,19 +1,16 @@
 import { logger } from '../logger';
 import { type ParsedReviewComment, type RepoConfig } from '@codra/schema';
-import type { AppBindings } from '@server/env';
-import { recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
 import { parseUnifiedDiff, type FileDiff } from '../diff';
 import { ruleHitsToComments, scanFileForRuleHits, type RuleScanStats } from '../rules/detect';
-import type { RejectedExemplar } from '@server/prompts/file-review';
-import { GitHubService } from '../../services/github';
-import { isRetryableModelError, ModelService, nextChainIndexOf } from '../../services/model';
+import type { RejectedExemplar } from '../prompts/file-review';
+import type { PullRequestRecord, ReviewModel, ReviewRuntime } from '../ports';
 import { type PersistedReviewJob, FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from './phase-control';
 import { isSubrequestBudgetError, retryableModelFailureDelaySeconds } from './retry-policy';
 // Sibling of the core/review barrel; import from there, not here. One file end to end: rule scan, model review, persist.
 
 // Persists an async-batch poll result, clearing the bookkeeping columns.
 export async function persistCompletedReview(
-  env: AppBindings,
+  env: Pick<ReviewRuntime, 'fileReviews'>,
   job: PersistedReviewJob,
   file: ReturnType<typeof parseUnifiedDiff>[number],
   response: {
@@ -32,7 +29,7 @@ export async function persistCompletedReview(
     };
   },
 ) {
-  await upsertFileReview(env, job.id, {
+  await env.fileReviews.upsertFileReview(job.id, {
     filePath: file.path,
     fileStatus: 'done',
     modelUsed: response.modelUsed,
@@ -57,7 +54,7 @@ export async function persistCompletedReview(
 
 // Terminal 'failed' upsert, one place for several near-identical ones. `clearAsync` wipes batch bookkeeping on queued rows.
 export async function persistFailedFileReview(
-  env: AppBindings,
+  env: Pick<ReviewRuntime, 'fileReviews'>,
   jobId: string,
   input: {
     filePath: string;
@@ -71,7 +68,7 @@ export async function persistFailedFileReview(
     parsedComments?: ParsedReviewComment[];
   },
 ) {
-  await upsertFileReview(env, jobId, {
+  await env.fileReviews.upsertFileReview(jobId, {
     filePath: input.filePath,
     fileStatus: 'failed',
     modelUsed: input.modelUsed,
@@ -115,18 +112,18 @@ export function scanRuleChannel(
 }
 
 export async function reviewAndPersistFile(
-  env: AppBindings,
+  env: ReviewRuntime,
   job: PersistedReviewJob,
   file: ReturnType<typeof parseUnifiedDiff>[number],
-  pr: Awaited<ReturnType<GitHubService['getPullRequest']>>,
+  pr: PullRequestRecord,
   config: RepoConfig,
   totalLineCount: number,
-  model: ModelService,
+  model: ReviewModel,
   resolveFailureModelProvider: () => Promise<string | null>,
   previousReview?: { transient_error_count: number },
   rejectedExemplars: readonly RejectedExemplar[] = [],
 ) {
-  const startedAt = Date.now();
+  const startedAt = env.clock.now();
   const compactPrompt = (previousReview?.transient_error_count ?? 0) > 0;
 
   // Scanned BEFORE the model call, so a hit reaches finalize even when the whole chain fails.
@@ -143,7 +140,7 @@ export async function reviewAndPersistFile(
       rejectedExemplars,
     });
 
-    await upsertFileReview(env, job.id, {
+    await env.fileReviews.upsertFileReview(job.id, {
       filePath: file.path,
       fileStatus: 'done',
       modelUsed: response.modelUsed,
@@ -154,7 +151,7 @@ export async function reviewAndPersistFile(
       parsedComments: [...response.parsed.comments, ...ruleScan.comments],
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
-      durationMs: Date.now() - startedAt,
+      durationMs: env.clock.now() - startedAt,
       verdict: response.parsed.verdict,
       fileSummary: response.parsed.fileSummary,
       overallCorrectness: response.parsed.overallCorrectness,
@@ -210,17 +207,17 @@ export async function reviewAndPersistFile(
     }
 
     // Transient outages count against the file, so one unrecoverable file becomes a partial review instead of blocking the job forever.
-    if (isRetryableModelError(error)) {
-      const failureCount = await recordRetryableFileReviewFailure(env, job.id, {
+    if (env.modelErrors.isRetryableModelError(error)) {
+      const failureCount = await env.fileReviews.recordRetryableFileReviewFailure(job.id, {
         filePath: file.path,
         modelUsed: modelId,
         modelProvider,
         diffLineCount: file.lineCount,
         diffInput: null,
-        durationMs: Date.now() - startedAt,
+        durationMs: env.clock.now() - startedAt,
         errorMessage,
         // Progress down the chain, not a repeated outage: the retry resumes at the next model.
-        countsAsAttempt: nextChainIndexOf(error) === null,
+        countsAsAttempt: env.modelErrors.nextChainIndexOf(error) === null,
       });
 
       if (failureCount >= MAX_RETRYABLE_FILE_REVIEW_FAILURES) {
@@ -230,7 +227,7 @@ export async function reviewAndPersistFile(
           modelUsed: modelId,
           modelProvider,
           diffLineCount: file.lineCount,
-          durationMs: Date.now() - startedAt,
+          durationMs: env.clock.now() - startedAt,
           errorMessage: finalError,
           parsedComments: ruleScan.comments,
         });
@@ -269,7 +266,7 @@ export async function reviewAndPersistFile(
       modelUsed: modelId,
       modelProvider,
       diffLineCount: file.lineCount,
-      durationMs: Date.now() - startedAt,
+      durationMs: env.clock.now() - startedAt,
       errorMessage,
       parsedComments: ruleScan.comments,
     });

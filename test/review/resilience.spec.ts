@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getDiffFiles, failJobAndCheckRun } from '@server/core/review';
+import { createReviewRuntime } from '@server/adapters';
 import { createTestEnv, generateMockDiff } from '../helpers';
 import { defaultRepoConfig } from '@codra/schema';
 
@@ -34,9 +35,9 @@ describe('getDiffFiles', () => {
     const rawDiff = generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]);
     const github = { getPullRequestDiff: vi.fn().mockResolvedValue(rawDiff) };
 
-    const { files: first } = await getDiffFiles(env, job, github, defaultRepoConfig);
-    const { files: second } = await getDiffFiles(env, job, github, defaultRepoConfig);
-    const { files: third } = await getDiffFiles(env, job, github, defaultRepoConfig);
+    const { files: first } = await getDiffFiles(createReviewRuntime(env), job, github, defaultRepoConfig);
+    const { files: second } = await getDiffFiles(createReviewRuntime(env), job, github, defaultRepoConfig);
+    const { files: third } = await getDiffFiles(createReviewRuntime(env), job, github, defaultRepoConfig);
 
     expect(github.getPullRequestDiff).toHaveBeenCalledTimes(1);
     expect(first.map((f) => f.path)).toEqual(['src/app.ts']);
@@ -51,8 +52,8 @@ describe('getDiffFiles', () => {
     const githubA = { getPullRequestDiff: vi.fn().mockResolvedValue(generateMockDiff([{ path: 'src/one.ts', content: 'a' }])) };
     const githubB = { getPullRequestDiff: vi.fn().mockResolvedValue(generateMockDiff([{ path: 'src/two.ts', content: 'b' }])) };
 
-    const { files: filesA } = await getDiffFiles(env, jobA, githubA, defaultRepoConfig);
-    const { files: filesB } = await getDiffFiles(env, jobB, githubB, defaultRepoConfig);
+    const { files: filesA } = await getDiffFiles(createReviewRuntime(env), jobA, githubA, defaultRepoConfig);
+    const { files: filesB } = await getDiffFiles(createReviewRuntime(env), jobB, githubB, defaultRepoConfig);
 
     expect(githubA.getPullRequestDiff).toHaveBeenCalledTimes(1);
     expect(githubB.getPullRequestDiff).toHaveBeenCalledTimes(1);
@@ -66,7 +67,7 @@ describe('getDiffFiles', () => {
     const job = { ...baseJob, id: `diff-cache-put-fail-${Date.now()}` };
     const github = { getPullRequestDiff: vi.fn().mockResolvedValue(generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }])) };
 
-    const { files } = await getDiffFiles(env, job, github, defaultRepoConfig);
+    const { files } = await getDiffFiles(createReviewRuntime(env), job, github, defaultRepoConfig);
 
     expect(files.map((f) => f.path)).toEqual(['src/app.ts']);
     // The next phase would simply re-fetch from GitHub since the cache write failed; it must
@@ -89,7 +90,7 @@ describe('failJobAndCheckRun', () => {
     getJobForProcessingMock.mockResolvedValue({ check_run_id: job.checkRunId });
     const updateCheckRun = vi.fn().mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
 
-    await expect(failJobAndCheckRun(env, job, { updateCheckRun }, 'boom')).resolves.toBeUndefined();
+    await expect(failJobAndCheckRun(createReviewRuntime(env), job, { updateCheckRun }, 'boom')).resolves.toBeUndefined();
 
     // Use expect.anything() rather than the literal env: env's APP_PRIVATE_KEY getter
     // deliberately throws for unused test secrets, and toHaveBeenCalledWith's deep-equality
@@ -106,7 +107,7 @@ describe('failJobAndCheckRun', () => {
     failJobMock.mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
     const updateCheckRun = vi.fn();
 
-    await expect(failJobAndCheckRun(env, job, { updateCheckRun }, 'boom')).resolves.toBeUndefined();
+    await expect(failJobAndCheckRun(createReviewRuntime(env), job, { updateCheckRun }, 'boom')).resolves.toBeUndefined();
 
     expect(failJobMock).toHaveBeenCalledWith(expect.anything(), job.id, 'boom');
     expect(getJobForProcessingMock).not.toHaveBeenCalled();
@@ -119,7 +120,7 @@ describe('failJobAndCheckRun', () => {
     getJobForProcessingMock.mockResolvedValue({ check_run_id: job.checkRunId });
     const updateCheckRun = vi.fn().mockResolvedValue(undefined);
 
-    await failJobAndCheckRun(env, job, { updateCheckRun }, 'boom');
+    await failJobAndCheckRun(createReviewRuntime(env), job, { updateCheckRun }, 'boom');
 
     expect(updateCheckRun).toHaveBeenCalledWith(
       job.owner,
