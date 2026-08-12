@@ -152,4 +152,50 @@ export default tseslint.config(
       },
     },
   },
+
+  {
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
+    rules: {
+      'import-x/no-restricted-paths': ['error', {
+        zones: [
+          {
+            target: 'packages/schema/**/*',
+            from: ['packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'packages/core/**/*',
+            from: ['packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'packages/db/**/*',
+            from: ['packages/provider-github/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'packages/provider-github/**/*',
+            from: ['packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'packages/models/**/*',
+            from: ['packages/db/**/*', 'packages/provider-github/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'packages/api/**/*',
+            from: ['packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'packages/ui/**/*',
+            from: ['packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+          },
+          {
+            target: 'apps/dashboard/**/*',
+            from: ['packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'apps/worker/**/*']
+          },
+          {
+            target: 'apps/worker/**/*',
+            from: ['packages/ui/**/*', 'apps/dashboard/**/*']
+          }
+        ]
+      }]
+    }
+  }
 );

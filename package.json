@@ -13,21 +13,29 @@
   "bugs": {
     "url": "https://github.com/devarshishimpi/codra/issues"
   },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "vite build && npm run cf-typegen",
+    "build:all": "npm run build --workspaces --if-present",
     "cf-typegen": "wrangler types ./src/server/worker-env.d.ts",
     "deploy": "npm run build && npm run migrate && wrangler deploy",
     "dev": "concurrently -k -n CLIENT,WORKER -c cyan,green \"npm:dev:client\" \"npm:dev:worker\"",
     "dev:client": "vite build --watch --mode development",
     "dev:worker": "wrangler dev --local",
-    "lint": "eslint src test scripts",
+    "lint": "eslint src test scripts packages apps",
+    "lint:all": "npm run lint --workspaces --if-present",
     "density": "node scripts/comment-density.mjs --top",
     "start": "npm run dev",
     "setup:cloudflare": "node scripts/setup-cloudflare.js",
     "migrate": "node scripts/migrate.mjs",
     "test": "node scripts/test.mjs",
+    "test:all": "npm run test --workspaces --if-present",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:all": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,0 +1,9 @@
+{
+  "name": "@codra/core",
+  "version": "0.9.4",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "@codra/schema": "*"
+  }
+}
