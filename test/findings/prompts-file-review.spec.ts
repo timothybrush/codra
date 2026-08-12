@@ -120,10 +120,11 @@ describe('output contract', () => {
 
   // Restraints no downstream gate can check, so the generator is the only place to enforce them.
   it('keeps the restraints the gates cannot replace', () => {
-    // Context limits: the model sees a diff, not a repository.
+    // Context limits: the model sees a diff, not a repository, a lockfile, or a build target.
     expect(systemBase).toMatch(/ONLY the diff/);
-    expect(systemBase).toMatch(/undefined, unimported, unused, missing, or never-called/);
-    expect(systemBase).toMatch(/If confirming an issue requires code you cannot see, do not report it/);
+    expect(systemBase).toMatch(/Never predict that a change breaks callers, importers/);
+    expect(systemBase).toMatch(/your training data predates the installed version/);
+    expect(systemBase).toMatch(/Do not raise compatibility, polyfill, transpilation, engine-version or server-side-rendering concerns/);
 
     // The evidence mandate. Without it the parser withholds everything and recall goes to zero.
     expect(systemBase).toMatch(/copied VERBATIM from the diff/);
@@ -134,7 +135,11 @@ describe('output contract', () => {
     expect(systemBase).toMatch(/resolves by that SHA/);
 
     // Survives in both profiles: the model still emits "technically true, nobody cared" comments.
-    expect(systemBase).toMatch(/Do NOT report subjective preferences/);
+    // The base prompt now leaves this to the per-file instruction rather than repeating it.
+    expect(userPrompt).toMatch(/avoid subjective style feedback/);
+
+    // A claim resting on something outside the window may still be raised, but never as P0/P1.
+    expect(systemBase).toMatch(/at most priority 3, never 0 or 1/);
   });
 });
 
