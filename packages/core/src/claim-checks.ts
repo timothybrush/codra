@@ -2,13 +2,10 @@
 import type { DiffLine, FileDiff } from './diff';
 import { normalizeDiffText } from './fingerprint';
 
-// Refute only when the identifier turns up in the same hunk, or this close in the new file.
 const PROXIMITY_WINDOW_LINES = 25;
 
-// Shorter than this and an identifier is too generic to carry a refutation.
 const MIN_IDENTIFIER_LENGTH = 3;
 
-// Anchored on verbs, not bare "missing": that also matches undecidable claims like "missing error handling".
 const ABSENCE_PATTERNS: readonly RegExp[] = [
   /\b(?:never|not|no longer)\s+(?:being\s+)?(?:passed|provided|supplied|forwarded|included|used|called|invoked|awaited|checked|set|declared|defined|imported)\b/i,
   /\bdoes not\s+(?:pass|include|call|use|await|check|set|import)\b/i,
@@ -18,7 +15,6 @@ const ABSENCE_PATTERNS: readonly RegExp[] = [
   /\bis not defined\b/i,
 ];
 
-// Never refute on these: finding `await` elsewhere does not refute "`await` is missing".
 const IDENTIFIER_STOPLIST = new Set([
   'await', 'async', 'if', 'else', 'try', 'catch', 'finally', 'return', 'throw', 'new', 'const',
   'let', 'var', 'function', 'class', 'this', 'super', 'import', 'export', 'from', 'default',
@@ -27,7 +23,6 @@ const IDENTIFIER_STOPLIST = new Set([
   'result', 'response', 'request', 'req', 'res', 'params', 'options', 'config', 'args',
 ]);
 
-// Wording that marks a claim as about an external version or config key, not the code shown.
 const VERSION_CLAIM_PATTERNS: readonly RegExp[] = [
   /\b(?:does not|doesn't|do not|don't)\s+exist\b/i,
   /\b(?:non-?existent|nonexistent)\b/i,
@@ -35,46 +30,19 @@ const VERSION_CLAIM_PATTERNS: readonly RegExp[] = [
   /\blatest (?:major )?version\b/i,
   /\bno such (?:version|tag|release)\b/i,
   /\bnot a valid (?:configuration )?(?:option|key|property)\b/i,
-  // A claim about what an installed library's API offers is the same kind of claim as one about a
-  // version: it is settled by node_modules, not by the diff. Added after a P0 on codra's own PR #86
-  // asserted that `z.uuid()` "does not expose" a top-level validator and would throw at runtime --
-  // Zod 4 has had it since the 4.0 release, and the suggested fix reverted to the deprecated form.
-  // "does not exist" was already covered; the miss was purely the verb.
   /\b(?:does not|doesn't|do not|don't)\s+(?:expose|provide|have|support|include|offer)\b/i,
   /\bno such (?:function|method|export|property|api|field)\b/i,
   /\bis not (?:exposed|exported|available) (?:by|from|in)\b/i,
 ];
 
-// ---- Undecidable-claim refutations ---------------------------------------------------------------
-// CLAIM_TYPE_DECIDABILITY answers "can this be settled from a diff hunk?" per claim TYPE, which leaves
-// `other` -- the deliberate escape hatch, marked diff_local -- carrying whatever a model wants to
-// assert. These answer the same question per CLAIM, for the two families that recur:
-//
-//   cross-file    the claim's consequence lands in a file that is not in the diff
-//   environment   the claim is conditional on a runtime, framework or engine version not shown
-//
-// Both are already forbidden by the review prompt in prose; on codra's own PR #86 the models ignored
-// that instruction four times in one review, and the verification pass confirmed every one of them
-// (generator and verifier share a knowledge gap, so verification cannot close it).
-//
 // Same soundness rule as the absence checker above: a refutation asserts only that the claim cannot be
-// settled HERE, never that the code is fine. Losing one is free; a wrong one silences a real defect.
 
-// The claim reaches for consumers it cannot see: "other modules", "downstream callers".
 const CROSS_FILE_SUBJECT = /\b(?:other|another|external|downstream|consuming|importing|dependent|calling)\s+(?:module|file|component|caller|package|consumer|import)s?\b/i;
 const CROSS_FILE_CONSEQUENCE = /\b(?:break|breaks|breaking|broken|fail|fails|failing|error|errors|cannot import|can't import|unable to|compilation|compile|prevent|prevents|preventing|block|blocks|blocking)\b/i;
 
-// Hedged, and hedged specifically about where the code runs rather than about what it does.
 const ENVIRONMENT_HEDGE = /\b(?:depending on|might not|may not|could be undefined|if (?:this|the|it)\b[^.]{0,60}\b(?:is )?(?:rendered|run|executed|used)\b)/i;
 const ENVIRONMENT_SUBJECT = /\b(?:older|legacy|earlier|some)\s+(?:node(?:\.js)?|browsers?|runtimes?|environments?|engines?|versions?)\b|\bserver[- ]side\b|\bSSR\b|\bhydration\b|\bpolyfill\b|\bis not defined on the server\b/i;
 
-// "if `loadCooldowns()` fails, the rejection is unhandled" -- a claim about how a function HANDLES ITS
-// OWN ERRORS, where that function's body is not in the diff. Posted as a P1 on codra's own PR: the
-// callee already wrapped its only failure path in try/catch, in another file, with a comment saying so.
-// Requires a call-shaped subject (`name(` or `name()`), a failure condition, and an unhandled-outcome
-// word, so an ordinary claim about visible code -- "this catch swallows the error" -- does not match.
-// `(?!\.\s)` skips a sentence break but keeps dotted member expressions, so the condition still matches
-// "if the `this.persistence.loadCooldowns()` call fails" without spanning two sentences.
 const CALLEE_FAILURE_CONDITION = /\b(?:if|when|should|were)\b(?:(?!\.\s)[^;!?]){0,100}\b(?:fails?|failing|rejects?|rejecting|throws?|throwing|errors? out)\b/i;
 const CALLEE_CALL_SHAPE = /[\w.$]+\s*\(\s*\)|`[\w.$]+\(/;
 const CALLEE_UNHANDLED_OUTCOME = /\bunhandled\b|\bunhandled promise\b|\bnot (?:caught|handled)\b|\bno (?:\.)?catch\b|\bwithout (?:a )?(?:try|catch)\b|\bcrash\b/i;
@@ -101,7 +69,6 @@ export function refuteUndecidableClaim(input: { title: string; body: string }): 
   return null;
 }
 
-// A full git object id: `uses: owner/action@<40 hex>` pins, and any version beside it is a comment.
 const FULL_SHA_PATTERN = /\b[0-9a-f]{40}\b/;
 
 export function looksLikeExternalVersionClaim(title: string, body: string): boolean {
@@ -109,7 +76,6 @@ export function looksLikeExternalVersionClaim(title: string, body: string): bool
   return VERSION_CLAIM_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-// A step pinned to a full SHA resolves by SHA, and the trailing `# v7.0.0` is never read, so "v7.0.0 does not exist" is not a defect there.
 export function isVersionClaimRefutedByPin(input: { title: string; body: string; anchorContent: string }): boolean {
   if (!looksLikeExternalVersionClaim(input.title, input.body)) return false;
   return FULL_SHA_PATTERN.test(input.anchorContent);
@@ -120,7 +86,6 @@ type PresenceEntry = { line: DiffLine; hunkIndex: number; code: string };
 export type PresenceIndex = {
   byToken: Map<string, PresenceEntry[]>;
   entries: PresenceEntry[];
-  // new-file line number -> hunk index, so "same hunk" is answerable for the anchor line.
   hunkByLine: Map<number, number>;
 };
 
@@ -139,7 +104,6 @@ export type AbsenceClaimVerdict =
 
 type CommentSyntax = { line: readonly string[]; block: boolean };
 
-// By extension: `//` is floor division in Python, `#` a private field in JS. Guessing truncates code.
 export function commentSyntaxFor(path: string): CommentSyntax {
   const ext = path.toLowerCase().split('.').pop() ?? '';
   if (ext === 'py' || ext === 'rb' || ext === 'sh' || ext === 'yaml' || ext === 'yml' || ext === 'toml') {
@@ -149,7 +113,6 @@ export function commentSyntaxFor(path: string): CommentSyntax {
   return { line: ['//'], block: true };
 }
 
-// Returns `null` when unscannable, biasing to `unknown`. Do NOT add cross-line state without a desync test: dropping real code silently is worse than giving up.
 export function stripCommentsAndStrings(input: string, syntax: CommentSyntax): string | null {
   let out = '';
   let i = 0;
@@ -203,7 +166,6 @@ function findStringEnd(input: string, start: number, quote: string): number {
   return -1;
 }
 
-// Keeps `${...}` interiors and discards the literal text around them.
 function scanTemplateLiteral(input: string, start: number): { code: string; next: number } | null {
   let code = ' ';
   let i = start + 1;
@@ -245,7 +207,6 @@ export function buildPresenceIndex(file: FileDiff): PresenceIndex {
     for (const line of hunk.lines) {
       if (line.newLineNumber !== undefined) hunkByLine.set(line.newLineNumber, hunkIndex);
 
-      // A removed line cannot prove presence: deletion is consistent with the claim.
       if (line.kind === 'del') continue;
 
       const code = stripCommentsAndStrings(normalizeDiffText(line.content), syntax);
@@ -269,7 +230,6 @@ export function buildPresenceIndex(file: FileDiff): PresenceIndex {
 const SIMPLE_IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 const DOTTED_IDENTIFIER = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 
-// Delimited code spans only: prose would yield `days` and refute against any unrelated use.
 function extractIdentifier(sentence: string): { identifier: string } | 'none' | 'ambiguous' {
   const spans = [
     ...sentence.matchAll(/`([^`]+)`/g),
@@ -282,7 +242,6 @@ function extractIdentifier(sentence: string): { identifier: string } | 'none' | 
   );
 
   if (candidates.size === 0) return 'none';
-  // Two plausible identifiers means we cannot tell which one the claim is about, and refuting the wrong one is unsound.
   if (candidates.size > 1) return 'ambiguous';
   return { identifier: [...candidates][0] };
 }
@@ -297,13 +256,11 @@ export function checkAbsenceClaim(input: {
   anchorLine: number | undefined;
   index: PresenceIndex;
 }): AbsenceClaimVerdict {
-  // Bounded so a long body cannot turn this into a CPU problem inside a 10ms-budget Worker.
   const text = `${input.title}\n${input.body.slice(0, 600)}`;
 
   const sentences = absenceSentences(text);
   if (sentences.length === 0) return { status: 'unknown', reason: 'not_absence_shaped' };
 
-  // Tried per sentence: TITLE usually gives the shape, BODY the identifier; ambiguity short-circuits rather than hunting for a tidier sentence.
   let identifier: string | undefined;
   for (const sentence of sentences) {
     const extracted = extractIdentifier(sentence);
@@ -327,7 +284,6 @@ export function checkAbsenceClaim(input: {
 
   if (occurrences.length === 0) return { status: 'unknown', reason: 'not_present' };
 
-  // Proximity: without it "X is not passed to f()" is refuted by an unrelated X hundreds of lines away.
   const anchorHunk = input.anchorLine !== undefined ? input.index.hunkByLine.get(input.anchorLine) : undefined;
   const nearby = occurrences.find((entry) => {
     if (anchorHunk !== undefined && entry.hunkIndex === anchorHunk) return true;

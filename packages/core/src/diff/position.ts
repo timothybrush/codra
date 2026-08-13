@@ -63,7 +63,6 @@ export function findPositionForLine(file: FileDiff, lineNumber: number) {
   return undefined;
 }
 
-// `MAX_LINE_SNAP_DISTANCE`/`findClosestValidLine` were removed: findings are now anchored on a verbatim evidence quote, and unresolved quotes are withheld rather than snapped to a nearby line.
 
 export function truncateFileDiff(file: FileDiff, maxLines: number): FileDiff {
   if (file.lineCount <= maxLines) {

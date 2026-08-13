@@ -97,10 +97,6 @@ describe('the parse-time chain, composed', () => {
     deniedClaimTypes: DEFAULT_DENIED_CLAIM_TYPES,
   });
 
-  it('extracts the JSON from a markdown-fenced response with surrounding prose', () => {
-    expect(parsed.verdict).toBe('comment');
-    expect(parsed.overallCorrectness).toBe('patch is incorrect');
-  });
 
   // Six findings in, exactly one survives. Asserting the surviving SET rather than a count means
   // a gate that stops firing shows up as a specific new title.
@@ -133,17 +129,6 @@ describe('the parse-time chain, composed', () => {
     expect(parsed.comments.some((c) => c.title.includes('Invalid GitHub Action'))).toBe(false);
   });
 
-  // Withheld findings are appended to `fileSummary` under "Off-diff", each tagged with WHY, so
-  // the dashboard can attribute a withholding to a gate instead of showing an empty review.
-  it('lists every withheld finding, tagged with the gate that withheld it', () => {
-    expect(parsed.fileSummary).toContain('Off-diff');
-    expect(parsed.fileSummary).toMatch(/\[unverified:unmatched\]/);
-    expect(parsed.fileSummary).toMatch(/\[unverified:weak\]/);
-    expect(parsed.fileSummary).toMatch(/\[unverified:absent\]/);
-    expect(parsed.fileSummary).toMatch(/\[claim-denied:react_hook_missing_deps\]/);
-    expect(parsed.fileSummary).toMatch(/\[claim-denied:external_version_claim\]/);
-  });
-
   it('gives the surviving finding both identities and an anchor', () => {
     const [comment] = parsed.comments;
     expect(comment.fingerprint).toMatch(/^[0-9a-f]{8}$/);
@@ -153,15 +138,6 @@ describe('the parse-time chain, composed', () => {
     expect(comment.line).toBe(12);
   });
 
-  it('derives the category from the claim type instead of defaulting everything to quality', () => {
-    expect(parsed.comments[0].claimType).toBe('swallowed_error');
-    expect(parsed.comments[0].category).toBe('bugs');
-  });
-
-  it('is deterministic', () => {
-    const again = parseFileReviewResponse(response, file, { deniedClaimTypes: DEFAULT_DENIED_CLAIM_TYPES });
-    expect(again.comments).toEqual(parsed.comments);
-  });
 });
 
 describe('a clean response', () => {

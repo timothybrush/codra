@@ -2,23 +2,16 @@ import type { ClaimType, reviewSeverities } from '@codra/schema';
 
 type ReviewSeverity = typeof reviewSeverities[number];
 
-// Deterministic rules, the second finding channel: models GENERATE at F1 0.07-0.37 but TRIAGE pre-grounded candidates at 0.88-0.96, so rules propose and the model judges.
 export type Rule = {
   id: string;
   claimType: ClaimType;
   severity: ReviewSeverity;
   title: string;
   body: string;
-  // Cheap substrings: absent from the raw line, the rule is never considered.
   triggers: readonly string[];
-  // Runs against the stripped line. Must not backtrack catastrophically.
   pattern: RegExp;
-  // Veto against the RAW line, where stripping destroys the evidence that clears a hit: a block comment
-  // becomes a space, so an intentionally-empty catch looks genuinely empty.
   rejectRaw?: RegExp;
-  // File extensions this applies to. Empty means all.
   extensions?: readonly string[];
-  // Tier-2 ships disabled: reviewable code, untrusted rule.
   enabled: boolean;
 };
 
@@ -34,8 +27,6 @@ export const RULES: readonly Rule[] = [
       + 'A failure here becomes silent. If the error is genuinely expected, say so in a comment inside the block.',
     triggers: ['catch'],
     pattern: /\bcatch\s*(\([^)]*\))?\s*\{\s*\}/,
-    // A documented empty catch is deliberate. Checked on the RAW line: the stripper collapses the comment
-    // to a space and the block looks empty.
     rejectRaw: /\bcatch\s*(\([^)]*\))?\s*\{\s*(?:\/\/|\/\*)/,
     extensions: ts,
     enabled: true,
@@ -84,7 +75,6 @@ export const RULES: readonly Rule[] = [
     body: 'Assigning a non-literal to `innerHTML`/`outerHTML` (or passing one to `insertAdjacentHTML`) '
       + 'executes any markup it contains. If the value can carry user input this is XSS.',
     triggers: ['innerHTML', 'outerHTML', 'insertAdjacentHTML'],
-    // Non-literal right-hand side only: the stripper removes literals, so `= ''` cannot match, `= html` can.
     pattern: /\.(?:inner|outer)HTML\s*=\s*[A-Za-z_$][\w$.[\]()]*|insertAdjacentHTML\s*\([^)]*,\s*[A-Za-z_$]/,
     extensions: ts,
     enabled: true,
@@ -110,14 +100,11 @@ export const RULES: readonly Rule[] = [
     body: 'This statement discards data irreversibly. On a forward-only migration chain there is no '
       + 'rollback: confirm the column/table is genuinely unused and that a backup exists.',
     triggers: ['DROP', 'TRUNCATE', 'drop', 'truncate'],
-    // DROP COLUMN/TABLE/TRUNCATE only. Not DROP INDEX/CONSTRAINT/DEFAULT/NOT NULL: they discard no rows
-    // and this repo's migrations use them routinely.
     pattern: /\b(?:drop\s+(?:column|table)|truncate\s+table|truncate\s+\w)/i,
     extensions: ['sql'],
     enabled: true,
   },
 
-  // ── Tier 2: shipped but disabled ────────────────────────────────────────────────────────────
 
   {
     id: 'hardcoded-secret',
@@ -128,7 +115,6 @@ export const RULES: readonly Rule[] = [
       + 'and move it to a secret binding.',
     triggers: ['sk-', 'AIza', 'ghp_', 'AKIA'],
     pattern: /\b(?:sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16})\b/,
-    // Disabled: the stripper removes literals, where credentials live, so only unquoted tokens fire. Needs a different scanning mode, not a different regex.
     enabled: false,
   },
   {
@@ -141,9 +127,7 @@ export const RULES: readonly Rule[] = [
     triggers: ['Math.random'],
     pattern: /\b(?:token|secret|key|nonce|salt|password|session|id)\w*\s*=[^=]*Math\.random\s*\(/i,
     extensions: ts,
-    // Disabled: the name heuristic is the whole rule, and a test fixture or React key is a false positive.
     enabled: false,
   },
 ];
 
-// NOT SHIPPED, `sql-string-concat`: the stripper deletes literals, so a safe tagged `sql` template is indistinguishable from real concatenation. Telling them apart needs a parse, not a regex.

@@ -12,12 +12,6 @@ export interface ModelUsage extends TokenUsage {
 
 export type WastedAttemptReason = 'rate-limited' | 'error';
 
-// Prompts we paid to transmit but got nothing back for. Estimated, never billed: a failed call
-// returns no usageMetadata, so this is `estimatePromptTokens` output and must not be compared to a
-// provider's own promptTokenCount as an equal.
-//
-// `estimatedInput` is a token count but must NOT be named `...Tokens`: logger.ts redacts any key
-// whose name contains "token", so the field would log as [REDACTED] and the metric would be useless.
 export interface WastedUsage {
   attempts: number;
   estimatedInput: number;
@@ -27,12 +21,10 @@ export interface WastedUsage {
 
 export class TokenTracker {
   private usage: Map<string, ModelUsage> = new Map();
-  // Kept out of `usage` so estimates can never leak into billed accounting or telemetry.
   private wasted = { attempts: 0, estimatedInput: 0, skips: 0 };
   private wastedByReason: Map<string, number> = new Map();
   private subrequests = 0;
   private readonly MAX_SUBREQUESTS = 50;
-  // Covers untracked Hyperdrive queries per chunk (lease heartbeats, review reads/writes, etc.) that the tracker never sees.
   private readonly SAFE_MARGIN = 25;
 
   incrementSubrequests(count = 1) {
@@ -51,7 +43,6 @@ export class TokenTracker {
     return this.subrequests >= this.MAX_SUBREQUESTS - this.SAFE_MARGIN;
   }
 
-  // Subrequests left before crossing into the reserved safety margin below Cloudflare's per-invocation cap; size variable concurrent work against this instead of a fixed constant.
   remainingSafeBudget() {
     return Math.max(0, this.MAX_SUBREQUESTS - this.SAFE_MARGIN - this.subrequests);
   }
@@ -74,7 +65,6 @@ export class TokenTracker {
     });
   }
 
-  // A full prompt went over the wire and produced no reviewable response.
   recordFailedAttempt(model: string, estimatedInputTokens: number, reason: WastedAttemptReason) {
     this.wasted.attempts += 1;
     this.wasted.estimatedInput += estimatedInputTokens;
@@ -83,8 +73,6 @@ export class TokenTracker {
     logger.debug(`Wasted model attempt on ${model}`, { estimatedInput: estimatedInputTokens, reason });
   }
 
-  // A prompt we did NOT send because a gate already knew it would fail -- the positive signal that
-  // cooldown learning is working, and the counterpart to recordFailedAttempt.
   recordSkippedCall(model: string, reason: string) {
     this.wasted.skips += 1;
 

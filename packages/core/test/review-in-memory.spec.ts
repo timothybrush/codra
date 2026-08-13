@@ -3,14 +3,9 @@ import { runReview, type ReviewJobRunResult } from '../src';
 import { setLoggerSink } from '../src/logger';
 import { createInMemoryRuntime } from './in-memory';
 
-// The acceptance criterion for extracting @codra/core: the engine runs a review end to end against
-// in-memory ports alone. No Postgres, no Miniflare, no Worker, no network, no wall clock.
-//
 // Note what is NOT here: no vi.mock, no module interception, no test database, no fetch stub. The
-// engine is driven purely through the ReviewRuntime it declares, which is the whole point.
 
 beforeEach(() => {
-  // Quiet, and it proves the Logger port is honoured rather than console being reached for directly.
   setLoggerSink({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} });
 });
 
@@ -41,28 +36,23 @@ describe('runReview end to end on in-memory ports', () => {
 
     const results = await drive(runtime, jobId);
 
-    // The driver contract: two hand-offs, then an ack.
     expect(results.map((r) => r.action)).toEqual(['next_phase', 'next_phase', 'ack']);
     expect(results[0]).toMatchObject({ action: 'next_phase', phase: 'review' });
-    // Finalize demands a fresh instance so it starts on a clean subrequest budget.
     expect(results[1]).toMatchObject({ action: 'next_phase', phase: 'finalize', freshInstance: true });
 
     const job = recorded.jobs.get(jobId)!;
     expect(job.status).toBe('done');
     expect(job.verdict).toBe('comment');
 
-    // Both diff files were reviewed and persisted.
     expect([...recorded.fileReviews.keys()].sort()).toEqual(['src/log.ts', 'src/retry.ts']);
     expect([...recorded.fileReviews.values()].every((row) => row.file_status === 'done')).toBe(true);
 
-    // The finding reached GitHub as an inline comment.
     expect(recorded.postedReviews).toHaveLength(1);
     expect(recorded.postedReviews[0].comments).toEqual([
       { path: 'src/retry.ts', body: expect.stringContaining('Hard-coded delay') },
     ]);
     expect(recorded.postedReviews[0].body).toContain('codra-bot');
 
-    // The check run was opened and closed, and telemetry was emitted exactly once.
     expect(recorded.checkRuns[0].title).toBe('Review queued');
     expect(recorded.checkRuns.at(-1)).toMatchObject({ status: 'completed' });
     expect(recorded.telemetry).toHaveLength(1);
@@ -75,7 +65,6 @@ describe('runReview end to end on in-memory ports', () => {
     await drive(runtime, jobId);
 
     expect(recorded.calls[0]).toBe('claimJobLease');
-    // One release per phase: nothing may return while still holding it.
     expect(recorded.calls.filter((call) => call === 'releaseJobLease')).toHaveLength(3);
     expect(recorded.calls.filter((call) => call === 'claimJobLease')).toHaveLength(3);
   });
@@ -99,14 +88,11 @@ describe('runReview end to end on in-memory ports', () => {
     const kept = createInMemoryRuntime({ model: { findingsByPath } });
     await drive(kept.runtime, [...kept.recorded.jobs.keys()][0]);
     expect(kept.recorded.postedReviews[0].comments.map((c) => c.path).sort()).toEqual(['src/log.ts', 'src/retry.ts']);
-    // The gate ran rather than being skipped, which is what makes the contrast below meaningful.
     expect(kept.recorded.calls.some((call) => call === 'verifyFindings:2')).toBe(true);
 
-    // Same input, one verdict flipped to 'drop': exactly one finding survives to the pull request.
     const refuted = createInMemoryRuntime({ model: { findingsByPath, verifyVerdicts: { 0: 'drop' } } });
     await drive(refuted.runtime, [...refuted.recorded.jobs.keys()][0]);
     expect(refuted.recorded.postedReviews[0].comments).toHaveLength(1);
-    // The dropped one is recorded with its disposition rather than silently vanishing.
     expect(refuted.recorded.calls.some((call) => call.startsWith('markDispositions:'))).toBe(true);
   });
 
@@ -116,8 +102,6 @@ describe('runReview end to end on in-memory ports', () => {
 
     await drive(runtime, jobId);
 
-    // Three phases each need the diff; only the first pays for it. This is the whole reason the
-    // KvStore port exists, and it is asserted here with a Map rather than a KV namespace.
     expect(recorded.calls.filter((call) => call === 'getPullRequestDiff')).toHaveLength(1);
     expect([...recorded.kv.keys()]).toEqual([`diff:${jobId}`]);
   });
@@ -131,12 +115,10 @@ describe('runReview end to end on in-memory ports', () => {
     const results = await drive(runtime, jobId);
 
     expect(results.at(-1)!.action).toBe('ack');
-    // Every file failed, so the job completes as a failure rather than a clean approval.
     expect([...recorded.fileReviews.values()].every((row) => row.file_status === 'failed')).toBe(true);
     expect(recorded.jobs.get(jobId)!.status).toBe('failed');
     expect(recorded.calls).toContain('failJob');
     expect(recorded.checkRuns.at(-1)).toMatchObject({ conclusion: 'failure' });
-    // Nothing was posted to the pull request.
     expect(recorded.postedReviews).toEqual([]);
   });
 

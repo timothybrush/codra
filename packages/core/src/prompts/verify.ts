@@ -17,9 +17,7 @@ const verifyResultSchema = z.object({
     .array(
       z.object({
         index: z.number().int(),
-        // `.optional()` and NOT `.default()`: a default would materialize the key on every parsed result, changing the shape callers compare against.
         reason: z.string().optional(),
-        // Optional so a model that ignores the field is treated as "did not say", never as "not
         // decidable" -- only an explicit `false` costs a finding. See the note on the prompt below.
         decidable: z.boolean().optional(),
         verdict: z.enum(['keep', 'drop']),
@@ -31,9 +29,6 @@ const verifyResultSchema = z.object({
 
 export type VerifyResult = z.infer<typeof verifyResultSchema>['results'][number];
 
-// Field order matters for providers that decode against the schema: `reason` precedes `verdict` so the
-// model commits to a justification BEFORE the decision token, and `decidable` precedes it for the same
-// reason -- it must answer "could I check this at all?" before it is allowed to answer "is it true?".
 export const VERIFY_RESPONSE_SCHEMA = {
   name: 'codra_verify_findings',
   schema: {
@@ -49,8 +44,6 @@ export const VERIFY_RESPONSE_SCHEMA = {
           required: ['index', 'reason', 'decidable', 'verdict'],
           properties: {
             index: { type: 'integer', minimum: 0 },
-            // Longer than the 15 words the verdict gets: naming the artifact you would need to check
-            // a claim is the whole point of the `decidable` field, and it does not fit in 15 words.
             reason: { type: 'string', maxLength: 300 },
             decidable: { type: 'boolean' },
             verdict: { type: 'string', enum: ['keep', 'drop'] },
@@ -124,8 +117,6 @@ export function buildVerifyPrompt(candidates: VerifyCandidate[]): string {
   ].join('\n');
 }
 
-// Renders a window of the diff around a finding's line so the verifier can judge it in context without re-sending the whole file.
-// Returns '' when the line can't be located, rather than falling back to `anchor = 0`: that used to make the verifier silently judge unrelated code, masquerading an infrastructure miss as a real verdict.
 export function renderDiffSnippet(file: FileDiff | undefined, line: number | undefined, radius = 12): string {
   if (!file) return '';
   const flat = file.hunks.flatMap((hunk) => hunk.lines);
@@ -133,7 +124,6 @@ export function renderDiffSnippet(file: FileDiff | undefined, line: number | und
 
   if (line == null) return '';
 
-  // NEW-file numbers first, in a separate pass: a combined findIndex on `newLineNumber === line || oldLineNumber === line` can match an earlier OLD-numbered context line in a deletion-heavy file, landing the window N-deletions away from the real finding. Old-number pass is kept only as a fallback for removed code.
   const byNewLine = flat.findIndex((l) => l.newLineNumber === line);
   const anchor = byNewLine !== -1 ? byNewLine : flat.findIndex((l) => l.oldLineNumber === line);
   if (anchor === -1) return '';

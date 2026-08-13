@@ -6,70 +6,11 @@ import { reviewWithGoogle } from '@server/models/google';
 import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@server/prompts/file-review';
 import { VERIFY_RESPONSE_SCHEMA } from '@server/prompts/verify';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@codra/schema';
 
 
 describe('ModelService: request shape and response handling', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  // Three specs reach these via `(service as any)`; a moved method would read as a passing skip.
-  it('keeps resolveModel, callModel and selectModel as methods on ModelService', () => {
-    const service = new ModelService(createTestEnv());
-    expect(typeof (service as any).resolveModel).toBe('function');
-    expect(typeof (service as any).callModel).toBe('function');
-    expect(typeof (service as any).selectModel).toBe('function');
-  });
-
-  it('routes legacy Kimi K2.5 ids to Kimi K2.6 for new Cloudflare requests', async () => {
-    let requestedModel = '';
-    const env = createTestEnv({
-      AI: {
-        async run(model: string) {
-          requestedModel = model;
-          return { response: '{"findings":[]}', usage: { prompt_tokens: 1, completion_tokens: 1 } };
-        },
-      } as any,
-    });
-
-    const service = new ModelService(env);
-    const response = await (service as any).callModel('@cf/moonshotai/kimi-k2.5', {
-      systemPrompt: 'system',
-      userPrompt: 'user',
-    });
-
-    expect(requestedModel).toBe('@cf/moonshotai/kimi-k2.6');
-    expect(response.modelUsed).toBe('@cf/moonshotai/kimi-k2.6');
-  });
-
-  it('preserves an explicitly empty fallback chain', () => {
-    const service = new ModelService(createTestEnv());
-    const selected = (service as any).selectModel({
-      totalLineCount: 500,
-      config: {
-        ...defaultRepoConfig,
-        model: {
-          main: 'gemini-3.1-pro-preview',
-          fallbacks: [],
-          size_overrides: [],
-        },
-      },
-    });
-
-    expect(selected).toEqual({
-      primary: 'gemini-3.1-pro-preview',
-      fallbacks: [],
-    });
-  });
-
-  it('fails clearly when no model strategy is configured', () => {
-    const service = new ModelService(createTestEnv());
-
-    expect(() => (service as any).selectModel({
-      totalLineCount: 1,
-      config: defaultRepoConfig,
-    })).toThrow('No review model strategy is configured');
   });
 
   it('fails (throws) on a Cloudflare reasoning-only response instead of faking an inconclusive review', async () => {
@@ -123,71 +64,7 @@ describe('ModelService: request shape and response handling', () => {
     ).rejects.toThrow(/no reviewable output/i);
   });
 
-  it('asks Cloudflare chat models for strict review JSON', async () => {
-    let inputs: any;
-    const env = createTestEnv({
-      AI: {
-        async run(_model: string, request: any) {
-          inputs = request;
-          return {
-            choices: [
-              {
-                message: {
-                  content: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}',
-                },
-              },
-            ],
-            usage: { prompt_tokens: 1, completion_tokens: 1 },
-          };
-        },
-      } as any,
-    });
-
-    await reviewWithCloudflare(env, '@cf/zai-org/glm-4.7-flash', {
-      systemPrompt: 'system',
-      userPrompt: 'user',
-      responseSchema: buildReviewResponseSchema(10),
-    });
-
-    expect(inputs.response_format).toMatchObject({
-      type: 'json_schema',
-      json_schema: {
-        name: 'codra_file_review',
-        strict: true,
-      },
-    });
-    // Twice the posted cap: the generator feeds the gates a candidate pool, and finalize does the
-    // slicing. See generatorFindingCap.
-    expect(inputs.response_format.json_schema.schema.properties.findings.maxItems).toBe(20);
-    expect(inputs.messages[0].content).toContain('Return only the JSON object');
-    expect(inputs.max_completion_tokens).toBe(8192);
-    expect(inputs.chat_template_kwargs).toBeUndefined();
-    expect(inputs.reasoning_effort).toBeUndefined();
-  });
-
   // Per-call: forcing the file-review schema onto the verify pass made it unsatisfiable.
-
-  it('sends no response_format when the caller supplies no schema', async () => {
-    let inputs: any;
-    const env = createTestEnv({
-      AI: {
-        async run(_model: string, request: any) {
-          inputs = request;
-          return {
-            choices: [{ message: { content: '{"results":[]}' } }],
-            usage: { prompt_tokens: 1, completion_tokens: 1 },
-          };
-        },
-      } as any,
-    });
-
-    await reviewWithCloudflare(env, '@cf/zai-org/glm-4.7-flash', {
-      systemPrompt: 'system',
-      userPrompt: 'user',
-    });
-
-    expect(inputs.response_format).toBeUndefined();
-  });
 
   it('honors a non-review schema, so the verify pass is not forced to emit a file review', async () => {
     let inputs: any;

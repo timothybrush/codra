@@ -4,7 +4,6 @@ import { REVIEW_CONCURRENCY_LIMITS, type ReviewJobMessage } from '@codra/schema'
 import type { ReviewGitHub, ReviewRuntime } from '../ports';
 import { extractReviewRequest } from './request';
 
-// Re-exports below are the engine's public surface, reached through @codra/core.
 export { getDiffFiles, getOrFetchRawDiffForCompletedJob } from './diff-cache';
 
 export { budgetAwareFileLimit, estimatedSubrequestsPerFile } from './budget';
@@ -28,7 +27,6 @@ export { verifyFindings, type VerifyDrop, type VerifyOutcome } from '../finding-
 export { extractReviewRequest, type ReviewRequest } from './request';
 
 // workflows/review.ts floors its inter-phase sleep here; the eslint barrel guard stops it
-// importing phase-control directly.
 export { FRESH_INVOCATION_YIELD_SECONDS } from './phase-control';
 
 import {
@@ -52,7 +50,6 @@ export { NextPhaseError, failJobAndCheckRun };
 export type ReviewJobRunResult =
   | { action: 'ack' }
   | { action: 'retry'; delaySeconds: number }
-  // jobId is resolved (mention-triggered jobs carry none). freshInstance starts a new Workflow instance: set on a subrequest deferral or the move into finalize.
   | { action: 'next_phase'; phase: 'prepare' | 'review' | 'finalize'; delaySeconds: number; jobId?: string; freshInstance?: boolean };
 
 /**
@@ -81,7 +78,6 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
     return { action: 'ack' };
   }
 
-  // Admission only: re-gating a job already 'running' would retry forever and stale its lease.
   if (resolved.job.status === 'queued') {
     const { concurrencyLevel } = await env.settings.getReviewSettings();
     const maxConcurrentJobs = REVIEW_CONCURRENCY_LIMITS[concurrencyLevel];
@@ -109,7 +105,6 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
 
   const job = env.jobs.mapJob(claim.row);
 
-  // Bind the Workflow instance id so stop/delete/rerun hit the right one; webhook jobs key theirs on deliveryId, so the earlier bind step cannot. Idempotent.
   if (message.workflowInstanceId && job.workflowInstanceId !== message.workflowInstanceId) {
     try {
       await env.jobs.setJobWorkflowInstance(job.id, message.workflowInstanceId);
@@ -145,7 +140,6 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
 
     if (error instanceof NextPhaseError) {
       await env.jobs.releaseJobLease(job.id, leaseOwner);
-      // Finalize needs a fresh instance for a clean budget; other transitions hibernate instead.
       return { action: 'next_phase', phase: error.phase, delaySeconds: error.delaySeconds, jobId: job.id, freshInstance: error.phase === 'finalize' };
     }
 
@@ -159,9 +153,7 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
       return continueOrFailWedgedJob(env, job, github, leaseOwner, phase, delaySeconds, 'transient model/provider failures');
     }
 
-    // Not a job failure: every phase is idempotent enough to resume on a fresh budget.
     if (isSubrequestBudgetError(error)) {
-      // Only a long-enough sleep hibernates the workflow into the fresh invocation this needs.
       const record = error && typeof error === 'object' ? error as { retryAfterSeconds?: unknown } : null;
       const delaySeconds = typeof record?.retryAfterSeconds === 'number'
         ? record.retryAfterSeconds
@@ -181,7 +173,6 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
   }
 }
 
-// Records a same-phase continuation and enforces the ceiling. Completing any file resets the counter, so only a genuinely wedged job gets there.
 async function continueOrFailWedgedJob(
   env: ReviewRuntime,
   job: PersistedReviewJob,
@@ -193,18 +184,15 @@ async function continueOrFailWedgedJob(
 ): Promise<ReviewJobRunResult> {
   const continuationCount = await env.jobs.markJobContinuationQueued(job.id, delaySeconds);
 
-  // Finalize fails fast instead of looping ~20 min; other phases make real per-file progress.
   const ceiling = phase === 'finalize' ? MAX_FINALIZE_CONTINUATIONS : MAX_JOB_CONTINUATIONS;
 
   if (continuationCount > ceiling) {
     if (phase === 'review') {
-      // Must RETURN the transition: enqueueJobPhase() throws, and this runs inside a catch.
       logger.error(`Review job exceeded the continuation ceiling; degrading to a partial review: ${job.owner}/${job.repo} PR #${job.prNumber}`, {
         phase,
         continuationCount,
         reason,
       });
-      // A file still awaiting an async batch would otherwise finalize as an empty 'successful'.
       const stillPending = (await env.fileReviews.getFileReviewsForJobs([job.id])).filter(isAwaitingAsyncReview);
       for (const review of stillPending) {
         await persistFailedFileReview(env, job.id, {
@@ -215,7 +203,6 @@ async function continueOrFailWedgedJob(
           clearAsync: true,
         });
       }
-      // Finalize needs its own continuation budget: the counter is already past the ceiling.
       await env.jobs.resetJobContinuationCount(job.id);
       await env.jobs.releaseJobLease(job.id, leaseOwner);
       return { action: 'next_phase', phase: 'finalize', delaySeconds: FRESH_INVOCATION_YIELD_SECONDS, jobId: job.id, freshInstance: true };
@@ -233,7 +220,6 @@ async function continueOrFailWedgedJob(
   }
 
   await env.jobs.releaseJobLease(job.id, leaseOwner);
-  // A subrequest-limit deferral saturated THIS instance; a transient model deferral did not.
   const freshInstance = reason.includes('subrequest');
   return { action: 'next_phase', phase, delaySeconds, jobId: job.id, freshInstance };
 }

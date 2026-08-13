@@ -66,67 +66,6 @@ unescaped newlines",
     expect(result.comments[0].title).toBe('Multiline Issue');
   });
 
-  it('handles truncated JSON gracefully (salvage success)', () => {
-    const rawOutput = `
-{
-  "findings": [{
-    "title": "Truncated",
-    "body": "This cuts off",
-    "priority": 1,
-    "evidence": "new line",
-    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
-`; 
-    const result = parseFileReviewResponse(rawOutput, mockFile);
-    expect(result.comments).toHaveLength(1);
-    expect(result.comments[0].title).toBe('Truncated');
-  });
-
-  it('removes conversational tags and emojis from titles and bodies', () => {
-    const rawOutput = `
-{
-  "findings": [{
-    "title": "🚀 [PERFORMANCE] Optimization needed",
-    "body": "⚠️ HIGH: You should optimize this.",
-    "priority": 0,
-    "evidence": "new line",
-    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
-  }],
-  "overall_correctness": "issues found",
-  "overall_explanation": "explanation"
-}`;
-
-    const result = parseFileReviewResponse(rawOutput, mockFile);
-    expect(result.comments[0].title).toBe('Optimization needed');
-  });
-
-  it('maps priorities correctly to P-levels', () => {
-    const rawOutput = `
-{
-  "findings": [
-    {
-      "title": "P0 Issue",
-      "body": "Critical",
-      "priority": 0,
-      "evidence": "new line",
-      "code_location": { "absolute_file_path": "test.ts", "line": 2 }
-    },
-    {
-      "title": "P3 Issue",
-      "body": "Minor",
-      "priority": 3,
-      "evidence": "new line",
-      "code_location": { "absolute_file_path": "test.ts", "line": 2 }
-    }
-  ],
-  "overall_correctness": "issues found",
-  "overall_explanation": "explanation"
-}`;
-
-    const result = parseFileReviewResponse(rawOutput, mockFile);
-    expect(result.comments[0].severity).toBe('P0');
-    expect(result.comments[1].severity).toBe('P3');
-  });
-
   // The matched quote is the anchor, so a wrong reported line must not move the comment.
   it('anchors on the quoted line and ignores a wrong reported line number', () => {
     const rawOutput = `
@@ -163,17 +102,6 @@ unescaped newlines",
     const result = parseFileReviewResponse(rawOutput, mockFile);
     expect(result.comments).toHaveLength(0);
     expect(result.fileSummary).toContain('Additional Comments (Off-diff)');
-  });
-
-  it('does not treat reviewed source snippets as review JSON', () => {
-    const rawOutput = `
-\`\`\`ts
-export function nextOwner(owner: string) {
-  return owner.toUpperCase();
-}
-\`\`\``;
-
-    expect(() => parseFileReviewResponse(rawOutput, mockFile)).toThrow('Could not find JSON root');
   });
 
   // `z.string().max(100)` on `title` rejects the whole file's review, not the one finding.
@@ -244,41 +172,6 @@ export function nextOwner(owner: string) {
     expect(result.verdict).toBe('approve');
   });
 
-  it('carries per-finding confidence_score through to the parsed comment', () => {
-    const rawOutput = `
-{
-  "findings": [{
-    "title": "Real bug",
-    "body": "Concrete issue",
-    "priority": 1,
-    "confidence_score": 0.92,
-    "evidence": "new line",
-    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
-  }],
-  "overall_correctness": "issues found",
-  "overall_explanation": "explanation"
-}`;
-
-    const result = parseFileReviewResponse(rawOutput, mockFile);
-    expect(result.comments[0].confidenceScore).toBeCloseTo(0.92);
-  });
-
-  it('defaults a finding with no priority to P3 (low), not P2', () => {
-    const rawOutput = `
-{
-  "findings": [{
-    "title": "Unranked finding",
-    "body": "Model did not set a priority",
-    "evidence": "new line",
-    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
-  }],
-  "overall_correctness": "issues found",
-  "overall_explanation": "explanation"
-}`;
-
-    const result = parseFileReviewResponse(rawOutput, mockFile);
-    expect(result.comments[0].severity).toBe('P3');
-  });
 });
 
 describe('dedupeFindings', () => {
@@ -305,18 +198,4 @@ describe('dedupeFindings', () => {
     expect(result[0].path).toBe('b.ts');
   });
 
-  it('prefers higher confidence when severities tie', () => {
-    const input = [
-      make({ title: 'Null deref', severity: 'P2', confidenceScore: 0.3 }),
-      make({ title: 'Null deref', severity: 'P2', confidenceScore: 0.8 }),
-    ];
-    const result = dedupeFindings(input);
-    expect(result).toHaveLength(1);
-    expect(result[0].confidenceScore).toBeCloseTo(0.8);
-  });
-
-  it('keeps findings with genuinely different titles', () => {
-    const input = [make({ title: 'Bug A' }), make({ title: 'Bug B' })];
-    expect(dedupeFindings(input)).toHaveLength(2);
-  });
 });

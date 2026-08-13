@@ -3,25 +3,15 @@ import type { FileDiff } from '../diff';
 import type { ModelResponseSchema } from '../ports/model';
 import { getLanguageForFile } from './languages';
 
-// Generator cap, NOT the posted cap: per CHUNK, upstream of four remove-only filters, where `max_comments` is once per job.
-//
-// Deliberately NOT divided by the size of a batched bin. That was tried, on the theory that a six-file
-// bin asking 20 findings per file requested more than one response could hold: measured on a 221-file
-// job, all 71 bin responses ended cleanly at 967-1,845 chars and the whole job spent 17,158 output
-// tokens -- about 3% of the ceiling that was supposedly binding. The cap has never been what limits
-// findings, so lowering it only removes room a genuinely defective file might need.
 export function generatorFindingCap(maxComments: number): number {
   return Math.max(1, maxComments * 2);
 }
 
-// Shared by the single-file and batched grammars, so the field-order invariant is stated once.
 function findingItemSchema() {
   return {
     type: 'object',
     additionalProperties: false,
-    // Field order is load-bearing under constrained decoding: `evidence` first forces a real quote before any prose.
     required: ['evidence', 'code_location', 'claim_type', 'title', 'body', 'priority'],
-    // `properties` order must match `required`: generation follows declaration order, so gemini-schema.ts must never sort or rebuild this.
     properties: {
       evidence: { type: 'string' },
       code_location: {
@@ -40,7 +30,6 @@ function findingItemSchema() {
             },
           },
         },
-        // Branch order matters: gemini-schema.ts collapses this to the first branch.
         anyOf: [
           { required: ['line'] },
           { required: ['line_range'] },
@@ -55,7 +44,6 @@ function findingItemSchema() {
   };
 }
 
-// Response grammar for constrained decoding; same contract as the system and user prompts, all three must agree.
 export function buildReviewResponseSchema(maxComments: number): ModelResponseSchema {
   return {
     name: 'codra_file_review',
@@ -77,7 +65,6 @@ export function buildReviewResponseSchema(maxComments: number): ModelResponseSch
   };
 }
 
-// Batched grammar: `absolute_file_path` is required here even though its per-finding twin is optional; no `minItems` on `files` (uneven provider support) so the count is checked at parse time.
 export function buildBatchReviewResponseSchema(maxComments: number, fileCount: number): ModelResponseSchema {
   return {
     name: 'codra_batch_review',
@@ -92,15 +79,9 @@ export function buildBatchReviewResponseSchema(maxComments: number, fileCount: n
           items: {
             type: 'object',
             additionalProperties: false,
-            // Path first, like `evidence` in a finding: commit to the file before describing it.
             required: ['absolute_file_path', 'findings', 'overall_explanation', 'overall_correctness'],
             properties: {
               absolute_file_path: { type: 'string' },
-              // Deliberately unbounded, unlike the single-file grammar: `maxItems` on an array nested
-              // inside another bounded array made Gemini reject the whole schema with "produces a
-              // constraint that has too many states for serving", losing constrained decoding for the
-              // bin. The cap is stated in prose ("per file") and enforced at parse time by the
-              // over-cap truncation, so nothing but the FSM size changes.
               findings: { type: 'array', items: findingItemSchema() },
               overall_explanation: { type: 'string' },
               overall_correctness: { type: 'string', enum: ['patch is correct', 'patch is incorrect'] },
@@ -133,7 +114,6 @@ const SINGLE_FILE_SCHEMA_FORMAT = `{
   "overall_confidence_score": number (0 to 1)
 }`;
 
-// A finding belongs to whichever entry encloses it; the per-finding `absolute_file_path` is only a cross-check.
 const MULTI_FILE_SCHEMA_FORMAT = `{
   "files": [
     {
@@ -160,7 +140,6 @@ const MULTI_FILE_SCHEMA_FORMAT = `{
   "overall_confidence_score": number (0 to 1)
 }`;
 
-// No restraint language: behind four remove-only filters, asking for empty findings arrays measured 0.039 findings/file and no true positives. Wording is snapshot-locked.
 export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean }): string {
   const multi = opts?.multiFile === true;
 
@@ -177,11 +156,7 @@ export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean }):
     ? '4. Return at most {{MAX_COMMENTS}} findings PER FILE, most severe first. Keep each body under 160 words.'
     : '4. Return at most {{MAX_COMMENTS}} findings, most severe first. Keep each body under 160 words.';
 
-  // The multi-file wording must demand one entry per file (the parser reports a missing file as
-  // unreviewed and re-queues it) WITHOUT handing out an empty array as the easy way to satisfy that.
-  // The previous phrasing -- "even for files with no defect, give those an empty findings array" --
   // presupposed clean files in every bin and reintroduced exactly the restraint language the note above
-  // says measured 0.039 findings/file. Review each diff on its own merits is the whole instruction.
   const emptyRule = multi
     ? `5. Return exactly one entry per file listed below, in the same order, and never omit a file. Review each file's diff with the same care you would give it if it were the only file in front of you. An empty findings array is a positive claim that this diff introduces no defect, so return one only when that is true. Do not pad, and do not withhold.`
     : '5. If the diff genuinely introduces no defect, return an empty findings array and a short explanation. Do not pad, and do not withhold.';
@@ -227,7 +202,6 @@ ${multi ? MULTI_FILE_SCHEMA_FORMAT : SINGLE_FILE_SCHEMA_FORMAT}
 Identify security risks such as XSS, SQLi, CSRF, insecure randomness, and data leaks that the diff actually introduces.`;
 }
 
-// Named export because several tests assert against the prompt text directly.
 export const fileReviewSystemPromptBase = buildFileReviewSystemPromptBase();
 
 export function buildFileReviewSystemPrompt(
@@ -236,16 +210,13 @@ export function buildFileReviewSystemPrompt(
   opts?: { multiFile?: boolean },
 ) {
   const persona = languagePersona ? ` as ${languagePersona}` : '';
-  // Prose cap must be the generator cap: otherwise the grammar allows 2N while the text asks for N, and the model obeys the text.
   const prompt = buildFileReviewSystemPromptBase(opts)
     .replace('{{MAX_COMMENTS}}', generatorFindingCap(config.max_comments).toString());
   return `You are a world-class professional senior code reviewer${persona}. ${prompt}`;
 }
 
-// Human-rejected findings as NEGATIVE few-shot exemplars. Rejections only, since `marked_right` is rare and an absent label means nothing.
 export type RejectedExemplar = { title: string; claimType?: string | null };
 
-// Hard cap: every character competes with the diff for a 16k-input-tokens/minute bucket.
 const EXEMPLAR_BLOCK_CHARS = 700;
 
 function renderExemplars(exemplars: readonly RejectedExemplar[] | undefined): string | null {
@@ -267,7 +238,6 @@ function renderExemplars(exemplars: readonly RejectedExemplar[] | undefined): st
 
 const PR_DESCRIPTION_CHARS = 2_000;
 
-// Highest-value context by a wide margin (ContextCRBench: diff-only F1 36.08, +description 62.12).
 function renderPrContext(prDescription: string | null): string | null {
   const trimmed = prDescription?.trim();
   if (!trimmed) return null;
@@ -311,9 +281,7 @@ export function buildFileReviewPrompts(input: {
     languageGuidelines,
     `Custom rules:\n${rules}`,
     'Review ONLY the diff shown below. You cannot see the rest of the file or repository - do not report something as undefined, unimported, unused, or missing just because it is not in the diff. If the diff note says it was truncated, do not infer issues from omitted lines.',
-    // `line` is posted to GitHub as the anchor, so it must be a NEW-file number present in the diff.
     'Line numbers: every diff line below is prefixed with two columns - the OLD file line number, then the NEW file line number. Always report `line` (and `line_range`) using the NEW (second, right-hand) number, and only ever cite a line that appears in the diff. For a removed line, cite the nearest NEW line number shown next to it.',
-    // Evidence is matched verbatim before posting, so it must be code only -- no gutter or marker.
     'Evidence: every finding must carry an `evidence` string containing the exact code of the line it is about, copied character-for-character from the diff below. Strip the two leading line-number columns and the +/-/space marker - quote only the code itself. A finding whose evidence does not appear in the diff will be discarded.',
     'Prioritize correctness, security, and production-impacting bugs. Raise anything you can ground in a quoted line; avoid subjective style feedback.',
     '',
@@ -346,12 +314,10 @@ export function buildFileReviewPrompts(input: {
   return { systemPrompt, userPrompt };
 }
 
-// Distinct enough not to be confused for diff content.
 function packFileHeader(file: FileDiff, index: number, total: number): string {
   return `===== FILE ${index + 1} of ${total}: ${file.path} =====`;
 }
 
-// Several small files share one call so the ~2,800-token preamble amortises. Not a generalisation of buildFileReviewPrompts, which is snapshot-locked.
 export function buildBatchReviewPrompts(input: {
   files: readonly FileDiff[];
   prTitle: string | null;
@@ -361,11 +327,9 @@ export function buildBatchReviewPrompts(input: {
 }) {
   const files = input.files;
 
-  // Object identity is enough: getLanguageForFile returns the same entry for every matching file.
   const languages = new Set(files.map((file) => getLanguageForFile(file.path)));
   const uniformLanguage = languages.size === 1 ? [...languages][0] : undefined;
 
-  // A persona claims something about the whole response, so only uniform bins get one.
   const systemPrompt = buildFileReviewSystemPrompt(input.config, uniformLanguage?.persona, { multiFile: true });
 
   const prContext = renderPrContext(input.prDescription);
@@ -375,7 +339,6 @@ export function buildBatchReviewPrompts(input: {
   const fileBlocks = files.flatMap((file, index) => [
     '',
     packFileHeader(file, index, files.length),
-    // Uniform bins state the language once, above; only a mixed bin repeats it per file.
     ...(uniformLanguage ? [] : [renderLanguageGuidelines(file.path)]),
     'Unified diff:',
     renderFileDiff(file),
@@ -389,16 +352,12 @@ export function buildBatchReviewPrompts(input: {
     ...(uniformLanguage ? [renderLanguageGuidelines(files[0].path)] : []),
     renderCustomRules(input.config),
     'Review ONLY the diffs shown below. You cannot see the rest of any file or the repository - do not report something as undefined, unimported, unused, or missing just because it is not in a diff. If a diff note says it was truncated, do not infer issues from omitted lines.',
-    // The key batch-only rule: a misfiled finding can fuzzy-match a common line in the wrong file.
     'File scoping: each finding belongs to exactly ONE file. Put it inside that file\'s entry, set that file\'s path in `absolute_file_path`, and quote evidence from that file\'s diff only. Never report a finding about one file inside another file\'s entry, and never quote a line from a different file.',
-    // `line` is posted to GitHub as the anchor, so it must be a NEW-file number present in the diff.
     'Line numbers: every diff line below is prefixed with two columns - the OLD file line number, then the NEW file line number. Always report `line` (and `line_range`) using the NEW (second, right-hand) number, and only ever cite a line that appears in that file\'s diff. For a removed line, cite the nearest NEW line number shown next to it.',
-    // Evidence is matched verbatim before posting, so it must be code only -- no gutter or marker.
     'Evidence: every finding must carry an `evidence` string containing the exact code of the line it is about, copied character-for-character from its own file\'s diff below. Strip the two leading line-number columns and the +/-/space marker - quote only the code itself. A finding whose evidence does not appear in that file\'s diff will be discarded.',
     'Prioritize correctness, security, and production-impacting bugs. Raise anything you can ground in a quoted line; avoid subjective style feedback.',
     '',
     `## Output JSON Schema (STRICTLY REQUIRED)`,
-    // Same constant the system prompt renders.
     MULTI_FILE_SCHEMA_FORMAT,
     ...fileBlocks,
   ].join('\n');
@@ -406,7 +365,6 @@ export function buildBatchReviewPrompts(input: {
   return { systemPrompt, userPrompt };
 }
 
-// Exported so the packer measures bins with the exact renderer the prompt uses.
 export function renderFileDiff(file: FileDiff) {
   const lines = [`diff --git a/${file.previousPath ?? file.path} b/${file.path}`];
   for (const hunk of file.hunks) {

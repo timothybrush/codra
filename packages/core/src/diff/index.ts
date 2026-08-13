@@ -34,13 +34,10 @@ export function isReviewableFile(path: string, customMatchers: ReturnType<typeof
   return true;
 }
 
-// The b-side path from `diff --git a/<path> b/<path>`. Splitting on the LAST space breaks on `a/my file.ts b/my file.ts` (space in filename), which wedged jobs in a review -> finalize loop.
-// A symmetric `a/X b/X` split handles spaces correctly since both sides match unless renamed; only a rename falls back to the first ` b/`.
 export function parseDiffHeaderPath(line: string) {
   const rest = line.slice('diff --git '.length);
 
   if (rest.startsWith('a/')) {
-    // len(X) for a symmetric "a/X b/X": total = 2 + n + 1 + 2 + n.
     const n = (rest.length - 5) / 2;
     if (Number.isInteger(n) && n > 0 && rest[2 + n] === ' ' && rest.startsWith('b/', 3 + n)) {
       const a = rest.slice(2, 2 + n);
@@ -228,17 +225,13 @@ export function parseUnifiedDiff(rawDiff: string, reviewConfig?: RepoConfig['rev
   return files.filter((file) => file.path);
 }
 
-// One entry of GitHub's `/pulls/{n}/files` response, narrowed to what we use.
 export type GitHubDiffFileEntry = {
   filename: string;
   previous_filename?: string | null;
   status?: string;
-  // Absent for binary files and ones GitHub considers too large to patch.
   patch?: string | null;
 };
 
-// Rebuilds unified-diff text from GitHub's per-file JSON, because the diff media type returns 406 `too_large` past 20,000 lines with nothing to retry. Emitting text keeps `parseUnifiedDiff` the one format reader everywhere.
-// Headers match real git output, including the mode lines that set `isNew`/`isDeleted` (`/dev/null` alone would not).
 export function buildUnifiedDiffFromFiles(files: GitHubDiffFileEntry[]): string {
   const out: string[] = [];
 
@@ -256,7 +249,6 @@ export function buildUnifiedDiffFromFiles(files: GitHubDiffFileEntry[]): string 
       out.push(`rename to ${newPath}`);
     }
 
-    // No patch means binary or declined. Say so in the form the parser knows, or the file silently disappears and reads as reviewed-and-clean.
     if (!file.patch) {
       out.push(`Binary files a/${oldPath} and b/${newPath} differ`);
       continue;
@@ -270,8 +262,6 @@ export function buildUnifiedDiffFromFiles(files: GitHubDiffFileEntry[]): string 
   return out.length > 0 ? `${out.join('\n')}\n` : '';
 }
 
-// `maxFiles` is passed in, not read from repo config, because the subrequest ceiling and provider rate limit it protects are instance-wide, shared across repositories.
-// Returns `skipped` so callers can say "100 of 106" instead of reporting a partial review as complete.
 export function filterReviewableFiles(
   files: FileDiff[],
   config: RepoConfig['review'],

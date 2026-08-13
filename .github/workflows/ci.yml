@@ -49,52 +49,34 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      # Both halves matter. The root program has worker-configuration.d.ts in scope, so it would
-      # happily accept a KVNamespace inside packages/core; each package's own `tsc -p` is the
-      # narrower program (no DOM-wide Worker types, no vitest globals) that actually enforces that.
       - name: Static Analysis (Typecheck)
         run: npm run typecheck && npm run typecheck:all
 
-      # The @codra/core purity criterion as an assertion rather than a convention: no hono/postgres/
-      # wrangler/git-provider dependency in the manifest, and no type-only import sneaking the
-      # platform types back in. See the header of scripts/check-core-boundary.mjs.
       - name: Boundary Check (@codra/core purity)
         run: npm run check:boundaries
 
-      # Lint is not cosmetic here: eslint.config.js carries the barrel guards that stop a module from
-      # importing a mocked barrel's sibling (which would silently void a vi.mock), plus max-lines and
-      # import-x/no-cycle. Without this step those guards only ever ran on a developer's machine.
       - name: Static Analysis (Lint)
         run: npm run lint
 
       - name: Automated Tests
         run: npm test
 
-      # The package suites, separate from `npm test` on purpose: that one shells through
-      # scripts/test.mjs, which requires TEST_DATABASE_URL and runs migrations. @codra/core's suite
-      # must pass with no database at all -- that is the acceptance criterion for the extraction.
       - name: Automated Tests (packages)
         run: npm run test:all
 
-      # Catches bundler-level breakage typecheck cannot see -- notably a client file pulling zod into
-      # the browser bundle through @shared/schema. `vite build` rather than `npm run build` so CI does
-      # not depend on the `wrangler types` step, which only regenerates a local .d.ts.
       - name: Build (client bundle)
         run: npx vite build
 
-      # `vite build` above only builds index.html; the Worker entry is bundled by wrangler's esbuild,
-      # so nothing in CI previously proved src/server/index.ts still bundles. That is exactly where a
-      # bad @codra/core exports map fails -- silently, until deploy.
       - name: Build (worker bundle, dry run)
         run: npx wrangler deploy --dry-run --outdir=.wrangler/dry

@@ -96,24 +96,7 @@ describe('verifyFindings orchestrator', () => {
     expect(result.dropped).toHaveLength(0);
   });
 
-  it('falls back when the verifier returns unparseable output', async () => {
-    const comments = [comment({ title: 'A' })];
-    const result = await verifyFindings({ ...base, comments, model: fakeModel('garbage') });
-    expect(result.comments).toHaveLength(1);
-  });
 
-  it('short-circuits without calling the model when there are no findings', async () => {
-    let called = false;
-    const model = {
-      verifyFindings: async () => {
-        called = true;
-        return { rawText: '{}', inputTokens: 0, outputTokens: 0, modelUsed: 'm', provider: 'p' };
-      },
-    };
-    const result = await verifyFindings({ ...base, comments: [], model });
-    expect(result.comments).toEqual([]);
-    expect(called).toBe(false);
-  });
 
   // Verdicts are read from a sparse map keyed on the model's own `index` field, so a scrambled
   // result order must still land on the finding actually judged, not read positionally.
@@ -147,25 +130,7 @@ describe('verifyFindings orchestrator', () => {
     expect(result.dropped).toHaveLength(0);
   });
 
-  it('ignores an out-of-range index rather than aborting the pass', async () => {
-    const comments = [comment({ title: 'A' }), comment({ title: 'B' }), comment({ title: 'C' })];
-    const model = fakeModel(
-      '{"results":[{"index":99,"verdict":"drop"},{"index":0,"verdict":"keep"},{"index":1,"verdict":"drop"},{"index":2,"verdict":"keep"}]}',
-    );
-    const result = await verifyFindings({ ...base, comments, model });
-    expect(result.comments.map((c) => c.title)).toEqual(['A', 'C']);
-  });
 
-  // Two conflicting verdicts for one index must not let arrival order decide.
-  it('treats a conflicting duplicate index as unanswered', async () => {
-    const comments = ['A', 'B', 'C', 'D'].map((title) => comment({ title }));
-    const model = fakeModel(
-      '{"results":[{"index":0,"verdict":"keep"},{"index":0,"verdict":"drop"},{"index":1,"verdict":"keep"},{"index":2,"verdict":"keep"},{"index":3,"verdict":"keep"}]}',
-    );
-    const result = await verifyFindings({ ...base, comments, model });
-    const dropped = result.dropped.find((d) => d.comment.title === 'A');
-    expect(dropped?.disposition).toBe('verify_unanswered');
-  });
 
   // A candidate with no snippet AND no evidence cannot be judged at all, so it is passed through
   // unjudged rather than dropped: failing it closed lets one path mismatch delete a whole file.

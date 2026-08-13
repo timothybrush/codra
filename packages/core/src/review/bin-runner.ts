@@ -6,22 +6,17 @@ import type { BulkFileReviewInput, PullRequestRecord, ReviewModel, ReviewRuntime
 import { type PersistedReviewJob, FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from './phase-control';
 import { isSubrequestBudgetError, retryableModelFailureDelaySeconds } from './retry-policy';
 import { scanRuleChannel } from './file-runner';
-// One bin end to end: rule scan per file, one shared model call, then one row per file. Import from the core/review barrel, not here.
 
-// Phrased to match isRetryableFileReviewErrorMessage ("retrying later"), so the file is re-queued and narrowUnit explodes the bin back onto the single-file path.
 const MISSING_FILE_ERROR = 'Model omitted this file from a batched review; retrying later.';
 
-// Splits a total across weights, summing exactly to it -- cost reporting sums these columns.
 export function proportionalSplit(total: number, weights: number[]): number[] {
   if (weights.length === 0) return [];
 
   const sum = weights.reduce((a, b) => a + b, 0);
-  // A degenerate bin (all diffs empty) splits evenly rather than dividing by zero.
   const parts = sum <= 0
     ? weights.map(() => Math.floor(total / weights.length))
     : weights.map((w) => Math.floor((total * w) / sum));
 
-  // Flooring loses up to n-1 tokens; give the remainder to the heaviest weight.
   const assigned = parts.reduce((a, b) => a + b, 0);
   if (assigned < total) {
     const largest = weights.indexOf(Math.max(...weights));
@@ -30,7 +25,6 @@ export function proportionalSplit(total: number, weights: number[]): number[] {
   return parts;
 }
 
-// Reviews a packed bin in one model call, one row per file. Returns how many files reached a terminal state; re-queued files are excluded, or the wedge counter never advances.
 export async function reviewAndPersistBin(
   env: ReviewRuntime,
   job: PersistedReviewJob,
@@ -44,15 +38,11 @@ export async function reviewAndPersistBin(
 ): Promise<number> {
   const startedAt = env.clock.now();
 
-  // Scanned before the model call, so a rule hit reaches finalize even when the chain fails.
   const ruleScans = new Map(files.map((file) => [file.path, scanRuleChannel(file, config)]));
 
-  // The catch-all skips these, or a later failure would re-mark committed files failed and
-  // bulkUpsertFileReviews' comment DELETE would wipe their findings.
   const persisted = new Set<string>();
   let terminalCount = 0;
 
-  // Failed rows keep rule-channel findings, produced before the model ran.
   const failedRow = (file: FileDiff, errorMessage: string, modelProvider?: string | null): BulkFileReviewInput => ({
     filePath: file.path,
     fileStatus: 'failed',
@@ -95,19 +85,16 @@ export async function reviewAndPersistBin(
         modelUsed: response.modelUsed,
         modelProvider: response.provider,
         diffLineCount: file.lineCount,
-        // The only debugging artifact left once 003 nulls diff_input and the KV cache expires.
         rawAiOutput: response.rawText,
         parsedComments: [...parsed.comments, ...rules.comments],
         inputTokens: inputSplit[index],
         outputTokens: outputSplit[index],
-        // Wall clock, not cost: every file waited this long.
         durationMs,
         verdict: parsed.verdict,
         fileSummary: parsed.fileSummary,
         overallCorrectness: parsed.overallCorrectness,
         confidenceScore: parsed.confidenceScore,
         errorMessage: null,
-        // Per file: a bin-wide total would let one noisy file mask four clean ones.
         withheldCounts: {
           evidence: (parsed.evidenceStats?.unmatched ?? 0)
             + (parsed.evidenceStats?.absent ?? 0)
@@ -124,7 +111,6 @@ export async function reviewAndPersistBin(
       terminalCount += rows.length;
     }
 
-    // Never done-and-clean (that approves unexamined code), and not terminal progress either.
     if (response.batch.missing.length > 0) {
       const counts = await env.fileReviews.bulkRecordRetryableFileReviewFailures(job.id, response.batch.missing.map((path) => ({
         filePath: path,
@@ -134,7 +120,6 @@ export async function reviewAndPersistBin(
       })));
       for (const count of counts) persisted.add(count.filePath);
 
-      // Otherwise a file omitted every time never terminates through this path.
       const exhausted = counts.filter((c) => c.transientErrorCount >= MAX_RETRYABLE_FILE_REVIEW_FAILURES);
       if (exhausted.length > 0) {
         await env.fileReviews.bulkUpsertFileReviews(job.id, exhausted.map((c) => failedRow(
@@ -145,7 +130,6 @@ export async function reviewAndPersistBin(
       }
     }
 
-    // Every batch counter below is zero in a healthy run; non-zero is the alarm.
     logger.info('Batched file review parsed', {
       jobId: job.id,
       model: response.modelUsed,
@@ -169,7 +153,6 @@ export async function reviewAndPersistBin(
     const modelId = config.model?.main ?? 'unconfigured';
     const modelProvider = await resolveFailureModelProvider();
 
-    // No DB write: with no row every file stays outstanding and the bin is re-planned.
     if (isSubrequestBudgetError(error)) {
       logger.warn('Batched review deferred; subrequest budget will retry in a fresh invocation', {
         jobId: job.id,
@@ -180,10 +163,8 @@ export async function reviewAndPersistBin(
       throw error;
     }
 
-    // Committed rows stay committed: re-marking them would delete correct findings.
     const outstanding = files.filter((file) => !persisted.has(file.path));
 
-    // Error after everything was recorded: rethrowing would discard terminalCount and fail the job.
     if (outstanding.length === 0) {
       logger.warn('Batched review hit an error after every file was persisted; keeping the committed rows', {
         jobId: job.id,
@@ -194,9 +175,6 @@ export async function reviewAndPersistBin(
     }
 
     if (env.modelErrors.isRetryableModelError(error)) {
-      // Set when the chain still has untried models: the next invocation resumes at that index, so
-      // this deferral is progress and must not spend one of the three allowed attempts. Keeping the
-      // count also keeps the bin intact, which is what we want while only the model is changing.
       const advancedTo = env.modelErrors.nextChainIndexOf(error);
       const counts = await env.fileReviews.bulkRecordRetryableFileReviewFailures(job.id, outstanding.map((file) => ({
         filePath: file.path,
@@ -207,7 +185,6 @@ export async function reviewAndPersistBin(
 
       const exhausted = counts.filter((c) => c.transientErrorCount >= MAX_RETRYABLE_FILE_REVIEW_FAILURES);
       if (exhausted.length > 0) {
-        // Terminal, but rule-channel findings survive the model's failure.
         await env.fileReviews.bulkUpsertFileReviews(job.id, exhausted.map((c) => failedRow(
           files.find((f) => f.path === c.filePath)!,
           `Review skipped after ${c.transientErrorCount} repeated model provider outages.`,

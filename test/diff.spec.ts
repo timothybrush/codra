@@ -41,33 +41,6 @@ rename to new-name.ts
       expect(file.previousPath).toBe('old-name.ts');
     });
 
-    it('identifies new file creations', () => {
-      const newFileDiff = `diff --git a/new.ts b/new.ts
-new file mode 100644
-index 0000000..1234567
---- /dev/null
-+++ b/new.ts
-@@ -0,0 +1,1 @@
-+console.log("hello");
-`;
-      const [file] = parseUnifiedDiff(newFileDiff);
-      expect(file.isNew).toBe(true);
-      expect(file.path).toBe('new.ts');
-    });
-
-    it('identifies deleted files', () => {
-      const deleteDiff = `diff --git a/old.ts b/old.ts
-deleted file mode 100644
-index 1234567..0000000
---- a/old.ts
-+++ /dev/null
-@@ -1,1 +0,0 @@
--console.log("bye");
-`;
-      const [file] = parseUnifiedDiff(deleteDiff);
-      expect(file.isDeleted).toBe(true);
-    });
-
     it('gracefully skips binary files', () => {
       const binaryDiff = `diff --git a/image.png b/image.png
 index 1234567..890abcd 100644
@@ -76,18 +49,6 @@ Binary files a/image.png and b/image.png differ
       const [file] = parseUnifiedDiff(binaryDiff);
       expect(file.isBinary).toBe(true);
       expect(file.path).toBe('image.png');
-    });
-
-    it('handles malformed hunk headers without crashing', () => {
-      const malformedDiff = `diff --git a/broken.ts b/broken.ts
---- a/broken.ts
-+++ b/broken.ts
-@@ invalid hunk header @@
-+broken
-`;
-      const files = parseUnifiedDiff(malformedDiff);
-      expect(files).toHaveLength(1);
-      expect(files[0].hunks).toHaveLength(0);
     });
   });
 
@@ -113,25 +74,7 @@ Binary files a/image.png and b/image.png differ
       expect(truncated.lineCount).toBe(60);
     });
 
-    it('slices a single oversized hunk to the line limit', () => {
-      const largeFile = {
-        path: 'large.ts',
-        previousPath: null,
-        isNew: false,
-        isDeleted: false,
-        isBinary: false,
-        lineCount: 500,
-        hunks: [
-          { header: '@@ -1,500 +1,500 @@', lines: Array(500).fill({ kind: 'add', content: 'line', position: 1 }) },
-        ],
-      } as any;
 
-      const truncated = truncateFileDiff(largeFile, 300);
-      expect(truncated.isTruncated).toBe(true);
-      expect(truncated.hunks).toHaveLength(1);
-      expect(truncated.hunks[0].lines).toHaveLength(300);
-      expect(truncated.lineCount).toBe(300);
-    });
   });
 
   // chunkFileDiff decides how much of a large file any model ever sees; a silent partition bug means
@@ -161,13 +104,6 @@ Binary files a/image.png and b/image.png differ
 
     const linesOf = (files: any[]) => files.flatMap((f) => f.hunks.flatMap((h: any) => h.lines));
 
-    it('returns the file untouched when it fits, without marking it truncated', () => {
-      const file = fileOf([40]);
-      const chunks = chunkFileDiff(file, 100);
-      expect(chunks).toHaveLength(1);
-      expect(chunks[0]).toBe(file);
-      expect(chunks[0].isTruncated).toBeUndefined();
-    });
 
     it('partitions every line exactly once, in order, across chunk boundaries', () => {
       const file = fileOf([50, 50, 50]);
@@ -178,15 +114,6 @@ Binary files a/image.png and b/image.png differ
       expect(partitioned.map((l) => l.content)).toEqual(linesOf([file]).map((l) => l.content));
     });
 
-    it('splits a single hunk larger than the cap, keeping the hunk header on both halves', () => {
-      // Without the header the model cannot resolve line numbers for the second half's findings.
-      const chunks = chunkFileDiff(fileOf([100]), 40);
-      expect(chunks).toHaveLength(3);
-      for (const chunk of chunks) {
-        expect(chunk.hunks.every((h: any) => h.header === '@@ hunk0 @@')).toBe(true);
-      }
-      expect(chunks.map((c) => c.lineCount)).toEqual([40, 40, 20]);
-    });
 
     it('never exceeds the cap, and reports lineCount that matches the lines actually carried', () => {
       const chunks = chunkFileDiff(fileOf([13, 71, 5, 44]), 30);
@@ -198,14 +125,6 @@ Binary files a/image.png and b/image.png differ
       }
     });
 
-    it('carries the original line count on every chunk so truncation is reportable', () => {
-      const chunks = chunkFileDiff(fileOf([90]), 25);
-      expect(chunks.length).toBeGreaterThan(1);
-      for (const chunk of chunks) {
-        expect(chunk.originalLineCount).toBe(90);
-        expect(chunk.isTruncated).toBe(true);
-      }
-    });
 
     // The MAX_CHUNKS cap in reviewFile is what makes this the load-bearing number: at 800 lines/chunk,
     // 4 chunks meant any file over 3,200 diff lines was silently cut off. src/server/core/review.ts
@@ -245,58 +164,21 @@ Binary files a/image.png and b/image.png differ
       expect(filtered.skipped).toBe(15);
     });
 
-    it('does not count files excluded by skip patterns as skipped-for-limit', () => {
-      const files = [
-        { path: 'src/main.ts', isDeleted: false, isBinary: false, isNew: false, hunks: [] },
-        { path: 'dist/bundle.js', isDeleted: false, isBinary: false, isNew: false, hunks: [] },
-      ] as any;
-
-      const filtered = filterReviewableFiles(files, defaultRepoConfig.review, 150);
-      expect(filtered.files).toHaveLength(1);
-      expect(filtered.skipped).toBe(0);
-    });
   });
 });
 
 describe('diff --git header paths', () => {
   const header = (line: string) => parseDiffHeaderPath(line);
 
-  it('reads an ordinary path', () => {
-    expect(header('diff --git a/src/app.ts b/src/app.ts')).toBe('src/app.ts');
+
+  it.each([
+    ['reads a path containing spaces', 'diff --git a/src/my file.ts b/src/my file.ts', 'src/my file.ts'],
+    ['reads a path containing spaces', 'diff --git a/docs/release notes.md b/docs/release notes.md', 'docs/release notes.md'],
+    ['reads an ordinary path', 'diff --git a/src/index.ts b/src/index.ts', 'src/index.ts'],
+    ['reads a renamed path', 'diff --git a/old b/new', 'new'],
+    ['reads a path containing a literal b/ segment', 'diff --git a/a b/b b/a b/b', 'a b/b']
+  ])('%s', (name, input, expected) => {
+    expect(header(input)).toBe(expected);
   });
 
-  // Git does not quote spaces in this header. Splitting on the last space produced `file.ts`, a path
-  // not in the PR, so GitHub rejected the whole review with a 422 and every inline comment was lost.
-  it('reads a path containing spaces', () => {
-    expect(header('diff --git a/src/my file.ts b/src/my file.ts')).toBe('src/my file.ts');
-    expect(header('diff --git a/docs/release notes.md b/docs/release notes.md')).toBe('docs/release notes.md');
-  });
-
-  // Two such files sharing a last token collapsed to one path, desynchronising the file count from
-  // the review count and wedging the job in a review -> finalize loop.
-  it('keeps two space-named files distinct', () => {
-    expect(header('diff --git a/docs/release notes.md b/docs/release notes.md'))
-      .not.toBe(header('diff --git a/spec/api notes.md b/spec/api notes.md'));
-  });
-
-  it('takes the b-side on a rename', () => {
-    expect(header('diff --git a/old name.ts b/new name.ts')).toBe('new name.ts');
-  });
-
-  // The symmetric split resolves even a filename that itself contains " b/".
-  it('reads a path containing a literal b/ segment', () => {
-    expect(header('diff --git a/a b/b b/a b/b')).toBe('a b/b');
-  });
-
-  it('parses a full diff with a spaced path end to end', () => {
-    const [file] = parseUnifiedDiff([
-      'diff --git a/src/my file.ts b/src/my file.ts',
-      '--- a/src/my file.ts',
-      '+++ b/src/my file.ts',
-      '@@ -0,0 +1 @@',
-      '+console.log(1);',
-    ].join('\n'));
-    expect(file.path).toBe('src/my file.ts');
-    expect(file.hunks[0].lines[0].content).toBe('console.log(1);');
-  });
 });

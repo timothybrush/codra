@@ -167,11 +167,17 @@ export async function resetJobContinuationCount(env: Pick<AppBindings, 'HYPERDRI
   );
 }
 
+// `onlyJobIds` narrows both sweeps to specific jobs. Production leaves it unset and takes the whole
+// table; tests pass their own job so the LIMIT 25 window and FOR UPDATE SKIP LOCKED cannot hand the
+// slot to an unrelated stale 'running' row inserted by a suite running in a parallel worker.
 export async function recoverExpiredJobLeases(
   env: Pick<AppBindings, 'HYPERDRIVE'>,
   maxRecoveryCount = 3,
   unleasedGraceSeconds = 300,
+  onlyJobIds?: readonly string[] | null,
 ) {
+  const jobIdFilter = onlyJobIds ? [...onlyJobIds] : null;
+
   const requeued = await queryRows<{ id: string }>(
     env,
     `
@@ -190,6 +196,7 @@ export async function recoverExpiredJobLeases(
             )
           )
           AND recovery_count < $1
+          AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
         ORDER BY COALESCE(lease_expires_at, last_queue_message_at, heartbeat_at, started_at, created_at) ASC
         LIMIT 25
         FOR UPDATE SKIP LOCKED
@@ -205,7 +212,7 @@ export async function recoverExpiredJobLeases(
       WHERE j.id = expired.id
       RETURNING j.id
     `,
-    [maxRecoveryCount, String(unleasedGraceSeconds)],
+    [maxRecoveryCount, String(unleasedGraceSeconds), jobIdFilter],
   );
 
   const failed = await queryRows<JobRow>(
@@ -226,6 +233,7 @@ export async function recoverExpiredJobLeases(
             )
           )
           AND recovery_count >= $1
+          AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
         ORDER BY COALESCE(lease_expires_at, last_queue_message_at, heartbeat_at, started_at, created_at) ASC
         LIMIT 25
         FOR UPDATE SKIP LOCKED
@@ -258,7 +266,7 @@ export async function recoverExpiredJobLeases(
       FROM updated u
       JOIN repositories r ON u.repository_id = r.id
     `,
-    [maxRecoveryCount, String(unleasedGraceSeconds)],
+    [maxRecoveryCount, String(unleasedGraceSeconds), jobIdFilter],
   );
 
   return {

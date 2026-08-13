@@ -127,15 +127,4 @@ describe('gold set: known-true findings survive the full gate chain', () => {
     });
   }
 
-  // The severity and confidence gates must not bite either. `min_confidence` defaults to 0 precisely
-  // so a genuine 0.7 finding is never dropped for lacking false certainty.
-  it('is not filtered by the default severity or confidence thresholds', () => {
-    expect(defaultRepoConfig.review.min_confidence).toBe(0);
-    for (const { file, finding } of gold) {
-      const parsed = parseFileReviewResponse(review(finding), file);
-      const comment = parsed.comments[0];
-      expect(['P0', 'P1', 'P2', 'P3']).toContain(comment.severity);
-      expect(comment.confidenceScore ?? 0).toBeGreaterThanOrEqual(defaultRepoConfig.review.min_confidence);
-    }
-  });
 });

@@ -14,7 +14,6 @@ export function hasReviewKeys(input: string) {
   return /"(files|findings|overall_explanation|overall_correctness|overall_confidence_score|summary)"\s*:/.test(input);
 }
 
-// Walks a balanced `open`/`close` pair from `startIdx`, ignoring delimiters inside strings.
 function scanBalanced(raw: string, startIdx: number, open: string, close: string): string | null {
   let stack = 0;
   let inString = false;
@@ -47,7 +46,6 @@ function scanBalanced(raw: string, startIdx: number, open: string, close: string
   return null;
 }
 
-// `anchorKey` is the root key stage 3 anchors on. A batched payload anchored on "findings" silently matches files[0] alone.
 export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'findings') {
   const jsonBlocks = Array.from(raw.matchAll(/```json\s*([\s\S]*?)```/gi));
   if (jsonBlocks.length > 0) {
@@ -68,14 +66,12 @@ export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'find
     }
   }
 
-  // Array root: a bare `[{…}, {…}]`, which the brace scan below would reduce to element 0.
   const arrayStart = raw.indexOf('[');
   if (arrayStart !== -1 && raw.slice(0, arrayStart).trim() === '') {
     const matched = scanBalanced(raw, arrayStart, '[', ']');
     if (matched && hasReviewKeys(matched)) return matched;
   }
 
-  // Fall back to "findings" so batch mode still recovers a flat response.
   const anchorIdx = anchorKey === 'files' ? raw.indexOf('"files"') : -1;
   const findingsIdx = anchorIdx !== -1 ? anchorIdx : raw.indexOf('"findings"');
   const summaryIdx = raw.indexOf('"summary"');
@@ -86,7 +82,6 @@ export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'find
     firstBrace = raw.lastIndexOf('{', targetIdx);
   }
 
-  // No keyword: score every brace block and take the best.
   if (firstBrace === -1) {
     const allBraces = Array.from(raw.matchAll(/\{/g));
     let bestIdx = -1;
@@ -105,7 +100,6 @@ export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'find
       if (excerpt.includes('" : ') || excerpt.includes('":')) score += 10;
       if (excerpt.includes('"[')) score += 5;
 
-      // Anti-indicators: looks like source code, not our JSON.
       if (excerpt.includes(': number;') || excerpt.includes(': string;')) score -= 80;
       if (excerpt.includes('export ') || excerpt.includes('function ')) score -= 80;
       if (excerpt.includes('interface ') || excerpt.includes('type ')) score -= 80;
@@ -122,7 +116,6 @@ export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'find
     }
   }
 
-  // Last resort: the very first brace, if it looks like JSON at all.
   if (firstBrace === -1) {
     const start = raw.indexOf('{');
     if (start !== -1) {
@@ -167,7 +160,6 @@ export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'find
       }
     }
 
-    // Truncated: append the missing braces so jsonrepair gets a structurally complete object.
     const partial = raw.slice(firstBrace).trim();
     let closing = '';
     if (inString) closing += '"';
@@ -178,7 +170,6 @@ export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'find
   return raw.trim();
 }
 
-// Fixes common LLM defects before jsonrepair. Avoids backtracking regexes, for CPU cost.
 export function preprocessJson(json: string): string {
   let result = '';
   let inString = false;
@@ -264,7 +255,6 @@ function coerceReviewNumber(value: unknown) {
 export function normalizeFinding(finding: unknown) {
   if (!finding || typeof finding !== 'object') return null;
   const f = finding as Record<string, unknown>;
-  // A model echoing the schema template back (`"<evidence>"`) has produced no finding at all.
   if (isPlaceholderString(f.title) || isPlaceholderString(f.body) || isPlaceholderString(f.evidence)) return null;
 
   const location = f.code_location && typeof f.code_location === 'object' ? (f.code_location as Record<string, unknown>) : {};
@@ -288,9 +278,7 @@ export function normalizeFinding(finding: unknown) {
 
   return {
     ...f,
-    // Clipped before Zod, or one bad title throws for the whole bin. The surrogate strip avoids halving an emoji, which the DB write cannot encode.
     title: (f.title ? String(f.title) : '').trim().slice(0, 100).replace(/[\uD800-\uDBFF]$/, '') || 'Code finding',
-    // Clamped before Zod for the same reason.
     priority: priority === undefined ? undefined : Math.max(0, Math.min(4, Math.trunc(priority as number))),
     code_location: codeLocation,
     confidence_score: typeof f.confidence_score === 'number'
@@ -299,7 +287,6 @@ export function normalizeFinding(finding: unknown) {
   };
 }
 
-// Extracts, repairs and schema-validates the raw model response. Each catch logs a truncated excerpt: enough to diagnose what the model returned, without 10k+ char dumps.
 export function parseRawPayload(raw: string): z.infer<typeof fileReviewModelOutputSchema> {
   let extracted: string;
   try {
@@ -333,7 +320,6 @@ export function parseRawPayload(raw: string): z.infer<typeof fileReviewModelOutp
 
   let parsedJson: unknown;
   try {
-    // Nulls out before anything else looks at the payload: `.optional()` rejects an explicit null.
     parsedJson = stripNulls(JSON.parse(repaired));
   } catch (e) {
     logger.error('Critical JSON parse error after extraction and repair', { repaired: truncateJsonForLog(repaired), error: e });
@@ -342,14 +328,12 @@ export function parseRawPayload(raw: string): z.infer<typeof fileReviewModelOutp
 
   try {
     const findReviewObject = (arr: unknown[]): unknown | null => {
-      // Best: findings array and summary.
       const best = arr.find(i => i && typeof i === 'object' && Array.isArray((i as Record<string, unknown>).findings) && typeof (i as Record<string, unknown>).summary === 'string');
       if (best) return best;
 
       const good = arr.find(i => i && typeof i === 'object' && Array.isArray((i as Record<string, unknown>).findings));
       if (good) return good;
 
-      // Last resort: any review-like keys.
       return arr.find(i =>
         i && typeof i === 'object' &&
         ('findings' in i || 'overall_explanation' in i || 'summary' in i || 'overall_correctness' in i)
@@ -358,14 +342,12 @@ export function parseRawPayload(raw: string): z.infer<typeof fileReviewModelOutp
 
     let data = Array.isArray(parsedJson) ? (findReviewObject(parsedJson) || parsedJson[0] || {}) : parsedJson;
 
-    // Fill essential keys so schema validation doesn't reject an otherwise-usable response.
     if (data && typeof data === 'object') {
       const obj = data as Record<string, unknown>;
       if (!obj.findings) obj.findings = [];
       if (!obj.overall_explanation) obj.overall_explanation = 'No explanation provided.';
       if (!obj.overall_correctness) obj.overall_correctness = 'Uncertain';
 
-      // Expected 0-1; models often answer on a 1-10 scale instead.
       if (typeof obj.overall_confidence_score === 'number') {
         if (obj.overall_confidence_score > 1) {
           obj.overall_confidence_score = Math.min(obj.overall_confidence_score / 10, 1);

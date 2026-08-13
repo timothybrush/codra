@@ -1,4 +1,3 @@
-// Batched-response payload extraction. Separate from the single-file parser, whose force-filled `findings: []` would approve an unexamined file here.
 import { batchReviewModelOutputSchema, fileReviewModelOutputSchema } from '@codra/schema';
 import { jsonrepair } from 'jsonrepair';
 import { z } from 'zod';
@@ -13,7 +12,6 @@ import {
   truncateJsonForLog,
 } from './json';
 
-// Models routinely report the path under a key other than the one the schema asked for.
 function readEntryPath(entry: Record<string, unknown>): string | null {
   for (const key of ['absolute_file_path', 'path', 'file', 'file_path', 'filename'] as const) {
     const value = entry[key];
@@ -29,14 +27,12 @@ function normalizeConfidence(value: unknown): number | undefined {
   return value;
 }
 
-// Returns null for an untrustworthy entry, so it surfaces as `missing` -- re-queued, not clean.
 function normalizeBatchFileEntry(entry: unknown, fallbackPath?: string): unknown | null {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
   const e = entry as Record<string, unknown>;
   const path = readEntryPath(e) ?? fallbackPath;
   if (!path) return null;
 
-  // Absence of the key, not an empty array: a truncated response repairs into a missing `findings`.
   if (!Array.isArray(e.findings)) return null;
 
   return {
@@ -51,7 +47,6 @@ function normalizeBatchFileEntry(entry: unknown, fallbackPath?: string): unknown
   };
 }
 
-// Three shapes seen in practice: a grammar-honouring array, a path-keyed object, and a bare array.
 function collectBatchEntries(parsedJson: unknown): unknown[] | null {
   const root = parsedJson && typeof parsedJson === 'object' ? (parsedJson as Record<string, unknown>) : null;
   const files = root?.files ?? (Array.isArray(parsedJson) ? parsedJson : undefined);
@@ -73,10 +68,8 @@ function collectBatchEntries(parsedJson: unknown): unknown[] | null {
 
 export type RawBatchPayload =
   | { shape: 'nested'; data: z.infer<typeof batchReviewModelOutputSchema> }
-  // Model ignored the nested schema -- common on weaker fallback models.
   | { shape: 'flat'; data: z.infer<typeof fileReviewModelOutputSchema> };
 
-// NOT routed through parseRawPayload -- see the header.
 export function parseRawBatchPayload(raw: string): RawBatchPayload {
   let extracted: string;
   try {
@@ -110,7 +103,6 @@ export function parseRawBatchPayload(raw: string): RawBatchPayload {
 
   let parsedJson: unknown;
   try {
-    // See stripNulls: one `"code_suggestion": null` used to discard the whole bin's response.
     parsedJson = stripNulls(JSON.parse(repaired));
   } catch (e) {
     logger.error('Critical JSON parse error after extraction and repair', { repaired: truncateJsonForLog(repaired), error: e });
@@ -123,7 +115,6 @@ export function parseRawBatchPayload(raw: string): RawBatchPayload {
     : {};
 
   if (!entries?.length) {
-    // No usable `files`, but a findings array is present: the flat shape, not a lost response.
     if (Array.isArray(root.findings)) return { shape: 'flat', data: parseRawPayload(raw) };
     logger.error('Batched model response contained no recognisable file entries', {
       parsedJson: truncateJsonForLog(JSON.stringify(parsedJson ?? null)),

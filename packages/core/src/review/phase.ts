@@ -26,7 +26,6 @@ import {
 } from './retry-policy';
 import { loadRejectedExemplars, runPreparePhase } from './prepare';
 import { persistCompletedReview, persistFailedFileReview, reviewAndPersistFile } from './file-runner';
-// Import via the core/review.ts barrel, not from here: several specs mock that specifier.
 
 export async function runReviewPhase(
   env: ReviewRuntime,
@@ -43,7 +42,6 @@ export async function runReviewPhase(
 
   await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'running' });
 
-  // One DB read and one GitHub read with nothing between them; two in flight cannot breach the subrequest cap.
   const [rejectedExemplars, pr] = await Promise.all([
     loadRejectedExemplars(env, job),
     github.getPullRequest(job.owner, job.repo, job.prNumber),
@@ -59,7 +57,6 @@ export async function runReviewPhase(
   const { files } = await getDiffFiles(env, job, github, config, maxFiles);
   const totalLineCount = files.reduce((sum, file) => sum + file.lineCount, 0);
   const configuredChunkFileLimit = REVIEW_CONCURRENCY_LIMITS[concurrencyLevel];
-  // Sized against the chain: a nine-model chain costs far more per file than a one-model one.
   const modelChainLength = 1 + (config.model.fallbacks?.length ?? 0);
   const reviewChunkFileLimit = budgetAwareFileLimit(
     tracker.remainingSafeBudget(),
@@ -84,11 +81,9 @@ export async function runReviewPhase(
   }
 
   const reviewTasks: Array<Promise<void>> = [];
-  // Single-threaded, so ++ is safe.
   let terminalProgress = 0;
   let awaitingAsync = 0;
 
-  // Bulk-copy parent reviews in one DB pass, so a fully-inheritable retry finishes in one invocation.
   if (job.retryOfJobId && parentReviews.size > 0) {
     const inheritablePaths = files.flatMap((file) => {
       if (currentReviews.has(file.path)) return [];
@@ -102,7 +97,6 @@ export async function runReviewPhase(
         parentJobId: job.retryOfJobId,
         filePaths: inheritablePaths,
       });
-      // Mark copied files handled so the loop below skips them.
       for (const path of inheritedPaths) {
         const parent = parentReviews.get(path);
         if (parent) currentReviews.set(path, parent);
@@ -114,8 +108,6 @@ export async function runReviewPhase(
     }
   }
 
-  // Planned over the full file list so bins are stable across invocations (they aren't persisted),
-  // then narrowed to files that still need a model call.
   const binnedPaths = new Set<string>();
   if (config.review.batch_small_files) {
     const ledger = new Map(files.map((file) => {
@@ -133,14 +125,12 @@ export async function runReviewPhase(
     let filesDispatchedInBins = 0;
 
     for (const unit of plannedBins) {
-      // A bin is one unit (one model chain + one bulk write); counting its files would stop the chunk after a single bin.
       if (processedThisChunk >= reviewChunkFileLimit) break;
       if (env.clock.now() - startedAt >= REVIEW_CHUNK_WALL_CLOCK_MS) break;
 
       const binFiles = unit.kind === 'bin' ? unit.files : [];
       binFiles.forEach((file) => binnedPaths.add(file.path));
       reviewTasks.push((async () => {
-        // Two statements, not `+= await …`: compound assignment reads the left side first, so concurrent bins would clobber each other.
         const terminal = await reviewAndPersistBin(env, job, binFiles, pr, config, totalLineCount, model, resolveFailureModelProvider, rejectedExemplars);
         terminalProgress += terminal;
       })());
@@ -164,20 +154,17 @@ export async function runReviewPhase(
     if (binnedPaths.has(file.path)) continue;
 
     const existingReview = currentReviews.get(file.path);
-    // An in-flight async submission must be polled (not skipped as "handled" and not resubmitted).
     const awaitingReview = existingReview && isAwaitingAsyncReview(existingReview) ? existingReview : null;
     if (existingReview && countsAsHandledFileReview(existingReview) && !awaitingReview) {
       continue;
     }
 
-    // `continue`, not `break`: async polls are exempt and must still be reached.
     if (!awaitingReview && processedThisChunk >= reviewChunkFileLimit) {
       continue;
     }
 
     const inherited = parentReviews.get(file.path);
     const reviewTask = async () => {
-      // (0) Poll an already-submitted async batch review.
       if (awaitingReview) {
         const poll = await model.pollReviewBatch({
           model: awaitingReview.async_model ?? awaitingReview.model_used,
@@ -203,7 +190,6 @@ export async function runReviewPhase(
       }
 
       if (!inherited) {
-        // (1) Try the async batch queue first; on any unavailability fall back to sync review.
         const submitted = await model.submitReviewBatch({
           file,
           prTitle: pr.title ?? null,
@@ -270,7 +256,6 @@ export async function runReviewPhase(
     };
 
     reviewTasks.push(reviewTask());
-    // A poll is one subrequest, not a review: charging it would strand every in-flight batch.
     if (!awaitingReview) processedThisChunk += 1;
 
     if (env.clock.now() - startedAt >= REVIEW_CHUNK_WALL_CLOCK_MS) {
@@ -281,14 +266,10 @@ export async function runReviewPhase(
   const results = await Promise.allSettled(reviewTasks);
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
-  // Only terminal rows count as progress; a submit/poll-only chunk must not reset the counter.
   if (terminalProgress > 0) {
     await env.jobs.resetJobContinuationCount(job.id);
   }
 
-  // Before the throw paths on purpose: a chunk that defers is exactly when waste is highest.
-  // `wasted` is estimated, `usage` is billed -- see TokenTracker. Skips rising while attempts fall
-  // is the shape that says the cooldown gates are doing their job.
   logger.info('Review chunk model usage', {
     jobId: job.id,
     subrequests: tracker.getSubrequestCount(),
@@ -302,7 +283,6 @@ export async function runReviewPhase(
       logger.error(`Review chunk task ${index + 1}/${rejected.length} failed`, result.reason);
     });
 
-    // Surface as a single error so the orchestrator reschedules instead of failing on AggregateError.
     const deferrableError = rejected.map(r => r.reason).find(r => env.modelErrors.isRetryableModelError(r) || isSubrequestBudgetError(r));
     if (deferrableError) {
       throw deferrableError;
@@ -314,7 +294,6 @@ export async function runReviewPhase(
   }
 
   const latestReviews = await env.fileReviews.getFileReviewsForJobs([job.id]);
-  // Exclude files awaiting async results so the job doesn't finalize with pending reviews.
   const reviewedPaths = new Set(
     latestReviews.flatMap((review) => (
       countsAsHandledFileReview(review) && !isAwaitingAsyncReview(review) ? [review.file_path] : []
@@ -324,12 +303,10 @@ export async function runReviewPhase(
 
   if (completedCount >= files.length) {
     await env.jobs.updateJobStep(job.id, 'Reviewing Files', { status: 'done' });
-    // Finalize needs a fresh budget: TokenTracker under-reports usage, so a conditional yield let finalize die with "Too many subrequests".
     await enqueueJobPhase(env, job.id, 'finalize', FRESH_INVOCATION_YIELD_SECONDS);
     return;
   }
 
-  // Only in-flight batches left: poll after a delay, degrading to a partial review if they never land.
   if (awaitingAsync > 0 && terminalProgress === 0) {
     const pollCount = await env.jobs.markJobContinuationQueued(job.id, ASYNC_BATCH_POLL_DELAY_SECONDS);
     if (pollCount > MAX_JOB_CONTINUATIONS) {
@@ -350,7 +327,6 @@ export async function runReviewPhase(
   }
 
   if (job.checkRunId) {
-    // Cosmetic only: reviews are already persisted, so a failure must not block the next chunk.
     try {
       await github.updateCheckRun(job.owner, job.repo, job.checkRunId, {
         title: `Reviewing (${completedCount}/${files.length})`,
@@ -360,6 +336,5 @@ export async function runReviewPhase(
       logger.warn(`Failed to update progress check run for job ${job.id}; continuing to the next chunk anyway`, error instanceof Error ? error : new Error(String(error)));
     }
   }
-  // Yield long enough to force hibernation, rather than accumulating subrequests in this invocation.
   await enqueueJobPhase(env, job.id, 'review', FRESH_INVOCATION_YIELD_SECONDS);
 }

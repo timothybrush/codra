@@ -5,25 +5,20 @@ import { buildAnchorHash, buildFindingFingerprint, buildFindingFingerprintV2, no
 import { CLAIM_TYPE_CATEGORY } from '@codra/schema';
 import { RULES, type Rule } from './table';
 
-// Cap on added lines scanned per file: the binding constraint is the 10ms CPU budget, not memory. Reported as `truncated` rather than silently applied.
 const MAX_RULE_SCAN_ADDED_LINES = 600;
 
 export type RuleHit = {
   rule: Rule;
   line: DiffLine;
-  // Set when the rule is in shadow mode: counted and logged, never turned into a comment.
   shadow: boolean;
 };
 
 export type RuleScanStats = {
   addedLinesScanned: number;
-  // Lines that passed the cheap substring sieve and were actually stripped + regex-tested.
   sievePassed: number;
   hits: number;
   shadowHits: number;
-  // Hits discarded because the identical line already existed as a `del` - the PR only moved it.
   suppressedAsMoved: number;
-  // Lines the stripper refused to scan (unterminated quote / unclosed block comment).
   unstrippable: number;
   truncated: boolean;
   byRule: Record<string, number>;
@@ -45,7 +40,6 @@ function ruleApplies(rule: Rule, ext: string) {
   return !rule.extensions || rule.extensions.includes(ext);
 }
 
-// Zero subrequests and no model call: this channel still produces findings when the LLM returns nothing or the file's review fails outright.
 export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {}): RuleScanResult {
   const stats: RuleScanStats = {
     addedLinesScanned: 0,
@@ -73,12 +67,10 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
     && ruleApplies(rule, ext));
   if (active.length === 0) return { hits, stats };
 
-  // One flat sieve over every active rule's triggers: cheap substring checks reject >95% of lines before regexes run.
   const triggers = [...new Set(active.flatMap((rule) => rule.triggers))];
   const syntax = commentSyntaxFor(file.path);
 
   for (const hunk of file.hunks) {
-    // Same discipline as buildPresenceIndex: collected per hunk so reformat-move suppression can compare within the same window.
     const removed = new Set<string>();
     for (const l of hunk.lines) {
       if (l.kind === 'del') removed.add(normalizeDiffText(l.content));
@@ -107,7 +99,6 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
         if (!rule.pattern.test(stripped)) continue;
         if (rule.rejectRaw?.test(raw)) continue;
 
-        // The "defect" pre-existed and the PR only moved or reindented the line.
         if (removed.has(normalizeDiffText(raw))) {
           stats.suppressedAsMoved += 1;
           continue;
@@ -118,7 +109,6 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
         stats.byRule[rule.id] = (stats.byRule[rule.id] ?? 0) + 1;
         if (shadow) stats.shadowHits += 1;
         else stats.hits += 1;
-        // One hit per line: two rules firing on one line would post two comments at one anchor.
         break;
       }
     }
@@ -128,8 +118,6 @@ export function scanFileForRuleHits(file: FileDiff, options: RuleScanOptions = {
   return { hits, stats };
 }
 
-// Turns rule hits into the same `ParsedReviewComment` shape the LLM channel produces, so downstream stages treat them uniformly.
-// The fingerprint deliberately includes the anchor hash: a rule's title is a CONSTANT, so two hits of one rule in one file would otherwise collide on a single fingerprint identity.
 export function ruleHitsToComments(file: FileDiff, result: RuleScanResult): ParsedReviewComment[] {
   const comments: ParsedReviewComment[] = [];
   for (const hit of result.hits) {

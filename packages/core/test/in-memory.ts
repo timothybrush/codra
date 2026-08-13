@@ -1,9 +1,3 @@
-// A complete in-memory ReviewRuntime: every port the engine takes, implemented with plain maps and
-// canned model output. No Postgres, no Miniflare, no network, no clock.
-//
-// This is the demonstration that the extraction actually worked. If the engine ever regains a
-// dependency on a database, a platform binding or a git provider, THIS file stops being enough to
-// drive it, and the spec next door fails.
 
 import { defaultRepoConfig, reviewSettingsSchema, type ParsedReviewComment, type RepoConfig, type ReviewSettings } from '@codra/schema';
 import type {
@@ -57,7 +51,6 @@ export function makeJob(overrides: Partial<PersistedReviewJob> = {}): PersistedR
   };
 }
 
-// A two-file unified diff, small enough that the planner packs it into one bin.
 export const SAMPLE_DIFF = `diff --git a/src/retry.ts b/src/retry.ts
 index 1111111..2222222 100644
 --- a/src/retry.ts
@@ -103,12 +96,10 @@ export function createInMemoryRuntime(
   };
   const record = (name: string) => recorded.calls.push(name);
 
-  // Advanced explicitly by tests; never reads the wall clock, so durations are deterministic.
   const now = { value: 1_700_000_000_000 };
 
   const settings = reviewSettingsSchema.parse({ maxFiles: 25, ...seed.settings });
 
-  // The engine only ever reads `status` and `check_run_id` off a row, and hands it back to mapJob.
   const toRow = (j: PersistedReviewJob): JobRow => ({ ...j, status: j.status, check_run_id: j.checkRunId ?? null });
   const patch = (jobId: string, changes: Partial<PersistedReviewJob>) => {
     const existing = recorded.jobs.get(jobId);
@@ -409,8 +400,6 @@ export function createInMemoryRuntime(
   return { runtime, recorded, now };
 }
 
-// The engine constructs a tracker and passes it to the github/model factories, which ignore it here.
-// Stands in for the real TokenTracker so the fake runtime needs no import from the engine's internals.
 class TokenTrackerStub {
   incrementSubrequests() {}
   getSubrequestCount() { return 0; }

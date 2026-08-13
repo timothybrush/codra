@@ -4,7 +4,6 @@ import type { ReviewGitHub, ReviewRuntime } from '../ports';
 import { getDiffFiles } from './diff-cache';
 import type { RejectedExemplar } from '../prompts/file-review';
 import { type PersistedReviewJob, JOB_LEASE_SECONDS, FRESH_INVOCATION_YIELD_SECONDS, enqueueJobPhase } from './phase-control';
-// Sibling of core/review.ts -- import from that barrel, not from here.
 
 export async function runPreparePhase(
   env: ReviewRuntime,
@@ -16,7 +15,6 @@ export async function runPreparePhase(
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);
   const config = (job.configSnapshot ?? defaultRepoConfig) as RepoConfig;
 
-  // Refresh cached PR title/author: these are snapshotted at job creation and copied onto retries, so a title edited on GitHub afterwards would otherwise stay stale.
   try {
     await env.jobs.setJobPullRequestMeta(job.id, {
       prTitle: pr.title ?? null,
@@ -49,7 +47,6 @@ export async function runPreparePhase(
   }
 
   if (checkRunId) {
-    // Best-effort progress cosmetics only: don't let a failed check-run update block enqueuing the review phase.
     try {
       await github.updateCheckRun(job.owner, job.repo, checkRunId, {
         title: `Reviewing (0/${files.length})`,
@@ -59,11 +56,9 @@ export async function runPreparePhase(
       logger.warn(`Failed to update initial progress check run for job ${job.id}; continuing to the review phase anyway`, error instanceof Error ? error : new Error(String(error)));
     }
   }
-  // Yield: the review phase builds a FRESH TokenTracker starting at zero, so without a hibernating delay it would share this invocation's already-spent budget and fan out into "Too many subrequests".
   await enqueueJobPhase(env, job.id, 'review', FRESH_INVOCATION_YIELD_SECONDS);
 }
 
-// Negative few-shot exemplars for this repository. Best-effort, and per chunk so it costs one query rather than one per file.
 export async function loadRejectedExemplars(env: Pick<ReviewRuntime, 'learning'>, job: PersistedReviewJob): Promise<RejectedExemplar[]> {
   try {
     const repositoryId = await env.learning.getRepositoryIdForJob(job.id);

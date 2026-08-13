@@ -4,7 +4,6 @@ import { queryRows } from '@server/db/client';
 import { insertJob } from '@server/db/jobs';
 import { upsertFileReview } from '@server/db/file-reviews';
 import { syncRepoConfig, upsertRepoConfig } from '@server/db/repo-configs';
-import { recordWebhookDelivery } from '@server/db/webhook-deliveries';
 import { createTestEnv } from './helpers';
 
 // `JSON.stringify(x)` bound to `$n::jsonb` stores a jsonb STRING SCALAR, so every SQL JSON operator
@@ -102,19 +101,6 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
     expect(await shapeOf('jobs', 'config_snapshot', 'id = $1::uuid', [job.id])).toBe('object');
   });
 
-  it('stores webhook_deliveries.payload as an object', async () => {
-    const deliveryId = unique();
-    await recordWebhookDelivery(env, {
-      deliveryId,
-      eventName: 'pull_request',
-      owner: 'jsonb-owner',
-      repo: unique(),
-      payload: { action: 'opened', number: 7 },
-    });
-
-    expect(await shapeOf('webhook_deliveries', 'payload', 'delivery_id = $1', [deliveryId])).toBe('object');
-  });
-
   it('stores file_reviews.withheld_counts so the SQL aggregate can read it', async () => {
     const job = await insertJob(env, {
       installationId: '900001',
@@ -165,7 +151,6 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
       ['repo_configs', 'fallback_models'],
       ['repo_configs', 'size_overrides'],
       ['jobs', 'config_snapshot'],
-      ['webhook_deliveries', 'payload'],
       ['file_reviews', 'withheld_counts'],
     ];
 

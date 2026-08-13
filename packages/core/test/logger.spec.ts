@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { consoleLogger, formatLogRecord, logger, redact, scrubString, setLoggerSink } from '../src/logger';
 
-// Redaction had no coverage at all before the logger split, and it is load-bearing in both
-// directions: src/server/core/token-tracker.ts and src/server/models/google.ts both document
-// workarounds for the `token` key being redacted. These tests pin the behaviour so the move cannot
-// change it silently.
 describe('scrubString', () => {
   it('replaces a JWT in the middle of a message', () => {
     const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc-DEF_123';
@@ -17,8 +13,6 @@ describe('scrubString', () => {
   });
 
   it('leaves ordinary prose and dotted paths alone', () => {
-    // The predecessor check was "contains exactly two periods", which deleted file paths while
-    // missing real JWTs. Both halves of that regression are pinned here.
     expect(scrubString('parsed src/server/core/logger.ts fine')).toBe('parsed src/server/core/logger.ts fine');
     expect(scrubString('a.b.c')).toBe('a.b.c');
   });
@@ -29,8 +23,6 @@ describe('redact', () => {
     expect(redact({ apiKey: 'x', API_KEY: 'y', total_input_tokens: 5, nested: { password: 'p' } })).toEqual({
       apiKey: '[REDACTED]',
       API_KEY: '[REDACTED]',
-      // `token` is a substring of this key, which is exactly why the token tracker logs its counts
-      // under names that avoid it.
       total_input_tokens: '[REDACTED]',
       nested: { password: '[REDACTED]' },
     });

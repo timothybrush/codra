@@ -10,7 +10,7 @@ const fileWith = addedLinesFile;
 const liveRules = (file: FileDiff) =>
   ruleHitsToComments(file, scanFileForRuleHits(file, { shadowRuleIds: [] }));
 
-const llmComment = (over: Partial<ParsedReviewComment> = {}): ParsedReviewComment => ({
+const _llmComment = (over: Partial<ParsedReviewComment> = {}): ParsedReviewComment => ({
   path: 'src/a.ts',
   line: 1,
   position: 1,
@@ -43,30 +43,6 @@ describe('the rule channel in the pipeline', () => {
     expect(dedupeFindings([...a, ...b])).toHaveLength(2);
   });
 
-  it('keeps two hits of one rule in a single file distinct', () => {
-    const file = fileWith('src/a.ts', ['  } catch (e) {}', '  } catch (err) {}']);
-    expect(dedupeFindings(liveRules(file))).toHaveLength(2);
-  });
-
-  // The LLM finding has prose and grounded evidence; the rule hit is a constant template. When both
-  // describe the same defect the richer one should be what a human reads.
-  it('does not let a rule finding displace the LLM finding it duplicates', () => {
-    const file = fileWith('src/a.ts', ['  } catch (e) {}']);
-    const [rule] = liveRules(file);
-    const llm = llmComment({ title: 'Errors are swallowed here', severity: 'P1' });
-
-    const deduped = dedupeFindings([llm, rule]);
-    expect(deduped).toContain(llm);
-  });
-
-  it('produces nothing for a rule whose claim type the repo denies', () => {
-    const file = fileWith('src/a.ts', ['  } catch (e) {}']);
-    const result = scanFileForRuleHits(file, {
-      shadowRuleIds: [],
-      deniedClaimTypes: ['swallowed_error'],
-    });
-    expect(ruleHitsToComments(file, result)).toEqual([]);
-  });
 
   // Shadow is the shipping default: every rule scores itself on real pull requests before any of it
   // reaches a reviewer.

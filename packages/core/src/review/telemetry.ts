@@ -2,9 +2,7 @@ import { logger } from '../logger';
 import type { ReviewRuntime } from '../ports';
 import { type PersistedReviewJob } from './phase-control';
 import { bareModelId } from './retry-policy';
-// Sibling of core/review.ts -- import from that barrel, not from here.
 
-// Success/all-failed fields come in as `overrides`. Token/model data comes from `done` reviews only, so failed or inherited rows don't deflate totals.
 export async function sendReviewTelemetry(
   env: ReviewRuntime,
   job: PersistedReviewJob,
@@ -54,11 +52,9 @@ export async function sendReviewTelemetry(
   }
 }
 
-// `posted` requires both fingerprint and anchor hash to match, so an edit to the flagged line re-raises it; `rejected` suppresses on fingerprint alone.
 export async function loadSuppressedFingerprints(env: Pick<ReviewRuntime, 'fileReviews'>, jobId: string) {
   const posted = new Map<string, Set<string>>();
   const rejected = new Set<string>();
-  // v2 already contains the anchor hash, so membership alone means "same file, same claim class, byte-identical line".
   const postedV2 = new Set<string>();
   const rejectedV2 = new Set<string>();
 

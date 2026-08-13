@@ -32,7 +32,6 @@ import {
   resolveEvidence,
 } from './evidence';
 
-// Tolerates the prefix noise models add to paths (`./src/a.ts`, `b/src/a.ts`, `/src/a.ts`).
 export function samePath(a: string, b: string): boolean {
   const strip = (p: string) => p.trim().replace(/^\.\//, '').replace(/^[ab]\//, '').replace(/^\//, '');
   return strip(a) === strip(b);
@@ -40,7 +39,6 @@ export function samePath(a: string, b: string): boolean {
 
 export type BinAmbiguity = {
   index: BinAmbiguityIndex;
-  // Path of the entry enclosing the finding being grounded.
   filePath: string;
   stats: { ambiguousAcrossBin: number };
 };
@@ -55,7 +53,6 @@ function withSuggestion(body: string, codeSuggestion?: string) {
   return `${cleanBody}\n\n\`\`\`suggestion\n${cleanSuggestion}\n\`\`\``;
 }
 
-// Relabels an `other` finding when its vocabulary is unmistakable, so the denylist can see it. Deliberately excludes react_missing_cleanup/resource_leak/null_or_undefined_deref: that vocabulary also appears in legitimate `other` findings.
 const CLAIM_TYPE_REPAIRS: ReadonlyArray<{ pattern: RegExp; claimType: ClaimType }> = [
   { pattern: /dependenc(?:y|ies)\s+array|exhaustive[- ]deps/i, claimType: 'react_hook_missing_deps' },
   { pattern: /redos|catastrophic backtrack|exponential backtrack/i, claimType: 'redos_regex' },
@@ -65,7 +62,6 @@ function repairClaimType(claimType: ClaimType, title: string, body: string, onRe
   if (claimType !== 'other') return claimType;
   const text = `${title}\n${body}`;
 
-  // Version claims arrive labelled `other`, and every one in the corpus has been false.
   if (looksLikeExternalVersionClaim(title, body)) {
     onRepair();
     return 'external_version_claim';
@@ -82,15 +78,12 @@ function repairClaimType(claimType: ClaimType, title: string, body: string, onRe
 
 type RawFinding = z.infer<typeof fileReviewModelOutputSchema>['findings'][number];
 
-// Dropped finding for the off-diff list. Only the position-validation drop omits `tag`.
 type Withheld = { title: string; body: string; tag?: string };
 
 function formatWithheld(w: Withheld): string {
   return w.tag ? `- **[${w.tag}] ${w.title}:** ${w.body}` : `- **${w.title}:** ${w.body}`;
 }
 
-// Stage 2: resolve the evidence quote against the diff; only a match passes, on every provider.
-// unmatched = discriminating but absent, weak = under 8 normalized chars, absent = no quote.
 function groundFindingInEvidence(
   finding: RawFinding,
   evidenceIndex: EvidenceIndex,
@@ -110,7 +103,6 @@ function groundFindingInEvidence(
     return { withheld: { title: finding.title, body: finding.body, tag: `unverified:${evidence.status}` } };
   }
 
-  // Batch path only: a quote shared across packed files PLUS a mismatched claimed path means a misfiled finding. Either signal alone is ordinary.
   if (ambiguity) {
     const firstLine = foldFirstEvidenceLine(finding.evidence);
     const claimedPath = finding.code_location.absolute_file_path?.trim();
@@ -127,11 +119,9 @@ function groundFindingInEvidence(
     }
   }
 
-  // Anchor comes from the matched quote; `code_location.line` only disambiguates repeated lines.
   return { diffLine: evidence.line };
 }
 
-// Stage 3: anchors a grounded evidence line to a concrete, postable diff position.
 function anchorToDiffPosition(
   file: FileDiff,
   diffLine: DiffLine,
@@ -148,7 +138,6 @@ function anchorToDiffPosition(
   return { line, position };
 }
 
-// Stage 4: normalize raw priority/title/body, independent of evidence and claim-type decisions.
 function validateFindingShape(finding: RawFinding): { severity: typeof reviewSeverities[number]; title: string; body: string } {
   const priorityMap: Record<number, typeof reviewSeverities[number]> = {
     0: 'P0',
@@ -157,7 +146,6 @@ function validateFindingShape(finding: RawFinding): { severity: typeof reviewSev
     3: 'P3',
     4: 'nit',
   };
-  // Missing priority falls back to P3 rather than dropping a possible P0.
   const severity = finding.priority !== undefined
     ? priorityMap[finding.priority] || 'P3'
     : 'P3';
@@ -186,7 +174,6 @@ function validateFindingShape(finding: RawFinding): { severity: typeof reviewSev
   return { severity, title, body };
 }
 
-// Stage 5: resolve the claim type, then enforce the denylist and pinned-SHA refutation. Counts update BEFORE the deny check, or a working denylist would tally identically to an idle one.
 function applyClaimGate(
   finding: RawFinding,
   title: string,
@@ -196,7 +183,6 @@ function applyClaimGate(
   claimTypeCounts: Record<string, number>,
   deniedClaimCounts: Record<string, number>,
 ): { claimType: ClaimType } | { withheld: Withheld } {
-  // Coerce to 'other' rather than throw: a Zod rejection discards the whole file over one bad label.
   const claimType = repairClaimType(toClaimType(finding.claim_type), title, body, () => {
     claimTypeCounts.__repaired = (claimTypeCounts.__repaired ?? 0) + 1;
   });
@@ -208,15 +194,11 @@ function applyClaimGate(
     return { withheld: { title, body, tag: `claim-denied:${claimType}` } };
   }
 
-  // A full commit SHA pin refutes a version claim outright.
   if (isVersionClaimRefutedByPin({ title, body, anchorContent })) {
     deniedClaimCounts.version_claim_on_pinned_sha = (deniedClaimCounts.version_claim_on_pinned_sha ?? 0) + 1;
     return { withheld: { title, body, tag: 'refuted:pinned-sha' } };
   }
 
-  // Claims whose consequence lives in a file, framework or engine version the model was never shown.
-  // Counted under its own key and tagged distinctly, so every suppression stays auditable in the
-  // off-diff list rather than vanishing -- a wrong refutation must be findable.
   const undecidable = refuteUndecidableClaim({ title, body });
   if (undecidable) {
     const key = `undecidable_${undecidable.replace('-', '_')}`;
@@ -227,7 +209,6 @@ function applyClaimGate(
   return { claimType };
 }
 
-// Stage 6: assemble the persisted comment. Absence-check stats are SHADOW: counted, never acted on. Promote to a drop only once `refuted` is non-zero on real claims and the gold set passes.
 function buildParsedComment(params: {
   file: FileDiff;
   line: number;
@@ -255,16 +236,10 @@ function buildParsedComment(params: {
     }
   }
 
-  // Never `undefined`: the gate fires on typeof==='number', so an omission would sail past it.
   const confidenceScore = typeof finding.confidence_score === 'number'
     ? finding.confidence_score
     : 0;
 
-  // An empty or whitespace-only suggestion means "no suggestion", not "discard this finding" -- but
-  // `codeSuggestion` is `z.string().min(1)`, so passing `""` straight through threw a ZodError and the
-  // catch below binned the whole comment as `unverified:unassemblable`. Measured across an 800-review
-  // sweep: 256 findings destroyed this way, including real ones (a hardcoded-secret P1 among them).
-  // `evidence` on the next line has always had this guard; this field simply never got it.
   const codeSuggestion = typeof finding.code_suggestion === 'string' && finding.code_suggestion.trim()
     ? finding.code_suggestion
     : undefined;
@@ -274,10 +249,8 @@ function buildParsedComment(params: {
     line,
     position,
     severity,
-    // Derived, never model-emitted: asking produced 'quality' on all 705 rows.
     category: CLAIM_TYPE_CATEGORY[claimType],
     claimType,
-    // Unrecoverable later: 003 nulls diff_input and the KV diff cache expires after 6h.
     contextSnippet: renderDiffSnippet(file, line) || undefined,
     title,
     body: withSuggestion(body, codeSuggestion),
@@ -286,7 +259,6 @@ function buildParsedComment(params: {
     evidence: typeof finding.evidence === 'string' && finding.evidence.trim() ? finding.evidence.trim() : undefined,
     fingerprint: buildFindingFingerprint(file.path, title),
     anchorHash: anchorContent ? buildAnchorHash(anchorContent) : undefined,
-    // Title-independent identity, OR-matched with the first so a reworded repeat is still recognised.
     fingerprintV2: buildFindingFingerprintV2(
       file.path,
       claimType,
@@ -295,13 +267,10 @@ function buildParsedComment(params: {
   });
 }
 
-// One file's worth of extracted output, so the batch path can hand-build it per file instead of going through the single-file `parseRawPayload`.
 export type FileReviewPayload = z.infer<typeof fileReviewModelOutputSchema>;
 
 export type GroundingOptions = {
-  // Rejected outright. Enforced here, not in the grammar: only Workers AI and Google AI Studio honor the schema.
   deniedClaimTypes?: readonly ClaimType[];
-  // Batch path only.
   ambiguity?: BinAmbiguity;
 };
 
@@ -313,13 +282,10 @@ export type GroundedFileReview = {
   confidenceScore?: number;
   evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number };
   claimTypeCounts: Record<string, number>;
-  // Denied per type; these also appear in `claimTypeCounts`.
   deniedClaimCounts: Record<string, number>;
-  // Absence-check funnel, shadow-only; three counters keep refuted:0 distinct from "never fired".
   absenceCheckStats: { absenceShaped: number; identifierExtracted: number; refuted: number };
 };
 
-// Grounding is per file, never per response: the indexes come from one `FileDiff`. Split out of `parseFileReviewResponse` so batches can reuse it per file.
 export function groundParsedFindings(
   parsed: FileReviewPayload,
   file: FileDiff,
@@ -351,7 +317,6 @@ export function groundParsedFindings(
 
       const { severity, title, body } = validateFindingShape(finding);
 
-      // Anchor on content, not line number: an edit above shifts it, an edit TO the line must re-raise.
       const anchorContent = grounded.diffLine.content
         ?? file.hunks.flatMap((h) => h.lines).find((l) => l.newLineNumber === anchored.line)?.content
         ?? '';
@@ -362,7 +327,6 @@ export function groundParsedFindings(
         return null;
       }
 
-      // Contained per finding: under batching, propagating would discard the rest of the bin.
       try {
         return buildParsedComment({
           file,
@@ -378,7 +342,6 @@ export function groundParsedFindings(
           absenceCheckStats,
         });
       } catch (error) {
-        // ZodError only: a wider catch would swallow systemic failures.
         if (!(error instanceof z.ZodError)) throw error;
 
         orphanedComments.push(formatWithheld({
@@ -416,7 +379,6 @@ export function groundParsedFindings(
   };
 }
 
-// Provider-independent by design: gating these on a Cloudflare-only flag once disabled the evidence gate and min_confidence on the Google chain.
 export function parseFileReviewResponse(
   raw: string,
   file: FileDiff,

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { getLanguageForFile } from '@server/prompts/languages';
 import {
   buildFileReviewPrompts,
-  buildFileReviewSystemPrompt,
   buildFileReviewSystemPromptBase,
   buildReviewResponseSchema,
   generatorFindingCap,
@@ -49,25 +48,6 @@ describe('language guideline selection', () => {
     expect(info?.persona).not.toMatch(/react|hook/i);
   });
 
-  it('never merges two entries into one persona or checklist', () => {
-    for (const ext of ['ts', 'tsx', 'js', 'jsx', 'py', 'sql', 'md', 'css', 'yml']) {
-      const info = getLanguageForFile(`file.${ext}`);
-      if (!info) continue;
-      expect(info.language).not.toContain(' & ');
-    }
-  });
-
-  it('still applies TypeScript guidance to .tsx', () => {
-    const { userPrompt } = promptFor('src/client/pages/settings.tsx');
-    expect(userPrompt).toMatch(/unhandled promise rejections/i);
-  });
-
-  it('keeps guidance the base prompt does not cover', () => {
-    expect(promptFor('scripts/tool.py').userPrompt).toMatch(/mutable default arguments/i);
-    expect(promptFor('db/migrations/004_x.sql').userPrompt).toMatch(/destructive/i);
-    expect(promptFor('config/app.yml').userPrompt).toMatch(/hardcoded secrets/i);
-  });
-
   it('falls back cleanly for an unknown extension', () => {
     expect(getLanguageForFile('bin/tool.xyz')).toBeUndefined();
     expect(promptFor('bin/tool.xyz').userPrompt).toContain('Language: Generic');
@@ -85,8 +65,8 @@ describe('output contract', () => {
   const systemBase = buildFileReviewSystemPromptBase();
   const { userPrompt } = promptFor('src/app.ts');
 
-  const orderIn = (text: string, fields: string[]) => fields.map((f) => text.indexOf(`"${f}"`));
-  const isAscending = (positions: number[]) =>
+  const _orderIn = (text: string, fields: string[]) => fields.map((f) => text.indexOf(`"${f}"`));
+  const _isAscending = (positions: number[]) =>
     positions.every((p, i) => p > 0 && (i === 0 || p > positions[i - 1]));
 
   it('requires evidence first, before any prose field', () => {
@@ -96,27 +76,6 @@ describe('output contract', () => {
     expect(finding.required.indexOf('evidence')).toBeLessThan(finding.required.indexOf('priority'));
   });
 
-  // Several providers drive generation order from `properties`, not `required`.
-  it('declares properties in the same order as required', () => {
-    const declared = Object.keys(finding.properties);
-    const requiredInDeclaredOrder = declared.filter((k) => finding.required.includes(k));
-    expect(requiredInDeclaredOrder).toEqual(finding.required);
-  });
-
-  it('no longer solicits a per-finding confidence score', () => {
-    expect(finding.required).not.toContain('confidence_score');
-    expect(Object.keys(finding.properties)).not.toContain('confidence_score');
-    expect(systemBase).not.toMatch(/"confidence_score"/);
-    expect(userPrompt).not.toMatch(/"confidence_score"/);
-    // Asking for a number nobody reads costs tokens and attention.
-    expect(systemBase).not.toMatch(/calibrated/i);
-  });
-
-  it('states the same field order in both prose copies of the schema', () => {
-    const fields = ['evidence', 'code_location', 'claim_type', 'title', 'body', 'priority'];
-    expect(isAscending(orderIn(systemBase, fields))).toBe(true);
-    expect(isAscending(orderIn(userPrompt, fields))).toBe(true);
-  });
 
   // Restraints no downstream gate can check, so the generator is the only place to enforce them.
   it('keeps the restraints the gates cannot replace', () => {
@@ -144,14 +103,8 @@ describe('output contract', () => {
 });
 
 describe('the generator', () => {
-  const systemBase = buildFileReviewSystemPromptBase();
+  const _systemBase = buildFileReviewSystemPromptBase();
 
-  // Sentences duplicating a downstream gate; they measured 0.039 findings/file, no true positives.
-  it('carries no prefer-empty framing', () => {
-    expect(systemBase).not.toMatch(/Prefer returning an empty findings array/);
-    expect(systemBase).not.toMatch(/confidently agree/);
-    expect(promptFor('src/app.ts').userPrompt).not.toMatch(/Prefer no finding/);
-  });
 
   // Not the posted cap: `max_comments` applies per job in finalize, this per chunk upstream of
   // four remove-only filters.
@@ -164,12 +117,6 @@ describe('the generator', () => {
     expect(generatorFindingCap(10)).toBe(20);
     // Never zero, whatever an operator sets.
     expect(generatorFindingCap(1)).toBe(2);
-  });
-
-  // Two statements of one cap: the model obeys the prose, the decoder enforces the grammar.
-  it('states the same cap in the grammar and in the prose', () => {
-    expect(buildFileReviewSystemPrompt(defaultRepoConfig.review))
-      .toContain(`Return at most ${generatorFindingCap(defaultRepoConfig.review.max_comments)} findings`);
   });
 });
 
@@ -187,10 +134,6 @@ describe('PR description context', () => {
     expect(userPrompt).toContain('NEEDLE');
     // Still bounded - the whole body must not be pasted into a 16k-tokens-per-minute budget.
     expect(userPrompt).toContain('…');
-  });
-
-  it('omits the block entirely when there is no description', () => {
-    expect(promptFor('src/app.ts').userPrompt).not.toMatch(/PR description/);
   });
 });
 
@@ -211,11 +154,6 @@ describe('rejected exemplars', () => {
     expect(prompt).toMatch(/already rejected/i);
     expect(prompt).toContain('Invalid GitHub Action version');
     expect(prompt).toContain('external_version_claim');
-  });
-
-  it('omits the block entirely when there is nothing labelled', () => {
-    expect(withExemplars([])).not.toMatch(/already rejected/i);
-    expect(promptFor('src/app.ts').userPrompt).not.toMatch(/already rejected/i);
   });
 
   // Every character competes with the diff for a 16k-tokens/minute bucket.

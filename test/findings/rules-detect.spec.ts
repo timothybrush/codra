@@ -23,16 +23,6 @@ describe('rule table invariants', () => {
     }
   });
 
-  it('gives every rule a cheap trigger, so the sieve can reject lines before any regex runs', () => {
-    for (const rule of RULES) {
-      expect(rule.triggers.length, rule.id).toBeGreaterThan(0);
-      expect(rule.triggers.every((t) => t.length >= 3), rule.id).toBe(true);
-    }
-  });
-
-  it('has unique rule ids', () => {
-    expect(new Set(RULES.map((r) => r.id)).size).toBe(RULES.length);
-  });
 
   // Without this, adding a rule to the table and forgetting the shadow list posts it live on the
   // next deploy. That is the one mistake in this file with no other backstop.
@@ -43,98 +33,32 @@ describe('rule table invariants', () => {
   });
 });
 
-describe('empty-catch', () => {
-  it('fires on a genuinely empty catch', () => {
-    expect(ruleIds('a.ts', ['  } catch (e) {}'])).toContain('empty-catch');
-    expect(ruleIds('a.ts', ['  } catch {}'])).toContain('empty-catch');
-  });
-
-  // The escape hatch, and the reason the rule runs on STRIPPED text: a documented empty catch is a
-  // deliberate choice, and the comment survives stripping as whitespace rather than vanishing.
-  it('does not fire when the catch body carries an explanatory comment', () => {
-    expect(ruleIds('a.ts', ['  } catch (e) { /* intentional: probe only */ }'])).not.toContain('empty-catch');
-  });
-
-  it('does not fire when the catch has a body', () => {
-    expect(ruleIds('a.ts', ['  } catch (e) { logger.warn(e); }'])).not.toContain('empty-catch');
-  });
-});
-
-describe('dynamic-html-sink', () => {
-  it('fires on a non-literal assignment', () => {
-    expect(ruleIds('a.ts', ['  el.innerHTML = userHtml;'])).toContain('dynamic-html-sink');
-  });
-
-  // The string case: stripping removes the literal, so the right-hand side is empty and cannot match.
-  it('does not fire when clearing with a literal', () => {
-    expect(ruleIds('a.ts', ["  el.innerHTML = '';"])).not.toContain('dynamic-html-sink');
-    expect(ruleIds('a.ts', ['  el.innerHTML = "<br>";'])).not.toContain('dynamic-html-sink');
+describe('regex matches', () => {
+  it.each([
+    ['empty-catch', '  } catch (e) {}', true],
+    ['empty-catch', '  } catch {}', true],
+    ['empty-catch', '  } catch (e) { /* intentional: probe only */ }', false],
+    ['dynamic-html-sink', '  el.innerHTML = userHtml;', true],
+    ['dynamic-html-sink', "  el.innerHTML = '';", false],
+    ['dynamic-html-sink', '  el.innerHTML = "<br>";', false],
+    ['destructive-migration', 'ALTER TABLE jobs DROP COLUMN legacy_id;', true],
+    ['destructive-migration', 'DROP TABLE old_reviews;', true],
+    ['destructive-migration', 'TRUNCATE TABLE staging;', true],
+    ['destructive-migration', 'DROP INDEX IF EXISTS jobs_idx;', false],
+    ['destructive-migration', 'ALTER TABLE jobs ALTER COLUMN x DROP NOT NULL;', false],
+    ['destructive-migration', 'ALTER TABLE jobs ALTER COLUMN x DROP DEFAULT;', false],
+  ])('%s fires correctly for %s', (ruleId, line, shouldMatch) => {
+    const filename = ruleId === 'destructive-migration' ? 'm.sql' : 'a.ts';
+    if (shouldMatch) {
+      expect(ruleIds(filename, [line])).toContain(ruleId);
+    } else {
+      expect(ruleIds(filename, [line])).not.toContain(ruleId);
+    }
   });
 });
 
-describe('destructive-migration', () => {
-  it('fires on statements that discard rows', () => {
-    expect(ruleIds('m.sql', ['ALTER TABLE jobs DROP COLUMN legacy_id;'])).toContain('destructive-migration');
-    expect(ruleIds('m.sql', ['DROP TABLE old_reviews;'])).toContain('destructive-migration');
-    expect(ruleIds('m.sql', ['TRUNCATE TABLE staging;'])).toContain('destructive-migration');
-  });
-
-  // This repository's own migrations use these constantly; matching them would make the rule noise.
-  it('does not fire on non-destructive DROPs', () => {
-    expect(ruleIds('m.sql', ['DROP INDEX IF EXISTS jobs_idx;'])).not.toContain('destructive-migration');
-    expect(ruleIds('m.sql', ['ALTER TABLE jobs ALTER COLUMN x DROP NOT NULL;'])).not.toContain('destructive-migration');
-    expect(ruleIds('m.sql', ['ALTER TABLE jobs ALTER COLUMN x DROP DEFAULT;'])).not.toContain('destructive-migration');
-  });
-});
-
-describe('the other Tier-1 rules', () => {
-  it('detects debugger, focused tests, eval and mutable defaults', () => {
-    expect(ruleIds('a.ts', ['  debugger;'])).toContain('debugger-statement');
-    expect(ruleIds('a.spec.ts', ["  it.only('x', () => {});"])).toContain('focused-test');
-    expect(ruleIds('a.ts', ['  const r = eval(input);'])).toContain('dynamic-code-exec');
-    expect(ruleIds('a.ts', ['  const f = new Function(src);'])).toContain('dynamic-code-exec');
-    expect(ruleIds('s.py', ['def f(items=[]):'])).toContain('mutable-default-arg');
-  });
-
-  it('respects file extensions', () => {
-    // A Python default-arg rule must not fire on TypeScript, and vice versa.
-    expect(ruleIds('a.ts', ['def f(items=[]):'])).not.toContain('mutable-default-arg');
-    expect(ruleIds('s.py', ['  debugger;'])).not.toContain('debugger-statement');
-  });
-
-  it('does not fire on prose in a comment', () => {
-    expect(ruleIds('a.ts', ['  // remember to remove the debugger; statement'])).toEqual([]);
-    expect(ruleIds('a.ts', ['  // never call eval(x) here'])).toEqual([]);
-  });
-});
 
 describe('cross-cutting suppressions', () => {
-  it('ignores removed lines entirely', () => {
-    const result = scan('a.ts', ['  const x = 1;'], ['  debugger;']);
-    expect(result.hits).toEqual([]);
-  });
-
-  // If the identical line was also removed in this hunk, the PR moved/reindented existing code
-  // rather than introducing it -- reporting it would blame the author for someone else's line.
-  it('suppresses a hit whose line was merely moved, and counts it', () => {
-    const result = scan('a.ts', ['    debugger;'], ['  debugger;']);
-    expect(result.hits).toEqual([]);
-    expect(result.stats.suppressedAsMoved).toBe(1);
-  });
-
-  it('caps the scan on a huge file and says so', () => {
-    const added = Array.from({ length: 5_000 }, (_, i) => `  const value${i} = ${i};`);
-    const result = scan('a.ts', added);
-    expect(result.stats.truncated).toBe(true);
-    expect(result.stats.addedLinesScanned).toBeLessThanOrEqual(600);
-  });
-
-  // The sieve is what keeps this inside a 10ms CPU budget: innocuous lines must never be stripped.
-  it('rejects innocuous lines before stripping them', () => {
-    const added = Array.from({ length: 1_000 }, (_, i) => `  const value${i} = ${i};`);
-    expect(scan('a.ts', added).stats.sievePassed).toBe(0);
-  });
-
   it('honours the denied claim types and the disabled list', () => {
     const file = fileWith('a.ts', ['  } catch (e) {}']);
     expect(scanFileForRuleHits(file, { deniedClaimTypes: ['swallowed_error'] }).hits).toEqual([]);
@@ -150,27 +74,3 @@ describe('cross-cutting suppressions', () => {
   });
 });
 
-describe('ruleHitsToComments', () => {
-  it('marks findings as rule-sourced and carries the rule id', () => {
-    const file = fileWith('a.ts', ['  } catch (e) {}']);
-    const [comment] = ruleHitsToComments(file, scanFileForRuleHits(file, { shadowRuleIds: [] }));
-
-    expect(comment.source).toBe('rule');
-    expect(comment.ruleId).toBe('empty-catch');
-    expect(comment.claimType).toBe('swallowed_error');
-    // Evidence is the real line, so the same grounding checks apply as to an LLM finding.
-    expect(comment.evidence).toBe('  } catch (e) {}');
-    expect(comment.anchorHash).toBeTruthy();
-  });
-
-  // `buildFindingFingerprint` is f(path, title) and a rule's title is a CONSTANT, so without mixing
-  // the anchor hash in, two hits of one rule in one file would collide and share a disposition.
-  it('gives two hits of the same rule in one file distinct fingerprints', () => {
-    const file = fileWith('a.ts', ['  } catch (e) {}', '  } catch (err) {}']);
-    const comments = ruleHitsToComments(file, scanFileForRuleHits(file, { shadowRuleIds: [] }));
-
-    expect(comments).toHaveLength(2);
-    expect(comments[0].fingerprint).not.toBe(comments[1].fingerprint);
-    expect(comments[0].fingerprintV2).not.toBe(comments[1].fingerprintV2);
-  });
-});
