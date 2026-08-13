@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
-import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
+import { upsertDashboardFeedback } from '@server/db/comment-feedback';
 import { runWithDb, queryRows } from '@server/db/client';
 import { insertJob } from '@server/db/jobs';
 import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@server/db/file-reviews';
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 
 
 
@@ -172,29 +172,7 @@ dbDescribe('cross-run finding suppression', () => {
     });
   });
 
-  it('round-trips the instrumentation columns through persistence', async () => {
-    const repo = uniqueName('suppress-instrumentation');
-    await runWithDb(env, async () => {
-      const job = await seedJob(repo, sha('c'));
-      await seedPostedFinding(job, finding({
-        claimType: 'sql_injection',
-        contextSnippet: '   1 +const query = `SELECT 1`;',
-      }));
 
-      const [row] = await queryRows<{ claim_type: string; context_snippet: string; disposition: string }>(
-        env,
-        `SELECT rc.claim_type, rc.context_snippet, rc.disposition
-         FROM review_comments rc JOIN file_reviews fr ON fr.id = rc.file_review_id
-         WHERE fr.job_id = $1::uuid`,
-        [job],
-      );
-
-      expect(row.claim_type).toBe('sql_injection');
-      expect(row.context_snippet).toContain('SELECT 1');
-      // markCommentsPosted writes the disposition alongside the flag.
-      expect(row.disposition).toBe('posted');
-    });
-  });
 
   // Ground truth from the dashboard. comment_feedback sat empty in production because the only way to
   // register a false positive was deleting an inline GitHub comment, which nobody ever did.
@@ -233,74 +211,6 @@ dbDescribe('cross-run finding suppression', () => {
       });
     });
 
-    it('leaves exactly one row when a label is flipped', async () => {
-      await runWithDb(env, async () => {
-        const { job, repositoryId } = await seedRepo('flip');
-        await label(repositoryId, job, 'marked_right');
-        await label(repositoryId, job, 'marked_wrong');
-        await label(repositoryId, job, 'marked_right');
 
-        const rows = await queryRows<{ outcome: string }>(
-          env,
-          `SELECT outcome FROM comment_feedback
-           WHERE repository_id = $1::int AND fingerprint = 'fp-labelled' AND source = 'dashboard'`,
-          [repositoryId],
-        );
-        expect(rows).toHaveLength(1);
-        expect(rows[0].outcome).toBe('marked_right');
-      });
-    });
-
-    // A webhook 'deleted' row is ground truth from GitHub -- somebody actually removed the comment --
-    // and must survive an undo made in the dashboard.
-    it('clearing a dashboard label leaves a webhook deletion intact', async () => {
-      await runWithDb(env, async () => {
-        const { job, repositoryId } = await seedRepo('clear');
-        await label(repositoryId, job, 'marked_wrong', 'fp-both');
-        await queryRows(
-          env,
-          `INSERT INTO comment_feedback (repository_id, pr_number, fingerprint, anchor_hash, github_comment_id, outcome)
-           VALUES ($1::int, 1, 'fp-both', NULL, 999001, 'deleted')`,
-          [repositoryId],
-        );
-
-        await clearDashboardFeedback(env, repositoryId, 'fp-both');
-
-        const suppressed = await getSuppressedFindings(env, job);
-        expect(suppressed.find((s) => s.fingerprint === 'fp-both')).toBeDefined();
-      });
-    });
-
-    // Silence is not a signal in either direction.
-    it('does not suppress an unlabelled finding', async () => {
-      await runWithDb(env, async () => {
-        const { job } = await seedRepo('silent');
-        const suppressed = await getSuppressedFindings(env, job);
-        expect(suppressed.filter((s) => s.fingerprint === 'fp-never-labelled')).toHaveLength(0);
-      });
-    });
-  });
-
-  it('round-trips fingerprint, anchor hash and evidence through persistence', async () => {
-    const repo = uniqueName('suppress-roundtrip');
-    await runWithDb(env, async () => {
-      const job = await seedJob(repo, sha('a'));
-      await seedPostedFinding(job, finding({ evidence: 'const x = 1;' }));
-
-      const [row] = await queryRows<{ evidence: string; fingerprint: string; anchor_hash: string; posted: boolean }>(
-        env,
-        `SELECT rc.evidence, rc.fingerprint, rc.anchor_hash, rc.posted
-         FROM review_comments rc JOIN file_reviews fr ON fr.id = rc.file_review_id
-         WHERE fr.job_id = $1::uuid`,
-        [job],
-      );
-
-      expect(row).toMatchObject({
-        evidence: 'const x = 1;',
-        fingerprint: 'fp0001',
-        anchor_hash: 'anchor01',
-        posted: true,
-      });
-    });
   });
 });

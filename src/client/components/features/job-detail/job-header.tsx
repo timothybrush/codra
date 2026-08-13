@@ -19,7 +19,7 @@ import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
 import { AuthorChip, JobStatusLine, MetaChip, VerdictPill } from './job-chips';
 import { formatAbsoluteDate, formatRelativeDate } from './job-chip-utils';
-import type { JobDetail } from '@shared/schema';
+import type { JobDetail } from '@codra/schema';
 
 // Lucide's CircleStop strokes the inner square too, which reads as a blob at 14px; filling it
 // instead keeps the stop symbol legible.

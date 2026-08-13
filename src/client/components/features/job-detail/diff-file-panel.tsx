@@ -4,7 +4,7 @@ import { Badge, StatusBadge } from '@client/components/ui/badge';
 import { parsePromptDiff, diffStats, type DiffRow } from '@client/lib/prompt-diff';
 import { highlightLine, langForPath } from '@client/lib/highlight';
 import { cn } from '@client/lib/utils';
-import type { FileReviewRecord, ParsedReviewComment } from '@shared/schema';
+import type { FileReviewRecord, ParsedReviewComment } from '@codra/schema';
 import { CommentCard } from './comment-card';
 import {
   LARGE_DIFF_ROWS,

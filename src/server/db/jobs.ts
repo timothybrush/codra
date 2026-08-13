@@ -1,7 +1,7 @@
-import { hexToBytes } from '@shared/hex';
+import { hexToBytes } from '@codra/schema/hex';
 import type { AppBindings } from '@server/env';
 import { parseJsonColumn, queryRows } from './client';
-import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@codra/schema';
 import { getOrCreateRepository } from './repositories';
 import { reviewCommentJsonObject } from './review-comment-sql';
 import { type JobRow, bytesToHex, mapJob } from './jobs-mapping';

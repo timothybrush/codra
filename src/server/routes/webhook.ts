@@ -6,7 +6,7 @@ import {
   type FeedbackWebhookPayload,
   type GitHubReviewCommentPayload,
   type GitHubWebhookPayload,
-} from '@shared/github';
+} from '@codra/schema/github';
 import type { AppBindings, AppEnv } from '@server/env';
 import { loadRepoConfig } from '@server/core/config';
 import { extractReviewRequest } from '@server/core/review';

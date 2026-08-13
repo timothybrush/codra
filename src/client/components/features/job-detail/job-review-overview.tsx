@@ -1,8 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CheckCircle2, ClipboardList, TriangleAlert } from 'lucide-react';
-import type { JobDetail } from '@shared/schema';
-import { reviewSeverities } from '@shared/review-limits';
+import type { JobDetail } from '@codra/schema';
+import { reviewSeverities } from '@codra/schema/review-limits';
 import { OutlinePill } from './job-chips';
 
 import { safeRehypePlugins } from '@client/lib/markdown-plugins';

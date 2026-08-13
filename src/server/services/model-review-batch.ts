@@ -3,7 +3,7 @@ import { buildFileReviewPrompts, buildReviewResponseSchema } from '../prompts/fi
 import { parseFileReviewResponse } from '../core/model-output';
 import { truncateFileDiff } from '../core/diff';
 import { logger } from '../core/logger';
-import type { RepoConfig } from '@shared/schema';
+import type { RepoConfig } from '@codra/schema';
 import type { ModelResponse } from '../models/types';
 import type { ResolvedModelConfig } from '@server/db/model-configs';
 import { COMPACT_REVIEW_PROMPT_LINE_CAP, type ModelReviewContext } from './model-review-file';

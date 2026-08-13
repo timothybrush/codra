@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@shared/schema';
+import type { BulkFileReviewInput } from '@codra/core/ports';
 import type { AppBindings } from '@server/env';
 import { queryRows, queryTransaction } from './client';
 import {
@@ -63,26 +63,9 @@ export async function bulkInheritFileReviews(
   });
 }
 
-export type BulkFileReviewInput = {
-  filePath: string;
-  fileStatus: 'pending' | 'done' | 'skipped' | 'failed';
-  modelUsed: string;
-  modelProvider?: string | null;
-  diffLineCount: number;
-  rawAiOutput: string | null;
-  parsedComments: ParsedReviewComment[];
-  inputTokens: number | null;
-  outputTokens: number | null;
-  durationMs: number | null;
-  verdict: 'approve' | 'comment' | null;
-  fileSummary: string | null;
-  overallCorrectness?: string | null;
-  confidenceScore?: number | null;
-  errorMessage: string | null;
-  withheldCounts?: { evidence: number; claimDenied: number } | null;
-  // 1 for a file reviewed alone, N for a file that shared a model call with N-1 others.
-  batchSize: number;
-};
+// Part of the FileReviewStore port contract, so @codra/core/ports owns the shape and this module
+// re-exports it: one definition, and the engine does not depend on this file.
+export type { BulkFileReviewInput } from '@codra/core/ports';
 
 // One transaction: per-file upserts would spend the saved model calls back on DB subrequests. `diff_input` is not written (migration 003 nulls it).
 export async function bulkUpsertFileReviews(

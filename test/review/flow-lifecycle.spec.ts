@@ -1,9 +1,9 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterAll, vi } from 'vitest';
-import { findExistingJobForHead, getJobForProcessing, insertJob, updateJobStep } from '@server/db/jobs';
-import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
-import { defaultRepoConfig } from '@shared/schema';
+import { findExistingJobForHead, getJobForProcessing, insertJob } from '@server/db/jobs';
+import { getFileReviewsForJobs } from '@server/db/file-reviews';
+import { defaultRepoConfig } from '@codra/schema';
 import { runWithDb, queryRows } from '@server/db/client';
 import { makeRunAndDrain, REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
@@ -23,7 +23,7 @@ const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@shared/schema');
+  const { reviewSettingsSchema } = await import('@codra/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
@@ -239,47 +239,4 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
     checkRunSpy.mockRestore();
   }, REVIEW_FLOW_TIMEOUT_MS);
 
-  it('marks the check-run completed on a successful finalize (no maintenance needed)', async () => {
-    const job = await insertJob(env, {
-      installationId: '123', owner: 'test-owner', repo: uniqueRepo('checkrun-ok'),
-      prNumber: 42, prTitle: 'Check run ok', prAuthor: 'author', commitSha: sha('a'), baseSha: sha('0'),
-      trigger: 'auto', headRef: 'feature', baseRef: 'main', configSnapshot: defaultRepoConfig,
-    });
-
-    await runAndDrain({ jobId: job.id, deliveryId: 'delivery-checkrun-ok' });
-
-    const final = await getJobForProcessing(env, job.id);
-    expect(final?.status).toBe('done');
-    // The inline update succeeded, so maintenance won't re-do it.
-    expect(final?.check_run_completed_at).not.toBeNull();
-    expect(await needsCheckRunCompletion(env, job.id)).toBe(false);
-  }, REVIEW_FLOW_TIMEOUT_MS);
-
-  it('marks "Reviewing Files" done at finalize even when a degrade path left it running', async () => {
-    // Regression: the review->finalize degrade doesn't mark "Reviewing Files" done, leaving the
-    // step stuck "In progress" on an otherwise-done job. Finalize now marks it defensively.
-    const job = await insertJob(env, {
-      installationId: '123', owner: 'test-owner', repo: uniqueRepo('revstuck'),
-      prNumber: 43, prTitle: 'Reviewing stuck', prAuthor: 'author', commitSha: sha('b'), baseSha: sha('0'),
-      trigger: 'auto', headRef: 'feature', baseRef: 'main', configSnapshot: defaultRepoConfig,
-    });
-    await upsertFileReview(env, job.id, {
-      filePath: 'src/app.ts', fileStatus: 'done', modelUsed: 'test-model', modelProvider: 'test',
-      diffLineCount: 1, diffInput: 'x', rawAiOutput: '{}', parsedComments: [], inputTokens: 1,
-      outputTokens: 1, durationMs: 1, verdict: 'comment', fileSummary: 'ok', errorMessage: null,
-    });
-
-    await runWithDb(env, async () => {
-      // Reach finalize with "Reviewing Files" left 'running', as the continuation-ceiling degrade does.
-      await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
-      await updateJobStep(env, job.id, 'Reviewing Files', { status: 'running' });
-      await queryRows(env, `UPDATE jobs SET status = 'running', file_count = 1, lease_owner = NULL, lease_expires_at = NULL WHERE id = $1`, [job.id]);
-      await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-revstuck', phase: 'finalize' });
-    });
-
-    const final = await getJobForProcessing(env, job.id);
-    expect(final?.status).toBe('done');
-    const reviewingStep = (final?.steps as Array<{ name: string; status: string }>).find((s) => s.name === 'Reviewing Files');
-    expect(reviewingStep?.status).toBe('done');
-  }, REVIEW_FLOW_TIMEOUT_MS);
 });

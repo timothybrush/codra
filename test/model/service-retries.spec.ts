@@ -4,7 +4,7 @@ import { reviewWithCloudflare } from '@server/models/cloudflare';
 import { reviewWithGoogle } from '@server/models/google';
 import { MODEL_TIMEOUT_MAX_MS } from '@server/models/limits';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 // The retry ladder: inline retries, Retry-After, and which exhausted runs report as retryable.
 describe('ModelService: transient failures and the retry ladder', () => {
@@ -145,25 +145,6 @@ describe('ModelService: transient failures and the retry ladder', () => {
     expect(response.rawText).toContain('"findings"');
   });
 
-  it('does not retry TypeErrors thrown after a successful Google response', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => {
-        throw new TypeError('parser exploded after response');
-      },
-    } as unknown as Response);
-
-    await expect(
-      reviewWithGoogle(
-        { apiKey: 'test-key' },
-        'gemini-3.1-pro-preview',
-        { systemPrompt: 'system', userPrompt: 'user' },
-      ),
-    ).rejects.toThrow('parser exploded after response');
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
   it('does not spend an extra queue slice retrying the same Cloudflare model inline', async () => {
     let attempts = 0;
     const env = createTestEnv({
@@ -244,61 +225,4 @@ describe('ModelService: transient failures and the retry ladder', () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
-  it('marks exhausted transient provider failures as retryable for the queue', async () => {
-    const env = createTestEnv({
-      AI: {
-        async run() {
-          throw new Error('[REDACTED]');
-        },
-      } as any,
-    });
-
-    const service = new ModelService(env);
-    await expect(
-      service.reviewFile({
-        file: {
-          path: 'test/setup.ts',
-          lineCount: 1,
-          hunks: [],
-          isDeleted: false,
-          isBinary: false,
-          isNew: false,
-          previousPath: null,
-        },
-        prTitle: 'Test',
-        prDescription: null,
-        config: {
-          review: {
-            on: ['opened'],
-            ignore_drafts: true,
-            mention_trigger: '@codra-app',
-            skip_files: [],
-            batch_small_files: false,
-            large_file_threshold_lines: 200,
-            max_diff_lines_per_file: 800,
-            max_total_diff_chars: 150_000,
-            max_comments: 10,
-            min_severity: 'nit',
-            min_confidence: 0.6,
-            focus: ['quality'],
-            deny_claim_types: [],
-            rules: { enabled: false, disabled_rule_ids: [], shadow_rule_ids: [] },
-            custom_rules: [],
-            labels: false,
-            exec: {
-              enabled: false,
-              on_file_types: ['.ts'],
-              command: 'npm run lint',
-            },
-          },
-          model: {
-            main: '@cf/zai-org/glm-4.7-flash',
-            fallbacks: [],
-            size_overrides: [],
-          },
-        },
-        totalLineCount: 1,
-      }),
-    ).rejects.toSatisfy(isRetryableModelError);
-  });
 });

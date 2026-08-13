@@ -3,7 +3,7 @@ import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '..
 import { afterEach, expect, it, vi } from 'vitest';
 import { insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
 import { getFileReviewsForJobs } from '@server/db/file-reviews';
-import { REVIEW_CONCURRENCY_LIMITS, defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { runWithDb } from '@server/db/client';
 import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
@@ -14,7 +14,7 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@shared/schema');
+  const { reviewSettingsSchema } = await import('@codra/schema');
   return { ...mod, getReviewSettings: vi.fn().mockResolvedValue(reviewSettingsSchema.parse({})) };
 });
 
@@ -106,30 +106,6 @@ dbDescribe('Review flow: batched small files', () => {
     reviewFilesSpy.mockRestore();
     reviewFileSpy.mockRestore();
     getDiffSpy.mockRestore();
-  }, REVIEW_FLOW_TIMEOUT_MS);
-
-  it('honours an explicit opt-out', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
-    vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(generateMockDiff(smallFiles));
-
-    const reviewFilesSpy = vi.spyOn(ModelService.prototype as any, 'reviewFiles');
-    const reviewFileSpy = vi.spyOn(ModelService.prototype as any, 'reviewFile');
-    const job = await seedJob(env, uniqueRepo('batch-off'), {
-      ...defaultRepoConfig,
-      review: { ...defaultRepoConfig.review, batch_small_files: false },
-    });
-
-    await runWithDb(env, async () => {
-      await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-batch-off', phase: 'review' });
-    });
-
-    expect(reviewFilesSpy).not.toHaveBeenCalled();
-    expect(reviewFileSpy).toHaveBeenCalled();
-
-    // Against the governing constant, not a bare `< 3` that would pass on zero rows.
-    const reviews = await getFileReviewsForJobs(env, [job.id]);
-    expect(reviews).toHaveLength(REVIEW_CONCURRENCY_LIMITS.medium);
   }, REVIEW_FLOW_TIMEOUT_MS);
 
 

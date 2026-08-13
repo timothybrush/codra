@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // tsconfig.base.json's `outDir` resolves relative to the base file itself, i.e. the repo root, so
+    // every package extending it inherits the SAME output dir. Two composite packages then collide
+    // over one dist/tsconfig.tsbuildinfo (TS6377). Nothing builds this package today -- it is consumed
+    // as TS source -- but the override keeps that latent collision from resurfacing.
+    "outDir": "dist"
+  },
+  "include": ["src/**/*"]
+}

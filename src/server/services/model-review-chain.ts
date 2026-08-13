@@ -1,6 +1,6 @@
 import { logger } from '../core/logger';
-import { isSubrequestBudgetMessage, isTimeoutMessage } from '@shared/transient-errors';
-import type { RepoConfig } from '@shared/schema';
+import { isSubrequestBudgetMessage, isTimeoutMessage } from '@codra/schema/transient-errors';
+import type { RepoConfig } from '@codra/schema';
 import type { AppBindings } from '../env';
 import type { ModelResponseSchema } from '../models/types';
 import { clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS, SUBREQUEST_HEADROOM_FOR_MODEL_CALL } from '../models/limits';

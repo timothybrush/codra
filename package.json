@@ -13,21 +13,30 @@
   "bugs": {
     "url": "https://github.com/devarshishimpi/codra/issues"
   },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "vite build && npm run cf-typegen",
+    "build:all": "npm run build --workspaces --if-present",
     "cf-typegen": "wrangler types ./src/server/worker-env.d.ts",
     "deploy": "npm run build && npm run migrate && wrangler deploy",
     "dev": "concurrently -k -n CLIENT,WORKER -c cyan,green \"npm:dev:client\" \"npm:dev:worker\"",
     "dev:client": "vite build --watch --mode development",
     "dev:worker": "wrangler dev --local",
-    "lint": "eslint src test scripts",
+    "lint": "eslint src test scripts packages apps",
+    "lint:all": "npm run lint --workspaces --if-present",
+    "check:boundaries": "node scripts/check-core-boundary.mjs",
     "density": "node scripts/comment-density.mjs --top",
     "start": "npm run dev",
     "setup:cloudflare": "node scripts/setup-cloudflare.js",
     "migrate": "node scripts/migrate.mjs",
     "test": "node scripts/test.mjs",
+    "test:all": "npm run test --workspaces --if-present",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:all": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -35,7 +44,6 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.6.0",
-    "@types/picomatch": "^4.0.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
@@ -56,6 +64,8 @@
     "wrangler": "^4.114.0"
   },
   "dependencies": {
+    "@codra/core": "*",
+    "@codra/schema": "*",
     "@base-ui/react": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -64,7 +74,6 @@
     "lenis": "^1.3.26",
     "lucide-react": "^1.8.0",
     "motion": "^12.42.2",
-    "picomatch": "^4.0.5",
     "postgres": "^3.4.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

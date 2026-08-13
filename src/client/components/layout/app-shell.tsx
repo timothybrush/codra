@@ -7,7 +7,7 @@ import { cn } from '@client/lib/utils';
 import { useTheme } from '@client/lib/theme';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
 import codraLight from '@/assets/codra-fullicon-light.svg';
-import type { AuthSessionUser } from '@shared/api';
+import type { AuthSessionUser } from '@codra/schema/api';
 
 import { SidebarNavItem } from '@client/components/layout/sidebar-nav-item';
 import { AccountMenu } from '@client/components/layout/account-menu';

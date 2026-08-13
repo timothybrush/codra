@@ -1,4 +1,4 @@
-import type { ReviewJobMessage } from '@shared/schema';
+import type { ReviewJobMessage } from '@codra/schema';
 
 export interface WorkersAiBinding {
   run(model: string, input: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<any>;

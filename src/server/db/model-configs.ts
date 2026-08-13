@@ -7,7 +7,7 @@ import {
   type LlmApiFormat,
   type LlmProvider,
   type ModelConfig,
-} from '@shared/schema';
+} from '@codra/schema';
 
 type ProviderRow = {
   id: string;

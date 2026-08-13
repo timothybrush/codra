@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 
 // One definition of the `review_comments` field list, shared by every reader/writer. Exception: `bulkInheritFileReviews` in file-reviews-bulk.ts hand-writes its own, so columns added here go there too.
 

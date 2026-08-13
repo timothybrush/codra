@@ -3,7 +3,7 @@ import { isRetryableModelError, ModelService } from '@server/services/model';
 
 
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { TokenTracker } from '@server/core/token-tracker';
 
 // Walking the model chain: fallback, the two subrequest-budget breakers, and marking a provider
@@ -215,7 +215,6 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
     expect(response.modelUsed).toBe('gemini-2.5-pro');
   });
 
-  // An unresolvable model is a permanent operator error; a transient deferral would hide the fix.
   it('surfaces a permanent config error rather than deferring', async () => {
     const env = createTestEnv();
     await saveTestProviderApiKey(env);

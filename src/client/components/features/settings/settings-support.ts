@@ -1,5 +1,5 @@
-import type { LlmApiFormat, LlmProvider } from '@shared/schema';
-import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, type ReviewConcurrencyLevel } from '@shared/review-limits';
+import type { LlmApiFormat, LlmProvider } from '@codra/schema';
+import { REVIEW_CONCURRENCY_LIMITS, reviewMaxCommentsOptions, type ReviewConcurrencyLevel } from '@codra/schema/review-limits';
 
 // Pure and render-free, so the settings page and its sections can all depend on it without depending on each other.
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@shared/schema';
+import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codra/schema';
 import { getFindingLabelTarget } from '@server/db/file-reviews';
 import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
 import type { AppBindings, AppEnv } from '@server/env';
@@ -10,7 +10,8 @@ import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';
 import { logger } from '@server/core/logger';
 import { disposeRpc } from '@server/core/rpc';
-import { getOrFetchRawDiffForCompletedJob } from '@server/core/review';
+import { getOrFetchRawDiffForCompletedJob } from '@codra/core';
+import { createReviewRuntime } from '@server/adapters';
 import { parseUnifiedDiff } from '@server/core/diff';
 import { buildFileReviewPrompts } from '@server/prompts/file-review';
 import { GitHubService } from '@server/services/github';
@@ -98,7 +99,9 @@ export function createJobsRouter() {
     let rawDiff: string;
     try {
       rawDiff = await getOrFetchRawDiffForCompletedJob(
-        c.env,
+        // Only needs the KV cache, but the composition root is cheap (a struct of closures) and
+        // keeping one construction path means one place to change when a port is added.
+        createReviewRuntime(c.env),
         { id: job.id, owner: job.owner, repo: job.repo, baseSha: job.baseSha, commitSha: job.commitSha },
         github,
       );

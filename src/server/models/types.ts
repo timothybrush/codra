@@ -1,18 +1,8 @@
-export type ModelResponse = {
-  rawText: string;
-  inputTokens: number;
-  outputTokens: number;
-  modelUsed: string;
-  provider: string;
-  // Grammar rejected, so the call ran unconstrained but succeeded. Read by services/model.ts and `/models/:id/test`.
-  degraded?: 'schema-dropped';
-};
-
-// Honored only by Workers AI and Google AI Studio -- not by `vertex`, despite it serving the same Gemini models.
-export type ModelResponseSchema = {
-  name: string;
-  schema: Record<string, unknown>;
-};
+// Both live in @codra/core/ports now: prompts/file-review.ts builds a ModelResponseSchema, and it is
+// the only reason a pure prompt module ever imported from models/. Re-exported here so the ~20
+// existing `@server/models/types` importers are unaffected, and so there is exactly one definition.
+import type { ModelResponseSchema } from '@codra/core/ports';
+export type { ModelResponse, ModelResponseSchema } from '@codra/core/ports';
 
 // `responseSchema` is per-call on purpose: file review, verification, and summary each need a different output shape.
 export type ModelInput = {

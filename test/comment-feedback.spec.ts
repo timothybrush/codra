@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '@server/app';
 import { createTestEnv } from './helpers';
 import { FormatterService, formatFindingMarker, parseFindingMarker } from '@server/services/formatter';
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 
 import { signPayload } from './mocks/fixtures';
 

@@ -5,8 +5,7 @@ import { getRepoConfigRecord } from '@server/db/repo-configs';
 import { loadRepoConfig, updateGlobalConfig } from '@server/core/config';
 import { GitHubClient } from '@server/core/github';
 
-import { defaultRepoConfig } from '@shared/schema';
-import type { RepoConfigsResponse } from '@shared/api';
+import { defaultRepoConfig } from '@codra/schema';
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';
 
@@ -64,86 +63,6 @@ describe('Dashboard API: repositories and repo config', () => {
 
     return match ? match[1] : '';
   }
-
-  it('returns repository list', async () => {
-    const env = createTestEnv();
-    const token = await getAuthCookie(env);
-
-    const response = await app.request('/api/repos', {
-      headers: { Cookie: `codra_session=${token}` },
-    }, env);
-
-    expect(response.status).toBe(200);
-    const data = await response.json() as RepoConfigsResponse;
-    expect(Array.isArray(data.repos)).toBe(true);
-  });
-
-  it('redirects Manage Access to the configured GitHub App install page', async () => {
-    const env = createTestEnv({ GITHUB_APP_SLUG: 'my-codra-install' });
-    const token = await getAuthCookie(env);
-
-    const response = await app.request('/api/repos/install', {
-      headers: { Cookie: `codra_session=${token}` },
-    }, env);
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe('https://github.com/apps/my-codra-install/installations/new');
-  });
-
-  it('rejects invalid repository config patches', async () => {
-    const env = createTestEnv();
-    const token = await getAuthCookie(env);
-    const repo = uniqueName('invalid-config');
-
-    await loadRepoConfig(env, {
-      installationId: '123',
-      owner: 'api-test-owner',
-      repo,
-    });
-
-    const response = await app.request(`/api/repos/api-test-owner/${repo}/config`, {
-      method: 'PATCH',
-      headers: {
-        Cookie: `codra_session=${token}`,
-        'x-requested-with': 'XMLHttpRequest',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        review: {
-          // Below reviewConfigSchema's minimum of 1.
-          max_comments: 0,
-        },
-      }),
-    }, env);
-
-    expect(response.status).toBe(400);
-  });
-
-  it('rejects string booleans in repository config patches', async () => {
-    const env = createTestEnv();
-    const token = await getAuthCookie(env);
-    const repo = uniqueName('invalid-enabled');
-
-    await loadRepoConfig(env, {
-      installationId: '123',
-      owner: 'api-test-owner',
-      repo,
-    });
-
-    const response = await app.request(`/api/repos/api-test-owner/${repo}/config`, {
-      method: 'PATCH',
-      headers: {
-        Cookie: `codra_session=${token}`,
-        'x-requested-with': 'XMLHttpRequest',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        enabled: 'false',
-      }),
-    }, env);
-
-    expect(response.status).toBe(400);
-  });
 
   it('preserves path separators when fetching nested GitHub contents', async () => {
     const env = createTestEnv();

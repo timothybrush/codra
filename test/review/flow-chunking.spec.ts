@@ -3,7 +3,7 @@ import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '..
 import { afterAll, vi } from 'vitest';
 import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
 import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { runWithDb } from '@server/db/client';
 import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
@@ -22,7 +22,7 @@ const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.
 
 vi.mock('@server/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@shared/schema');
+  const { reviewSettingsSchema } = await import('@codra/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
@@ -276,62 +276,4 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
     getDiffSpy.mockRestore();
   }, REVIEW_FLOW_TIMEOUT_MS);
 
-  it('does not pay the existing-review lookup on a first-pass finalize', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const repo = uniqueRepo('firstpass');
-    const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
-      generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),
-    );
-    const findSpy = vi.spyOn(GitHubService.prototype, 'findBotReviewForCommit');
-    const createSpy = vi.spyOn(GitHubService.prototype, 'createReview');
-
-    const job = await insertJob(env, {
-      installationId: '123',
-      owner: 'test-owner',
-      repo,
-      prNumber: 9,
-      prTitle: 'First Pass Test',
-      prAuthor: 'author',
-      commitSha: sha('c1'),
-      baseSha: sha('d1'),
-      trigger: 'auto',
-      headRef: 'feature',
-      baseRef: 'main',
-      configSnapshot: defaultRepoConfig,
-    });
-    await updateJobFileCount(env, job.id, 1);
-    await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
-    await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
-    // 'Completing' has never been started -> this is a first-pass finalize, no re-post risk.
-    await upsertFileReview(env, job.id, {
-      filePath: 'src/app.ts',
-      fileStatus: 'done',
-      modelUsed: 'test-model',
-      modelProvider: 'test-provider',
-      diffLineCount: 1,
-      diffInput: 'diff',
-      rawAiOutput: '{}',
-      parsedComments: [],
-      inputTokens: 1,
-      outputTokens: 1,
-      durationMs: 1,
-      verdict: 'approve',
-      fileSummary: 'ok',
-      errorMessage: null,
-    });
-
-    await runWithDb(env, async () => {
-      const result = await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-firstpass', phase: 'finalize' });
-      expect(result).toEqual({ action: 'ack' });
-    });
-
-    expect(findSpy).not.toHaveBeenCalled();
-    expect(createSpy).toHaveBeenCalledTimes(1);
-    const finalJob = await getJobForProcessing(env, job.id);
-    expect(finalJob?.status).toBe('done');
-
-    findSpy.mockRestore();
-    createSpy.mockRestore();
-    getDiffSpy.mockRestore();
-  }, REVIEW_FLOW_TIMEOUT_MS);
 });

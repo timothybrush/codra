@@ -1,5 +1,5 @@
 import { parseJsonColumn } from './client';
-import { defaultRepoConfig, jobSummarySchema, repoConfigSchema, type RepoConfig } from '@shared/schema';
+import { defaultRepoConfig, jobSummarySchema, repoConfigSchema, type RepoConfig } from '@codra/schema';
 
 // Import from db/jobs.ts, not from here: eight specs vi.mock the '@server/db/jobs' specifier, and a direct sibling import silently bypasses them.
 // Deliberately imports NONE of the other jobs-* siblings, so it stays the leaf they can all depend on.

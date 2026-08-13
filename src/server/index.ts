@@ -1,7 +1,7 @@
 import { createApp } from './app';
 import { ReviewWorkflow } from './workflows/review';
 import type { AppBindings } from './env';
-import { reviewJobMessageSchema } from '@shared/schema';
+import { reviewJobMessageSchema } from '@codra/schema';
 import { logger } from '@server/core/logger';
 import { disposeRpc } from '@server/core/rpc';
 import { runWithDb } from '@server/db/client';

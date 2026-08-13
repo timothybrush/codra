@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import type { LlmProvider } from '@shared/schema';
+import type { LlmProvider } from '@codra/schema';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { ProviderRow } from './provider-row';
 import type { ProviderDraft } from './settings-support';

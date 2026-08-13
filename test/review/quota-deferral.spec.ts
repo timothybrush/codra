@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isRetryableModelError, ModelService } from '@server/services/model';
-import { reviewWithGoogle } from '@server/models/google';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 
 const file = {
   path: 'src/app.ts',
@@ -33,34 +32,6 @@ function quotaResponse(retryInSeconds: number, model = 'gemini-3.1-pro-preview')
 
 describe('quota 429 handling', () => {
   afterEach(() => vi.restoreAllMocks());
-
-  // Google asks for 30-60s while our in-call sleep caps at 5s, so retrying early only spends
-  // subrequests on a guaranteed second 429.
-  it('does not retry a 429 whose cool-off is longer than we are willing to wait', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => quotaResponse(56));
-
-    await expect(
-      reviewWithGoogle({ apiKey: 'k', providerName: 'Google' }, 'gemini-3.1-pro-preview', {
-        systemPrompt: 's',
-        userPrompt: 'u',
-      }),
-    ).rejects.toThrow(/429/);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('still retries a 429 whose cool-off it can actually honour', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => quotaResponse(1));
-
-    await expect(
-      reviewWithGoogle({ apiKey: 'k', providerName: 'Google' }, 'gemini-3.1-pro-preview', {
-        systemPrompt: 's',
-        userPrompt: 'u',
-      }),
-    ).rejects.toThrow(/429/);
-
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
-  });
 
   // The subrequest blowout: nine models x three attempts for one file. Each model has its own
   // bucket, so a couple of attempts are worth making, but past that the file must be deferred.

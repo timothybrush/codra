@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ModelService, nextChainIndexOf } from '@server/services/model';
-import { defaultRepoConfig } from '@shared/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import { TokenTracker } from '@server/core/token-tracker';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
 

@@ -1,0 +1,19 @@
+{
+  "name": "@codra/schema",
+  "version": "0.9.4",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api.ts",
+    "./config": "./src/config.ts",
+    "./github": "./src/github.ts",
+    "./hex": "./src/hex.ts",
+    "./review-limits": "./src/review-limits.ts",
+    "./timezone": "./src/timezone.ts",
+    "./transient-errors": "./src/transient-errors.ts"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
+}

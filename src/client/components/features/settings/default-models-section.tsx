@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { ModelConfig } from '@shared/schema';
+import type { ModelConfig } from '@codra/schema';
 import { Skeleton } from '@client/components/shared/skeleton';
 import { ModelRouteEditor } from '@client/components/features/models/model-chain';
 import type {

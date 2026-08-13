@@ -12,6 +12,29 @@ Before we can merge your pull request, you must sign our Contributor License Agr
 
 ---
 
+## 📦 Repository Layout
+
+Codra is migrating to an npm workspace monorepo. The repository is structured into `apps/` (deployable entrypoints) and `packages/` (reusable modules):
+
+```text
+packages/
+├── schema/             # Shared types + zod contracts (zero dependencies)
+├── core/               # Review engine (pure ports, depends on schema)
+├── db/                 # Postgres interactions and migrations (depends on schema, core)
+├── models/             # LLM provider integrations (depends on schema, core)
+├── provider-github/    # GitHub API adapter (depends on schema, core)
+├── api/                # Hono router and API routes (depends on schema, core, db, models, provider-github)
+└── ui/                 # React design system and primitives (depends on schema)
+
+apps/
+├── worker/             # Cloudflare Worker entrypoint (wires bindings to api ports)
+└── dashboard/          # React SPA frontend (depends on ui, schema)
+```
+
+**Note:** We are incrementally migrating code from the legacy `src/` directory into this workspace structure. New logic should be placed in the appropriate `packages/` or `apps/` directory when possible.
+
+---
+
 ## 🛠️ Local Development Setup
 
 Codra is a monorepo-style project built with **Hono** (Worker), **React** (Vite), and **Cloudflare Workers**.

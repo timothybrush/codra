@@ -9,7 +9,7 @@ import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { usePolling } from '@client/hooks/use-polling';
 import { Activity, ChevronLeft, ChevronRight, ListFilter, RefreshCw, Search } from 'lucide-react';
-import type { JobSummary } from '@shared/schema';
+import type { JobSummary } from '@codra/schema';
 
 export function JobsPage() {
   const [jobs, setJobs]   = useState<JobSummary[]>([]);

@@ -7,7 +7,7 @@ import {
   getFileReviewsForJobs,
 } from '@server/db/file-reviews';
 import { getJobDetail, insertJob } from '@server/db/jobs';
-import type { ParsedReviewComment } from '@shared/schema';
+import type { ParsedReviewComment } from '@codra/schema';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
 
 const env = createTestEnv();

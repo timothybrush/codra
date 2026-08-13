@@ -4,7 +4,7 @@ import { Check, Mail } from 'lucide-react';
 import { Button } from '@client/components/ui/button';
 import { Input } from '@client/components/ui/input';
 import { api } from '@client/lib/api';
-import type { UpdatesEmailResponse } from '@shared/api';
+import type { UpdatesEmailResponse } from '@codra/schema/api';
 
 export function UpdatesEmailPrompt() {
   const [status, setStatus] = useState<UpdatesEmailResponse | null>(null);

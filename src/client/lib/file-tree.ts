@@ -1,4 +1,4 @@
-import type { FileReviewRecord } from '@shared/schema';
+import type { FileReviewRecord } from '@codra/schema';
 
 /** Builds the collapsed directory tree the diff viewer's file list renders. */
 

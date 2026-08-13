@@ -99,7 +99,9 @@ dbDescribe('resumable queue primitives', () => {
       [job.id],
     );
 
-    const recovered = await recoverExpiredJobLeases(env, 3);
+    // Scoped to this job: the sweep is table-wide with LIMIT 25 + SKIP LOCKED, so with
+    // fileParallelism the stale 'running' rows of concurrent suites could crowd it out.
+    const recovered = await recoverExpiredJobLeases(env, 3, 300, [job.id]);
     expect(recovered.failedJobs.map((row) => row.id)).toContain(job.id);
 
     const row = await getJobForProcessing(env, job.id);
@@ -134,7 +136,7 @@ dbDescribe('resumable queue primitives', () => {
       [job.id],
     );
 
-    const recovered = await recoverExpiredJobLeases(env, 3, 120);
+    const recovered = await recoverExpiredJobLeases(env, 3, 120, [job.id]);
     expect(recovered.requeuedJobIds).toContain(job.id);
 
     const row = await getJobForProcessing(env, job.id);
@@ -173,7 +175,9 @@ dbDescribe('resumable queue primitives', () => {
     await markJobContinuationQueued(env, job.id);
     await releaseJobLease(env, job.id, 'lease-a');
 
-    const recovered = await recoverExpiredJobLeases(env, 3, 120);
+    // Also scoped, so the empty result proves the grace-period rule held rather than that the job
+    // simply fell outside the batch window.
+    const recovered = await recoverExpiredJobLeases(env, 3, 120, [job.id]);
     expect(recovered.requeuedJobIds).not.toContain(job.id);
 
     const row = await getJobForProcessing(env, job.id);

@@ -4,7 +4,7 @@ import { api } from '@client/lib/api';
 import { LogOut, ChevronsUpDown, UserRound } from 'lucide-react';
 import { GithubMark } from '@client/components/shared/github-mark';
 import { cn } from '@client/lib/utils';
-import type { AuthSessionUser } from '@shared/api';
+import type { AuthSessionUser } from '@codra/schema/api';
 
 /**
  * Built from scratch (no shared dropdown primitive): a local popover anchored

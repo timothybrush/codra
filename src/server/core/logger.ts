@@ -1,58 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { formatLogRecord, setLoggerSink } from '@codra/core/logger';
 
-const SENSITIVE_KEYS = [
-  'api_key',
-  'api-key',
-  'apikey',
-  'secret',
-  'password',
-  'token',
-  'private_key',
-  'private-key',
-  'database_url',
-  'authorization',
-  'session',
-  'cookie',
-];
-
+// The request-context half of the logger. Scrubbing and record shaping live in @codra/core/logger;
+// this file owns everything platform-bound -- AsyncLocalStorage and the console sink -- so that
+// node:async_hooks never enters the engine package. Importing this module installs it as the sink
+// that @codra/core's `logger` facade delegates to (see the bottom of the file).
 const storage = new AsyncLocalStorage<Record<string, any>>();
-
-// A JWT: three base64url segments, the first being base64 of `{"...` so it always starts `eyJ`.
-// Anchoring on that is what keeps this from matching ordinary prose.
-const JWT = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g;
-const BEARER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
-
-// Scrubs secrets OUT OF a string rather than discarding the whole string. The previous test, "contains exactly two periods", deleted messages with two dots (e.g. file paths) while missing real JWTs, protecting nothing.
-function scrubString(value: string): string {
-  return value.replace(JWT, '[REDACTED_JWT]').replace(BEARER, (m) => `${m.split(/\s+/)[0]} [REDACTED]`);
-}
-
-function redact(obj: any): any {
-  if (obj === null || obj === undefined) return obj;
-  if (typeof obj !== 'object') {
-    return typeof obj === 'string' ? scrubString(obj) : obj;
-  }
-  if (Array.isArray(obj)) return obj.map(redact);
-  // Error instances don't expose name/message/stack as own enumerable properties, so Object.entries() would serialize them to {}.
-  if (obj instanceof Error) {
-    return {
-      name: obj.name,
-      message: scrubString(obj.message),
-      ...(obj.stack ? { stack: scrubString(obj.stack) } : {}),
-    };
-  }
-
-  const redacted: any = {};
-  for (const [key, value] of Object.entries(obj)) {
-    const lowerKey = key.toLowerCase();
-    if (SENSITIVE_KEYS.some((sk) => lowerKey.includes(sk))) {
-      redacted[key] = '[REDACTED]';
-    } else {
-      redacted[key] = redact(value);
-    }
-  }
-  return redacted;
-}
 
 class Logger {
   constructor(private context: Record<string, any> = {}) {}
@@ -63,15 +16,7 @@ class Logger {
 
   private log(level: string, message: string, data?: any) {
     const store = storage.getStore() || {};
-    // `message` and both context objects go through redaction too: scrubbing only `data` left unscrubbed paths to the same log line.
-    const output = {
-      timestamp: new Date().toISOString(),
-      level,
-      message: scrubString(message),
-      ...redact(store),
-      ...redact(this.context),
-      ...(data ? { data: redact(data) } : {}),
-    };
+    const output = formatLogRecord(level, message, [store, this.context], data);
 
     if (level === 'error') {
       console.error(JSON.stringify(output));
@@ -112,3 +57,9 @@ class Logger {
 }
 
 export const logger = new Logger();
+
+// Wired at import scope so engine code logging through @codra/core's facade lands here, with request
+// context attached, rather than in core's bare console fallback. src/server/index.ts and
+// src/server/adapters/index.ts both import this module explicitly to make the wiring deliberate
+// rather than a side effect of whichever file happened to be loaded first.
+setLoggerSink(logger);

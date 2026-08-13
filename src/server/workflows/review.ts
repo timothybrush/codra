@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { AppBindings } from '@server/env';
 import { runReviewJob, FRESH_INVOCATION_YIELD_SECONDS } from '@server/core/review';
-import { type ReviewJobMessage } from '@shared/schema';
+import { type ReviewJobMessage } from '@codra/schema';
 import { setJobWorkflowInstance } from '@server/db/jobs';
 import { logger } from '@server/core/logger';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
