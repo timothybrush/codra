@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dedupeFindings } from '@server/core/model-output';
 import { ruleHitsToComments, scanFileForRuleHits } from '@server/core/rules/detect';
-import { defaultRepoConfig, type ParsedReviewComment } from '@codra/schema';
+import { defaultRepoConfig } from '@codra/schema';
 import type { FileDiff } from '@server/core/diff';
 
 import { addedLinesFile } from '../mocks/fixtures';
@@ -9,18 +9,6 @@ const fileWith = addedLinesFile;
 
 const liveRules = (file: FileDiff) =>
   ruleHitsToComments(file, scanFileForRuleHits(file, { shadowRuleIds: [] }));
-
-const _llmComment = (over: Partial<ParsedReviewComment> = {}): ParsedReviewComment => ({
-  path: 'src/a.ts',
-  line: 1,
-  position: 1,
-  severity: 'P1',
-  category: 'bugs',
-  title: 'An LLM finding',
-  body: 'Body',
-  evidence: '  } catch (e) {}',
-  ...over,
-});
 
 describe('the rule channel in the pipeline', () => {
   // The recall argument, stated as a test. If the model returns nothing the deterministic channel

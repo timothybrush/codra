@@ -1,4 +1,4 @@
-﻿import type { JobSummary, RepoConfig } from '@codra/schema';
+import type { JobSummary, RepoConfig } from '@codra/schema';
 
 
 export type PersistedReviewJob = JobSummary;
@@ -72,8 +72,8 @@ export interface JobStore {
     overallConfidenceScore?: number | null;
     errorMessage?: string | null;
   }): Promise<void>;
-    failJob(jobId: string, errorMessage: string): Promise<void>;
-    supersedeOlderJobs(input: {
+  failJob(jobId: string, errorMessage: string): Promise<void>;
+  supersedeOlderJobs(input: {
     installationId: string;
     owner: string;
     repo: string;

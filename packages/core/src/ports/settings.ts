@@ -1,4 +1,4 @@
-﻿import type { ClaimType, RepoConfig, ReviewSettings } from '@codra/schema';
+import type { ClaimType, RepoConfig, ReviewSettings } from '@codra/schema';
 
 export interface ReviewSettingsReader {
   getReviewSettings(): Promise<ReviewSettings>;

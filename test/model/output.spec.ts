@@ -66,6 +66,24 @@ unescaped newlines",
     expect(result.comments[0].title).toBe('Multiline Issue');
   });
 
+  it('removes conversational tags and emojis from titles and bodies', () => {
+    const rawOutput = `
+{
+  "findings": [{
+    "title": "🚀 [PERFORMANCE] Optimization needed",
+    "body": "⚠️ HIGH: You should optimize this.",
+    "priority": 0,
+    "evidence": "new line",
+    "code_location": { "absolute_file_path": "test.ts", "line": 2 }
+  }],
+  "overall_correctness": "issues found",
+  "overall_explanation": "explanation"
+}`;
+
+    const result = parseFileReviewResponse(rawOutput, mockFile);
+    expect(result.comments[0].title).toBe('Optimization needed');
+  });
+
   // The matched quote is the anchor, so a wrong reported line must not move the comment.
   it('anchors on the quoted line and ignores a wrong reported line number', () => {
     const rawOutput = `

@@ -8,25 +8,47 @@
 // So this script checks the manifest AND bans the identifiers by name.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '..');
 const PKG = join(ROOT, 'packages/core');
 
 const BANNED_DEPS = ['hono', 'postgres', 'wrangler', '@cloudflare/workers-types', '@octokit/rest', '@octokit/core'];
 
-// Import specifiers no file in the package may name.
-const BANNED_SPECIFIERS = [
-  "from 'hono'",
-  "from 'postgres'",
-  "from 'cloudflare:workers'",
-  "from 'node:async_hooks'",
-  "from '@server/",
-  "from '@client/",
-  "from '@codra/worker",
-  '../../src/',
-  '../../../src/',
+// Module specifiers no file in the package may import, matched against the actual specifier
+// string of every import/export/require in the file (any quote style, static or dynamic).
+// A trailing '/' entry bans the package and everything under it; 'src/' bans any relative
+// path that climbs out of the package into the legacy tree.
+const BANNED_MODULES = [
+  'hono',
+  'postgres',
+  'cloudflare:workers',
+  'node:async_hooks',
+  '@server/',
+  '@client/',
+  '@codra/worker',
 ];
+
+function isBannedModule(specifier, fileDir) {
+  for (const banned of BANNED_MODULES) {
+    if (specifier === banned || specifier === banned.replace(/\/$/, '') || specifier.startsWith(banned.endsWith('/') ? banned : `${banned}/`)) {
+      return true;
+    }
+  }
+  // Any relative import that resolves outside the package into the repo's legacy src/ tree.
+  if (specifier.startsWith('.')) {
+    const resolved = resolve(fileDir, specifier);
+    return resolved === join(ROOT, 'src') || resolved.startsWith(join(ROOT, 'src') + sep);
+  }
+  return false;
+}
+
+// Every module specifier the file names: `import ... from 'x'`, `export ... from 'x'`,
+// side-effect `import 'x'`, dynamic `import('x')`, and `require('x')`.
+function* moduleSpecifiers(source) {
+  const pattern = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)(['"])([^'"\n]+)\1/g;
+  for (const match of source.matchAll(pattern)) yield match[2];
+}
 
 // Types and classes whose presence means a port was bypassed. Type-only imports of these are the
 // exact regression this half of the check is for.
@@ -75,9 +97,9 @@ for (const dir of ['src', 'test']) {
     const source = readFileSync(file, 'utf8');
     const where = relative(ROOT, file).replaceAll('\\', '/');
 
-    for (const specifier of BANNED_SPECIFIERS) {
-      if (source.includes(specifier)) {
-        failures.push(`${where}: must not import ${specifier.replace("from '", '').replace(/'$/, '')}`);
+    for (const specifier of moduleSpecifiers(source)) {
+      if (isBannedModule(specifier, dirname(file))) {
+        failures.push(`${where}: must not import ${specifier}`);
       }
     }
 
@@ -92,9 +114,34 @@ for (const dir of ['src', 'test']) {
 }
 
 // Comments in core legitimately explain what a port replaced ("was env.BOT_USERNAME", "mirrors the
-// GitHubService surface"), so the identifier scan runs over code only.
+// GitHubService surface"), so the identifier scan runs over code only. A single-pass scanner
+// rather than regexes so `//` and `/*` inside string or template literals are left alone.
 function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (ch === '/' && next === '/') {
+      while (i < source.length && source[i] !== '\n') i++;
+    } else if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
+      i += 2;
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      out += ch;
+      i++;
+      while (i < source.length && source[i] !== ch) {
+        if (source[i] === '\\') { out += source[i]; i++; }
+        if (i < source.length) { out += source[i]; i++; }
+      }
+      if (i < source.length) { out += ch; i++; }
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
 }
 
 if (failures.length > 0) {

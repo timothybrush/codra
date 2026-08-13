@@ -1,4 +1,4 @@
-﻿import type { RepoConfig } from '@codra/schema';
+import type { RepoConfig } from '@codra/schema';
 import type { FileDiff } from '../diff';
 import type { BatchReviewResult, parseFileReviewResponse } from '../model-output';
 import type { RejectedExemplar } from '../prompts/file-review';

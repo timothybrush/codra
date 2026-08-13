@@ -215,6 +215,26 @@ describe('ModelService: chain fallback, budget breakers and provider availabilit
     expect(response.modelUsed).toBe('gemini-2.5-pro');
   });
 
+  it('surfaces a permanent config error rather than deferring', async () => {
+    const env = createTestEnv();
+    await saveTestProviderApiKey(env);
+    const service = new ModelService(env);
+
+    const promise = service.reviewFile({
+      file: { path: 'src/app.ts', lineCount: 1, hunks: [], isDeleted: false, isBinary: false, isNew: false, previousPath: null },
+      prTitle: 'Test',
+      prDescription: null,
+      config: {
+        ...defaultRepoConfig,
+        model: { main: 'definitely-not-a-configured-model', fallbacks: [], size_overrides: [] },
+      },
+      totalLineCount: 1,
+    });
+
+    await expect(promise).rejects.toThrow(/is not configured/);
+    await promise.catch((error) => expect(isRetryableModelError(error)).toBe(false));
+  });
+
   it('still tries the primary model even when the shared job budget is already near the subrequest limit', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(

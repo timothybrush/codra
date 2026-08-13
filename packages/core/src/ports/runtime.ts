@@ -1,4 +1,4 @@
-﻿import type { TokenTracker } from '../token-tracker';
+import type { TokenTracker } from '../token-tracker';
 import type { Clock, IdGenerator, KvStore } from './platform';
 import type { FileReviewStore } from './file-reviews';
 import type { GitHubClientFactory, ReviewGitHub } from './github';
@@ -12,9 +12,7 @@ export interface ReviewRuntime {
   kv: KvStore;
   clock: Clock;
   ids: IdGenerator;
-
-    botUsername: string;
-
+  botUsername: string;
   jobs: JobStore;
   fileReviews: FileReviewStore;
   settings: ReviewSettingsReader;

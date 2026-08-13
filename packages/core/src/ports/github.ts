@@ -1,4 +1,4 @@
-﻿
+
 export type PullRequestRecord = {
   number: number;
   title: string | null;

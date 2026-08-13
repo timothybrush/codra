@@ -1,4 +1,4 @@
-﻿export type ReviewTelemetryEvent = {
+export type ReviewTelemetryEvent = {
   linesReviewed: number;
   findingsReported: number;
   inputTokens: number;
