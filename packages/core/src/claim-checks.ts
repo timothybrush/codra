@@ -43,8 +43,8 @@ const CROSS_FILE_CONSEQUENCE = /\b(?:break|breaks|breaking|broken|fail|fails|fai
 const ENVIRONMENT_HEDGE = /\b(?:depending on|might not|may not|could be undefined|if (?:this|the|it)\b[^.]{0,60}\b(?:is )?(?:rendered|run|executed|used)\b)/i;
 const ENVIRONMENT_SUBJECT = /\b(?:older|legacy|earlier|some)\s+(?:node(?:\.js)?|browsers?|runtimes?|environments?|engines?|versions?)\b|\bserver[- ]side\b|\bSSR\b|\bhydration\b|\bpolyfill\b|\bis not defined on the server\b/i;
 
-const CALLEE_FAILURE_CONDITION = /\b(?:if|when|should|were)\b(?:(?!\.\s)[^;!?]){0,100}\b(?:fails?|failing|rejects?|rejecting|throws?|throwing|errors? out)\b/i;
-const CALLEE_CALL_SHAPE = /[\w.$]+\s*\(\s*\)|`[\w.$]+\(/;
+const CALLEE_FAILURE_CONDITION = /\b(?:if|when|should|were)\b(?:(?!\.\s)[^;!?]){0,62}\b(?:fails?|failing|rejects?|rejecting|throws?|throwing|errors? out)\b/i;
+const CALLEE_CALL_SHAPE = /[\w.$]{1,50}\s*\(\s*\)|`[\w.$]{1,50}\(/;
 const CALLEE_UNHANDLED_OUTCOME = /\bunhandled\b|\bunhandled promise\b|\bnot (?:caught|handled)\b|\bno (?:\.)?catch\b|\bwithout (?:a )?(?:try|catch)\b|\bcrash\b/i;
 
 export type UndecidableClaimReason = 'cross-file' | 'environment' | 'callee-errors';

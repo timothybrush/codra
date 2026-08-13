@@ -47,12 +47,12 @@ function scanBalanced(raw: string, startIdx: number, open: string, close: string
 }
 
 export function extractJson(raw: string, anchorKey: 'findings' | 'files' = 'findings') {
-  const jsonBlocks = Array.from(raw.matchAll(/```json\s*([\s\S]*?)```/gi));
+  const jsonBlocks = Array.from(raw.matchAll(/```json([\s\S]*?)```/gi));
   if (jsonBlocks.length > 0) {
     return jsonBlocks[jsonBlocks.length - 1][1].trim();
   }
 
-  const genericBlocks = Array.from(raw.matchAll(/```(?:[\w+-]+)?\s*([\s\S]*?)```/gi));
+  const genericBlocks = Array.from(raw.matchAll(/```(?:[\w+-]+)?([\s\S]*?)```/gi));
   if (genericBlocks.length > 0) {
     const candidates = genericBlocks.filter(b => b[1].includes('{') && b[1].includes('}') && hasReviewKeys(b[1]));
     if (candidates.length > 0) {
