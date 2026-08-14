@@ -5,10 +5,10 @@ import { getDiffFiles } from './diff-cache';
 import type { ReviewFormatter, ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';
 import {
   type PersistedReviewJob,
-  FRESH_INVOCATION_YIELD_SECONDS,
   enqueueJobPhase,
   heartbeatAndCheckSuperseded,
 } from './phase-control';
+import { FRESH_INVOCATION_YIELD_SECONDS } from '../constants';
 import { sendReviewTelemetry } from './telemetry';
 import { applyFindingGates } from './gate-pipeline';
 

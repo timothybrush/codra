@@ -9,16 +9,19 @@ export { getDiffFiles, getOrFetchRawDiffForCompletedJob } from './diff-cache';
 export { budgetAwareFileLimit, estimatedSubrequestsPerFile } from './budget';
 
 export {
-  BIN_DIFF_CHAR_BUDGET,
-  BIN_MAX_FILES,
-  BIN_TARGET_DIFF_LINES,
-  PACKABLE_MAX_DIFF_LINES,
   narrowUnit,
   planReviewUnits,
   unitFiles,
   type LedgerEntry,
   type ReviewUnit,
 } from './pack';
+
+export {
+  BIN_DIFF_CHAR_BUDGET,
+  BIN_MAX_FILES,
+  BIN_TARGET_DIFF_LINES,
+  PACKABLE_MAX_DIFF_LINES,
+} from '../constants';
 
 export { proportionalSplit } from './bin-runner';
 
@@ -27,18 +30,20 @@ export { verifyFindings, type VerifyDrop, type VerifyOutcome } from '../finding-
 export { extractReviewRequest, type ReviewRequest } from './request';
 
 // workflows/review.ts floors its inter-phase sleep here; the eslint barrel guard stops it
-export { FRESH_INVOCATION_YIELD_SECONDS } from './phase-control';
+export { FRESH_INVOCATION_YIELD_SECONDS } from '../constants';
 
 import {
   type PersistedReviewJob,
+  NextPhaseError,
+  failJobAndCheckRun,
+} from './phase-control';
+import {
   BUSY_RETRY_SECONDS,
   FRESH_INVOCATION_YIELD_SECONDS,
   JOB_LEASE_SECONDS,
   MAX_FINALIZE_CONTINUATIONS,
   MAX_JOB_CONTINUATIONS,
-  NextPhaseError,
-  failJobAndCheckRun,
-} from './phase-control';
+} from '../constants';
 import { getRetryableModelFailureDelaySeconds, isAwaitingAsyncReview, isSubrequestBudgetError } from './retry-policy';
 import { persistFailedFileReview } from './file-runner';
 import { runPreparePhase } from './prepare';

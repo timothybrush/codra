@@ -30,14 +30,19 @@ import {
   reviewConfigSchema,
   repoConfigSchema,
   type RepoConfig,
-  KIMI_K2_5_MODEL,
-  KIMI_K2_6_MODEL,
-  DEPRECATED_MODEL_ALIASES,
   normalizeModelId,
   normalizeRepoModelConfig,
   normalizeRepoConfig,
   defaultRepoConfig,
 } from './schema-repo-config';
+import {
+  KIMI_K2_5_MODEL,
+  KIMI_K2_6_MODEL,
+  DEPRECATED_MODEL_ALIASES,
+  DEFAULT_OVERALL_CORRECTNESS,
+  DEFAULT_OVERALL_EXPLANATION,
+  REPO_CONFIG_CACHE_VERSION,
+} from './constants';
 
 // Re-exported for server use; client imports directly to keep zod out of browser bundle.
 export {
@@ -71,13 +76,16 @@ export {
   reviewConfigSchema,
   repoConfigSchema,
   type RepoConfig,
-  KIMI_K2_5_MODEL,
-  KIMI_K2_6_MODEL,
-  DEPRECATED_MODEL_ALIASES,
   normalizeModelId,
   normalizeRepoModelConfig,
   normalizeRepoConfig,
   defaultRepoConfig,
+};
+export {
+  KIMI_K2_5_MODEL,
+  KIMI_K2_6_MODEL,
+  DEPRECATED_MODEL_ALIASES,
+  REPO_CONFIG_CACHE_VERSION,
 };
 
 const dateStringSchema = z.union([z.string(), z.date()]).transform((d) => (d instanceof Date ? d.toISOString() : d));
@@ -144,8 +152,8 @@ const reviewFindingSchema = z.object({
 
 export const fileReviewModelOutputSchema = z.object({
   findings: z.array(reviewFindingSchema),
-  overall_correctness: z.string().optional().default('patch is correct'),
-  overall_explanation: z.string().optional().default('Review completed (partial output).'),
+  overall_correctness: z.string().optional().default(DEFAULT_OVERALL_CORRECTNESS),
+  overall_explanation: z.string().optional().default(DEFAULT_OVERALL_EXPLANATION),
   overall_confidence_score: z.number().min(0).max(1).optional(),
 });
 
@@ -155,8 +163,8 @@ export const batchReviewModelOutputSchema = z.object({
     z.object({
       absolute_file_path: z.string(),
       findings: z.array(reviewFindingSchema),
-      overall_correctness: z.string().optional().default('patch is correct'),
-      overall_explanation: z.string().optional().default('Review completed (partial output).'),
+      overall_correctness: z.string().optional().default(DEFAULT_OVERALL_CORRECTNESS),
+      overall_explanation: z.string().optional().default(DEFAULT_OVERALL_EXPLANATION),
       overall_confidence_score: z.number().min(0).max(1).optional(),
     }),
   ).min(1),

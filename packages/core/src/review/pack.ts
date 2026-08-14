@@ -1,10 +1,11 @@
 import { renderFileDiff } from '../prompts/file-review';
 import type { FileDiff } from '../diff';
-
-export const PACKABLE_MAX_DIFF_LINES = 150;
-export const BIN_TARGET_DIFF_LINES = 300;
-export const BIN_MAX_FILES = 4;
-export const BIN_DIFF_CHAR_BUDGET = 24_000;
+import {
+  PACKABLE_MAX_DIFF_LINES,
+  BIN_TARGET_DIFF_LINES,
+  BIN_MAX_FILES,
+  BIN_DIFF_CHAR_BUDGET,
+} from '../constants';
 
 export type ReviewUnit =
   | { kind: 'single'; file: FileDiff }

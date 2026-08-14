@@ -2,6 +2,10 @@ import { claimTypes, type RepoConfig } from '@codra/schema';
 import type { FileDiff } from '../diff';
 import type { ModelResponseSchema } from '../ports/model';
 import { getLanguageForFile } from './languages';
+import {
+  EXEMPLAR_BLOCK_CHARS,
+  PR_DESCRIPTION_CHARS,
+} from '../constants';
 
 export function generatorFindingCap(maxComments: number): number {
   return Math.max(1, maxComments * 2);
@@ -217,7 +221,7 @@ export function buildFileReviewSystemPrompt(
 
 export type RejectedExemplar = { title: string; claimType?: string | null };
 
-const EXEMPLAR_BLOCK_CHARS = 700;
+
 
 function renderExemplars(exemplars: readonly RejectedExemplar[] | undefined): string | null {
   if (!exemplars?.length) return null;
@@ -236,7 +240,7 @@ function renderExemplars(exemplars: readonly RejectedExemplar[] | undefined): st
   return [heading, ...lines].join('\n');
 }
 
-const PR_DESCRIPTION_CHARS = 2_000;
+
 
 function renderPrContext(prDescription: string | null): string | null {
   const trimmed = prDescription?.trim();

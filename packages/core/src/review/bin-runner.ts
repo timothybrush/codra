@@ -3,11 +3,12 @@ import type { RepoConfig } from '@codra/schema';
 import type { FileDiff } from '../diff';
 import { renderFileDiff, type RejectedExemplar } from '../prompts/file-review';
 import type { BulkFileReviewInput, PullRequestRecord, ReviewModel, ReviewRuntime } from '../ports';
-import { type PersistedReviewJob, FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from './phase-control';
+import { type PersistedReviewJob } from './phase-control';
+import { FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES, MISSING_FILE_ERROR } from '../constants';
 import { isSubrequestBudgetError, retryableModelFailureDelaySeconds } from './retry-policy';
 import { scanRuleChannel } from './file-runner';
 
-const MISSING_FILE_ERROR = 'Model omitted this file from a batched review; retrying later.';
+
 
 export function proportionalSplit(total: number, weights: number[]): number[] {
   if (weights.length === 0) return [];

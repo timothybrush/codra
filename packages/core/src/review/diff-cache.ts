@@ -3,7 +3,7 @@ import { filterReviewableFiles, parseUnifiedDiff, type FileDiff } from '../diff'
 import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { logger } from '../logger';
 
-const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
+import { DIFF_CACHE_TTL_SECONDS } from '../constants';
 
 export function diffCacheKey(jobId: string) {
   return `diff:${jobId}`;

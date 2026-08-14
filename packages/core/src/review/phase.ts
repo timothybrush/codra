@@ -8,15 +8,17 @@ import type { ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';
 import { TokenTracker } from '../token-tracker';
 import {
   type PersistedReviewJob,
-  ASYNC_BATCH_POLL_DELAY_SECONDS,
-  FRESH_INVOCATION_YIELD_SECONDS,
-  MAX_JOB_CONTINUATIONS,
   NextPhaseError,
-  REVIEW_CHUNK_WALL_CLOCK_MS,
   enqueueJobPhase,
   hasCompletedStep,
   heartbeatAndCheckSuperseded,
 } from './phase-control';
+import {
+  ASYNC_BATCH_POLL_DELAY_SECONDS,
+  FRESH_INVOCATION_YIELD_SECONDS,
+  MAX_JOB_CONTINUATIONS,
+  REVIEW_CHUNK_WALL_CLOCK_MS,
+} from '../constants';
 import {
   canInheritParentFileReview,
   countsAsHandledFileReview,

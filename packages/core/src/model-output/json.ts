@@ -3,7 +3,7 @@ import { jsonrepair } from 'jsonrepair';
 import { z } from 'zod';
 import { logger } from '../logger';
 
-const MAX_LOGGED_JSON_CHARS = 2_000;
+import { MAX_LOGGED_JSON_CHARS } from '../constants';
 
 export function truncateJsonForLog(value: string) {
   if (value.length <= MAX_LOGGED_JSON_CHARS) return value;

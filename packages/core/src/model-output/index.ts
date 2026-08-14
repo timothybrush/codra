@@ -389,10 +389,10 @@ export function parseFileReviewResponse(
 
 
 export { dedupeFindings } from './dedupe';
+export { isNonAnswerReview } from './non-answer';
 export {
-  isNonAnswerReview,
   NON_ANSWER_MAX_RESPONSE_CHARS,
   NON_ANSWER_MIN_DIFF_LINES,
-} from './non-answer';
+} from '../constants';
 export { parseRawBatchPayload, type RawBatchPayload } from './json-batch';
 export { parseBatchReviewResponse, type BatchParseStats, type BatchReviewResult } from './batch';

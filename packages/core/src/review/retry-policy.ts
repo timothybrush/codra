@@ -2,7 +2,7 @@ import { logger } from '../logger';
 import { normalizeModelId, type RepoConfig } from '@codra/schema';
 import { isSubrequestBudgetMessage, isTimeoutMessage, matchesAnyTransientSubstring } from '@codra/schema/transient-errors';
 import type { ReviewRuntime } from '../ports';
-import { RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS } from './phase-control';
+import { RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS } from '../constants';
 
 
 export function isRetryableFileReviewErrorMessage(message: string | null | undefined) {

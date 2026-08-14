@@ -4,7 +4,8 @@ import { parseUnifiedDiff, type FileDiff } from '../diff';
 import { ruleHitsToComments, scanFileForRuleHits, type RuleScanStats } from '../rules/detect';
 import type { RejectedExemplar } from '../prompts/file-review';
 import type { PullRequestRecord, ReviewModel, ReviewRuntime } from '../ports';
-import { type PersistedReviewJob, FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from './phase-control';
+import { type PersistedReviewJob } from './phase-control';
+import { FRESH_INVOCATION_YIELD_SECONDS, MAX_RETRYABLE_FILE_REVIEW_FAILURES } from '../constants';
 import { isSubrequestBudgetError, retryableModelFailureDelaySeconds } from './retry-policy';
 
 export async function persistCompletedReview(

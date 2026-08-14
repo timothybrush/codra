@@ -5,7 +5,7 @@ import { buildAnchorHash, buildFindingFingerprint, buildFindingFingerprintV2, no
 import { CLAIM_TYPE_CATEGORY } from '@codra/schema';
 import { RULES, type Rule } from './table';
 
-const MAX_RULE_SCAN_ADDED_LINES = 600;
+import { MAX_RULE_SCAN_ADDED_LINES } from '../constants';
 
 export type RuleHit = {
   rule: Rule;
