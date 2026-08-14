@@ -1,19 +1,16 @@
-import type { AppBindings } from '@server/env';
-import { withTimeout } from '@server/core/timeout';
-import { GitHubError, GITHUB_TIMEOUT_MS, installationCacheKey, withRetry } from './http';
+import type { AppBindingsConfig } from './service';
+import { withTimeout } from '@codra/core/timeout';
+import { assertResponseOk, installationCacheKey, withRetry } from './http';
 import type { GitHubAppRecord, GitHubInstallation, InstallationTokenCacheRecord } from './types';
+import { GITHUB_TIMEOUT_MS, GITHUB_APP_INSTALL_URL_CACHE_KEY } from './constants';
 
-// Sibling of core/github.ts -- import from that barrel, not from here.
-
-const GITHUB_APP_INSTALL_URL_CACHE_KEY = 'github:app_installation_url';
-
-type AppAuthEnv = Pick<AppBindings, 'APP_PRIVATE_KEY' | 'GITHUB_APP_ID' | 'BOT_USERNAME'>;
+type AppAuthEnv = AppBindingsConfig;
 
 function pemToArrayBuffer(pem: string) {
   const base64 = pem
     .replace(/-----BEGIN (RSA )?PRIVATE KEY-----/g, '')
     .replace(/-----END (RSA )?PRIVATE KEY-----/g, '')
-    // Handles literal \n escape sequences from wrangler secrets stored as single-line strings.
+    // Handle \n escapes from wrangler secrets.
     .replace(/\\n/g, '')
     .replace(/\s+/g, '');
 
@@ -59,7 +56,7 @@ export async function createGitHubJwt(appId: string, privateKeyPem: string) {
   return `${header}.${payload}.${signatureString}`;
 }
 
-// Headers for the three app-level (JWT-authenticated) endpoints, as opposed to installation-token requests.
+// App-level (JWT) endpoint headers.
 async function appJwtHeaders(env: AppAuthEnv) {
   const jwt = await createGitHubJwt(env.GITHUB_APP_ID, env.APP_PRIVATE_KEY);
   return {
@@ -80,7 +77,7 @@ function installUrlFromSlug(slug: string) {
 }
 
 export async function readCachedInstallationToken(
-  env: Pick<AppBindings, 'APP_KV'>,
+  env: AppBindingsConfig,
   installationId: string,
   tracker?: { incrementSubrequests(count?: number): void },
 ) {
@@ -90,7 +87,7 @@ export async function readCachedInstallationToken(
 }
 
 export async function writeCachedInstallationToken(
-  env: Pick<AppBindings, 'APP_KV'>,
+  env: AppBindingsConfig,
   installationId: string,
   record: InstallationTokenCacheRecord,
   tracker?: { incrementSubrequests(count?: number): void },
@@ -101,12 +98,11 @@ export async function writeCachedInstallationToken(
   await env.APP_KV.put(installationCacheKey(installationId), JSON.stringify(record), { expirationTtl: ttl });
 }
 
-// Deliberately NOT wrapped in withRetry here: the caller (GitHubClient.getInstallationToken) wraps mint + KV-write + memo in one withRetry, so retrying here too would nest the ladders into 9 attempts.
+// Caller wraps in withRetry, avoid nested retries.
 export async function fetchInstallationToken(
   env: AppAuthEnv,
   installationId: string,
 ): Promise<InstallationTokenCacheRecord> {
-  // Signed OUTSIDE withTimeout: the 30s budget is for the network call, not key import + signing.
   const headers = await appJwtHeaders(env);
   const response = await withTimeout('GitHub installation token', GITHUB_TIMEOUT_MS, (signal) =>
     fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
@@ -116,15 +112,7 @@ export async function fetchInstallationToken(
     }),
   );
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new GitHubError(
-      response.status,
-      errText,
-      '/app/installations/.../access_tokens',
-      `GitHub installation token request failed with ${response.status}: ${errText}`,
-    );
-  }
+  await assertResponseOk(response, '/app/installations/.../access_tokens', 'GitHub installation token request');
 
   const data = (await response.json()) as { token: string; expires_at: string };
   return { token: data.token, expiresAt: data.expires_at };
@@ -137,22 +125,14 @@ export async function fetchInstallations(env: AppAuthEnv): Promise<GitHubInstall
       fetch('https://api.github.com/app/installations', { signal, headers }),
     );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new GitHubError(
-        response.status,
-        errText,
-        '/app/installations',
-        `GitHub list installations failed with ${response.status}: ${errText}`,
-      );
-    }
+    await assertResponseOk(response, '/app/installations', 'GitHub list installations');
 
     return (await response.json()) as GitHubInstallation[];
   });
 }
 
 export async function fetchAppInstallationUrl(
-  env: Pick<AppBindings, 'APP_KV' | 'APP_PRIVATE_KEY' | 'GITHUB_APP_ID' | 'BOT_USERNAME' | 'GITHUB_APP_SLUG'>,
+  env: AppBindingsConfig,
 ): Promise<string> {
   const configuredSlug = normalizeGitHubAppSlug(env.GITHUB_APP_SLUG);
   if (configuredSlug) {
@@ -170,15 +150,7 @@ export async function fetchAppInstallationUrl(
       fetch('https://api.github.com/app', { signal, headers }),
     );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new GitHubError(
-        response.status,
-        errText,
-        '/app',
-        `GitHub app lookup failed with ${response.status}: ${errText}`,
-      );
-    }
+    await assertResponseOk(response, '/app', 'GitHub app lookup');
 
     const app = (await response.json()) as GitHubAppRecord;
     const fallbackSlug = normalizeGitHubAppSlug(app.slug);

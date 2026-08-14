@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import {
   isFeedbackGitHubWebhookEvent,
-  isSupportedGitHubWebhookEvent,
   type FeedbackWebhookPayload,
   type GitHubReviewCommentPayload,
   type GitHubWebhookPayload,
 } from '@codra/schema/github';
+import { normalizeGitHubWebhook } from '@codra/provider-github';
 import type { AppBindings, AppEnv } from '@server/env';
 import { loadRepoConfig } from '@server/core/config';
 import { extractReviewRequest } from '@server/core/review';
@@ -117,8 +117,8 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
     const delivery = await recordWebhookDelivery(c.env, {
       deliveryId,
       eventName,
-      owner: 'repository' in payload ? payload.repository.owner.login : null,
-      repo: 'repository' in payload ? payload.repository.name : null,
+      owner: 'repository' in payload ? (payload as any).repository.owner.login : null,
+      repo: 'repository' in payload ? (payload as any).repository.name : null,
       payload: isFeedbackEvent ? null : payload,
     });
 
@@ -126,7 +126,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return c.json({ ok: true, duplicate: true }, 202);
     }
 
-    const installationId = String(payload.installation?.id ?? '');
+    const installationId = String((payload as any).installation?.id ?? '');
     if (!installationId || !('repository' in payload) || !payload.repository) {
       return c.json({ ok: true, ignored: true }, 202);
     }
@@ -141,14 +141,15 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return c.json({ ok: true, feedback: true, recorded }, 202);
     }
 
-    if (!isSupportedGitHubWebhookEvent(eventName)) {
+    const normalized = normalizeGitHubWebhook(eventName, payload);
+    if (!normalized) {
       return c.json({ ok: true, ignored: true, eventName }, 202);
     }
 
     const repoConfig = await loadRepoConfig(c.env, {
       installationId,
-      owner: payload.repository.owner.login,
-      repo: payload.repository.name,
+      owner: (payload as any).repository.owner.login,
+      repo: (payload as any).repository.name,
     });
 
     if (repoConfig.enabled === false) {
@@ -156,8 +157,8 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
     }
 
     const extracted = extractReviewRequest({
-      eventName,
-      payload,
+      eventName: normalized.eventName,
+      payload: normalized.payload,
       botUsername: c.env.BOT_USERNAME,
       config: repoConfig.parsedJson,
     });

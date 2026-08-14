@@ -27,9 +27,10 @@ vi.mock('@server/db/app-settings', async (importOriginal) => {
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
 vi.mock('@server/services/model', async () => {
@@ -54,7 +55,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   };
 
   it('reviews files in a chunk concurrently', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const repo = uniqueRepo('concurrent');
     const headSha = sha('8');
@@ -129,7 +130,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('marks completed jobs with skipped files as partial reviews', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const repo = uniqueRepo('partial');
     const headSha = sha('e');
@@ -215,7 +216,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('reuses an already-posted review instead of double-posting when finalize re-runs past the posting stage', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const repo = uniqueRepo('doublepost');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
       generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),

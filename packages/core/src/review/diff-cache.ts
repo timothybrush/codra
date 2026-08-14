@@ -1,6 +1,6 @@
 import { reviewMaxFilesRange, type RepoConfig } from '@codra/schema';
 import { filterReviewableFiles, parseUnifiedDiff, type FileDiff } from '../diff';
-import type { ReviewGitHub, ReviewRuntime } from '../ports';
+import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { logger } from '../logger';
 
 const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
@@ -12,7 +12,7 @@ export function diffCacheKey(jobId: string) {
 export async function getDiffFiles(
   env: Pick<ReviewRuntime, 'kv'>,
   job: { id: string; owner: string; repo: string; prNumber: number },
-  github: Pick<ReviewGitHub, 'getPullRequestDiff'>,
+  github: Pick<ReviewGitProvider, 'getPullRequestDiff'>,
   config: RepoConfig,
   maxFiles: number = reviewMaxFilesRange.default,
 ): Promise<{ files: FileDiff[]; skipped: number }> {
@@ -34,7 +34,7 @@ export async function getDiffFiles(
 export async function getOrFetchRawDiffForCompletedJob(
   env: Pick<ReviewRuntime, 'kv'>,
   job: { id: string; owner: string; repo: string; baseSha: string; commitSha: string },
-  github: Pick<ReviewGitHub, 'getCompareDiff'>,
+  github: Pick<ReviewGitProvider, 'getCompareDiff'>,
 ): Promise<string> {
   const cacheKey = diffCacheKey(job.id);
   const cached = await env.kv.get(cacheKey);

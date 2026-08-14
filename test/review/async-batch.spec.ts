@@ -26,9 +26,11 @@ vi.mock('@server/db/app-settings', async (importOriginal) => {
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  console.log('TRACE vi.mock called for provider-github');
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
 // Controllable async-batch model: submit hands back a request_id; the first poll is still
@@ -88,16 +90,19 @@ dbDescribe('Async batch review flow', () => {
 
     await runWithDb(env, async () => {
       // Phase 1: prepare (creates the job, enqueues review).
+      const rawPayload = {
+        action: 'opened',
+        installation: { id: 123 },
+        repository: { owner: { login: 'test-owner' }, name: repo },
+        pull_request: { number: 1, head: { sha: headSha, ref: 'feature' }, base: { sha: sha('d'), ref: 'main' }, title: 'Test PR', user: { login: 'author' }, draft: false },
+      };
+      const { normalizeGitHubWebhook } = await import('@codra/provider-github');
+      const normalized = normalizeGitHubWebhook('pull_request', rawPayload);
       const prep = await runReviewJob(env, {
         deliveryId: uniqueName('delivery-async'),
-        eventName: 'pull_request',
-        payload: {
-          action: 'opened',
-          installation: { id: 123 },
-          repository: { owner: { login: 'test-owner' }, name: repo },
-          pull_request: { number: 1, head: { sha: headSha, ref: 'feature' }, base: { sha: sha('d'), ref: 'main' }, title: 'Test PR', user: { login: 'author' }, draft: false },
-        },
-      } as any);
+        eventName: normalized!.eventName,
+        payload: normalized!.payload as any,
+      });
       expect(prep).toMatchObject({ action: 'next_phase', phase: 'review' });
 
       const job = await findExistingJobForHead(env, { owner: 'test-owner', repo, prNumber: 1, commitSha: headSha, trigger: 'auto' });

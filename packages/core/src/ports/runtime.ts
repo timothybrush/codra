@@ -1,7 +1,7 @@
 import type { TokenTracker } from '../token-tracker';
 import type { Clock, IdGenerator, KvStore } from './platform';
 import type { FileReviewStore } from './file-reviews';
-import type { GitHubClientFactory, ReviewGitHub } from './github';
+import type { GitProviderFactory, ReviewGitProvider } from './git-provider';
 import type { JobStore } from './jobs';
 import type { ModelErrorClassifier, ReviewModel } from './model';
 import type { ReviewFormatter } from './formatter';
@@ -23,10 +23,10 @@ export interface ReviewRuntime {
   telemetry: TelemetrySink;
 
     createTokenTracker(): TokenTracker;
-  createGitHub(installationId: string, tracker: TokenTracker): ReviewGitHub;
+  createGitHub(installationId: string, tracker: TokenTracker): ReviewGitProvider;
   createModel(jobId: string, tracker: TokenTracker): ReviewModel;
   createFormatter(): ReviewFormatter;
 
-    githubClients: GitHubClientFactory;
+    githubClients: GitProviderFactory;
   modelErrors: ModelErrorClassifier;
 }

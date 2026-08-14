@@ -2,7 +2,7 @@ import { logger } from '../logger';
 import { defaultRepoConfig, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
 import { shadowEvaluate } from '../finding-gates';
 import { getDiffFiles } from './diff-cache';
-import type { ReviewFormatter, ReviewGitHub, ReviewModel, ReviewRuntime } from '../ports';
+import type { ReviewFormatter, ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';
 import {
   type PersistedReviewJob,
   FRESH_INVOCATION_YIELD_SECONDS,
@@ -16,7 +16,7 @@ export async function runFinalizePhase(
   env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: ReviewGitHub,
+  github: ReviewGitProvider,
   formatter: ReviewFormatter,
   model: ReviewModel,
 ) {

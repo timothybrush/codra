@@ -14,7 +14,7 @@ import { getOrFetchRawDiffForCompletedJob } from '@codra/core';
 import { createReviewRuntime } from '@server/adapters';
 import { parseUnifiedDiff } from '@server/core/diff';
 import { buildFileReviewPrompts } from '@server/prompts/file-review';
-import { GitHubService } from '@server/services/github';
+import { GitHubService } from '@codra/provider-github';
 
 // Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.
 async function terminateJobWorkflow(env: AppBindings, job: { id: string; workflowInstanceId?: string | null }) {

@@ -5,6 +5,7 @@ import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } fro
 import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
 import { defaultRepoConfig, type ParsedReviewComment } from '@codra/schema';
 import { runWithDb } from '@server/db/client';
+import { normalizeGitHubWebhook } from '@codra/provider-github';
 import { makeRunAndDrain, REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
@@ -27,9 +28,10 @@ vi.mock('@server/db/app-settings', async (importOriginal) => {
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
 vi.mock('@server/services/model', async () => {
@@ -290,8 +292,7 @@ dbDescribe('Review flow: retries, inheritance and continuations', () => {
 
     await runAndDrain({
       deliveryId: 'delivery-duplicate',
-      eventName: 'pull_request',
-      payload: {
+      ...normalizeGitHubWebhook('pull_request', {
         action: 'opened',
         installation: { id: 123 },
         repository: { owner: { login: 'test-owner' }, name: repo },
@@ -303,7 +304,7 @@ dbDescribe('Review flow: retries, inheritance and continuations', () => {
           user: { login: 'author' },
           draft: false,
         },
-      },
+      }) as any,
     });
 
     const finalJob = await getJobForProcessing(env, existing.id);

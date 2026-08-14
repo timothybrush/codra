@@ -27,6 +27,7 @@ const BANNED_MODULES = [
   '@server/',
   '@client/',
   '@codra/worker',
+  '@codra/provider-github',
 ];
 
 function isBannedModule(specifier, fileDir) {

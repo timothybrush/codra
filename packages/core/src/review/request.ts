@@ -1,12 +1,12 @@
 import type {
-  GitHubWebhookEventName,
-  GitHubWebhookPayload,
-  IssueCommentWebhookPayload,
-  PullRequestWebhookPayload,
-} from '@codra/schema/github';
+  WebhookEventName,
+  WebhookPayload,
+  CommentWebhookPayload,
+  ChangeRequestWebhookPayload,
+} from '@codra/schema/webhook';
 import type { RepoConfig } from '@codra/schema';
 
-function shouldTriggerFromPullRequest(action: PullRequestWebhookPayload['action'], config: RepoConfig['review']) {
+function shouldTriggerFromChangeRequest(action: ChangeRequestWebhookPayload['action'], config: RepoConfig['review']) {
   return (config.on as string[]).includes(action);
 }
 
@@ -25,50 +25,50 @@ export type ReviewRequest = {
 };
 
 export function extractReviewRequest(input: {
-  eventName: GitHubWebhookEventName;
-  payload: GitHubWebhookPayload;
+  eventName: WebhookEventName;
+  payload: WebhookPayload;
   botUsername: string;
   config: RepoConfig;
 }): ReviewRequest | null {
-  if (input.eventName === 'pull_request') {
-    const payload = input.payload as PullRequestWebhookPayload;
-    if (input.config.review.ignore_drafts && payload.pull_request.draft) {
+  if (input.eventName === 'change_request') {
+    const payload = input.payload as ChangeRequestWebhookPayload;
+    if (input.config.review.ignore_drafts && payload.changeRequest.draft) {
       return null;
     }
-    if (!shouldTriggerFromPullRequest(payload.action, input.config.review)) {
+    if (!shouldTriggerFromChangeRequest(payload.action, input.config.review)) {
       return null;
     }
 
     return {
-      installationId: String(payload.installation?.id ?? ''),
-      owner: payload.repository.owner.login,
+      installationId: payload.installationId,
+      owner: payload.repository.owner,
       repo: payload.repository.name,
-      prNumber: payload.pull_request.number,
-      prTitle: payload.pull_request.title,
-      prAuthor: payload.pull_request.user.login,
-      commitSha: payload.pull_request.head.sha,
-      baseSha: payload.pull_request.base.sha,
-      headRef: payload.pull_request.head.ref,
-      baseRef: payload.pull_request.base.ref,
+      prNumber: payload.changeRequest.number,
+      prTitle: payload.changeRequest.title,
+      prAuthor: payload.changeRequest.author,
+      commitSha: payload.changeRequest.head.sha,
+      baseSha: payload.changeRequest.base.sha,
+      headRef: payload.changeRequest.head.ref,
+      baseRef: payload.changeRequest.base.ref,
       trigger: 'auto' as const,
     };
   }
 
-  if (input.eventName === 'issue_comment') {
-    const payload = input.payload as IssueCommentWebhookPayload;
+  if (input.eventName === 'comment') {
+    const payload = input.payload as CommentWebhookPayload;
     const mentionTrigger = input.config.review.mention_trigger;
 
-    if (!payload.issue?.pull_request || payload.action !== 'created' || !mentionTrigger) {
+    if (!payload.issue.isChangeRequest || payload.action !== 'created' || !mentionTrigger) {
       return null;
     }
 
-    if (!payload.comment?.body?.includes(mentionTrigger)) {
+    if (!payload.comment.body.includes(mentionTrigger)) {
       return null;
     }
 
     return {
-      installationId: String(payload.installation?.id ?? ''),
-      owner: payload.repository.owner.login,
+      installationId: payload.installationId,
+      owner: payload.repository.owner,
       repo: payload.repository.name,
       prNumber: payload.issue.number,
       prTitle: null,

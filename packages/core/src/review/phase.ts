@@ -4,7 +4,7 @@ import { budgetAwareFileLimit } from './budget';
 import { narrowUnit, planReviewUnits } from './pack';
 import { reviewAndPersistBin } from './bin-runner';
 import { getDiffFiles } from './diff-cache';
-import type { ReviewGitHub, ReviewModel, ReviewRuntime } from '../ports';
+import type { ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';
 import { TokenTracker } from '../token-tracker';
 import {
   type PersistedReviewJob,
@@ -31,7 +31,7 @@ export async function runReviewPhase(
   env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: ReviewGitHub,
+  github: ReviewGitProvider,
   model: ReviewModel,
   tracker: TokenTracker,
 ) {

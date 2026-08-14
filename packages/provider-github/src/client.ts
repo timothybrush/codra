@@ -1,13 +1,14 @@
-import type { AppBindings } from '@server/env';
-import { withTimeout } from '@server/core/timeout';
+import type { AppBindingsConfig } from './service';
+import { withTimeout } from '@codra/core/timeout';
 import {
   GitHubError,
-  GITHUB_TIMEOUT_MS,
+  assertResponseOk,
   type GitHubRequestContext,
   encodeGitHubContentPath,
   repoApiPath,
   withRetry,
 } from './http';
+import { GITHUB_TIMEOUT_MS, GITHUB_REPOSITORIES_PER_PAGE, GITHUB_REPOSITORY_PAGE_LIMIT } from './constants';
 import {
   fetchAppInstallationUrl,
   fetchInstallationToken,
@@ -21,34 +22,27 @@ import { addIssueLabels, ensureLabel, listIssueLabels, removeIssueLabel } from '
 import type {
   GitHubInstallation,
   GitHubRepository,
-  GitHubReviewComment,
-  InstallationTokenCacheRecord,
+  ReviewComment,
   PullRequestRecord,
+  InstallationTokenCacheRecord,
 } from './types';
 
-// This module is the mock seam: a spec replaces the whole GitHubClient class via vi.mock('@server/core/github', ...). Sibling modules in this folder are implementation detail; eslint's no-restricted-imports enforces importing only from here.
-export type { GitHubInstallation, GitHubRepository, GitHubReviewComment };
-// Re-exported because it is the error every method below throws, and ./http is a restricted sibling.
+// Mock seam: replaced in tests via vi.mock. Enforces module boundary.
+export type { GitHubInstallation, GitHubRepository, ReviewComment };
 export { GitHubError };
-
-const GITHUB_REPOSITORIES_PER_PAGE = 100;
-const GITHUB_REPOSITORY_PAGE_LIMIT = 100;
 
 export class GitHubClient {
   constructor(
-    private readonly env: Pick<
-      AppBindings,
-      'APP_KV' | 'APP_PRIVATE_KEY' | 'GITHUB_APP_ID' | 'BOT_USERNAME'
-    >,
+    private env: AppBindingsConfig,
     private readonly installationId: string,
     private readonly tracker?: { incrementSubrequests(count?: number): void },
   ) {}
 
-  // Scoped to this client (one Worker invocation); without it every GitHub request re-read the token from KV, pushing finalize toward the 50-subrequest cap right before posting.
+  // Scoped per invocation to avoid KV hits & 50-subrequest cap.
   private memoToken: InstallationTokenCacheRecord | null = null;
 
   async getInstallationToken(): Promise<string> {
-    // Reuse the in-memory token while comfortably unexpired (invocations are < ~120s; tokens last ~1h).
+    // Reuse the in-memory token while comfortably unexpired.
     if (this.memoToken?.token && new Date(this.memoToken.expiresAt).getTime() > Date.now() + 60_000) {
       return this.memoToken.token;
     }
@@ -69,13 +63,13 @@ export class GitHubClient {
   }
 
   static async listInstallations(
-    env: Pick<AppBindings, 'APP_PRIVATE_KEY' | 'GITHUB_APP_ID' | 'BOT_USERNAME'>,
+    env: AppBindingsConfig,
   ): Promise<GitHubInstallation[]> {
     return fetchInstallations(env);
   }
 
   static async getAppInstallationUrl(
-    env: Pick<AppBindings, 'APP_KV' | 'APP_PRIVATE_KEY' | 'GITHUB_APP_ID' | 'BOT_USERNAME' | 'GITHUB_APP_SLUG'>,
+    env: AppBindingsConfig,
   ): Promise<string> {
     return fetchAppInstallationUrl(env);
   }
@@ -129,19 +123,11 @@ export class GitHubClient {
     accept = 'application/vnd.github+json',
   ): Promise<Response> {
     const response = await this.request(path, init, accept);
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new GitHubError(
-        response.status,
-        errText,
-        path,
-        `GitHub API ${init.method ?? 'GET'} ${path} failed with ${response.status}: ${errText}`,
-      );
-    }
+    await assertResponseOk(response, path, `GitHub API ${init.method ?? 'GET'} ${path}`);
     return response;
   }
 
-  // Hands the extracted helpers the authenticated-request surface without making `request`/`requestAndCheck` public.
+  // Hands the extracted helpers the authenticated-request surface.
   private ctx(): GitHubRequestContext {
     return {
       request: (path, init, accept) => this.request(path, init, accept),
@@ -167,15 +153,7 @@ export class GitHubClient {
         }),
       );
 
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new GitHubError(
-          response.status,
-          errText,
-          '/graphql',
-          `GitHub GraphQL request failed with ${response.status}: ${errText}`,
-        );
-      }
+      await assertResponseOk(response, '/graphql', 'GitHub GraphQL request');
 
       const payload = (await response.json()) as { data?: T; errors?: Array<{ message: string }> };
       if (payload.errors?.length) {
@@ -208,18 +186,8 @@ export class GitHubClient {
   async getRepoFileOrNull(owner: string, repo: string, path: string) {
     return withRetry(`getRepoFileOrNull ${owner}/${repo}/${path}`, async () => {
       const response = await this.request(`${repoApiPath(owner, repo)}/contents/${encodeGitHubContentPath(path)}`);
-      if (response.status === 404) {
-        return null;
-      }
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new GitHubError(
-          response.status,
-          errText,
-          path,
-          `GitHub repo file fetch failed with ${response.status}: ${errText}`,
-        );
-      }
+      if (response.status === 404) return null;
+      await assertResponseOk(response, path, 'GitHub repo file fetch');
 
       const data = (await response.json()) as { content?: string; encoding?: string };
       if (!data.content) {
@@ -295,7 +263,7 @@ export class GitHubClient {
       commitSha: string;
       event: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES';
       body: string;
-      comments: GitHubReviewComment[];
+      comments: ReviewComment[];
     },
   ) {
     return postReview(this.ctx(), owner, repo, pullNumber, input);
@@ -323,14 +291,12 @@ export class GitHubClient {
     return listIssueLabels(this.ctx(), owner, repo, issueNumber);
   }
 
-  // Case-insensitive, and removes using the label's actual stored casing -- the delete endpoint is case-sensitive and would silently no-op on a 404 otherwise.
+  // Case-insensitive removal using stored casing.
   async removeIssueLabelsIfPresent(owner: string, repo: string, issueNumber: number, labels: string[]) {
     const currentLabels = await this.listIssueLabels(owner, repo, issueNumber);
     const currentByLowerName = new Map(currentLabels.map(label => [label.toLowerCase(), label]));
 
     const uniqueLabels = Array.from(new Set(labels.map(label => label.toLowerCase())));
-    // Deletes stay sequential: concurrent mutations of one issue's labels trip GitHub's secondary
-    // rate limit, and the fan-out would also compete for the invocation's subrequest budget.
     for (const label of uniqueLabels) {
       const currentLabel = currentByLowerName.get(label);
       if (currentLabel) {

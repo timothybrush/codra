@@ -1,4 +1,5 @@
 
+/** Maps to GitHub Pull Request, GitLab Merge Request, etc. */
 export type PullRequestRecord = {
   number: number;
   title: string | null;
@@ -9,7 +10,7 @@ export type PullRequestRecord = {
   user: { login: string };
 };
 
-export type GitHubReviewComment = {
+export type ReviewComment = {
   path: string;
   line?: number;
   side?: 'LEFT' | 'RIGHT';
@@ -17,7 +18,8 @@ export type GitHubReviewComment = {
   body: string;
 };
 
-export interface ReviewGitHub {
+/** @see ReviewGitProvider — the GitHub adapter's name for this port */
+export interface ReviewGitProvider {
   getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequestRecord>;
   getPullRequestDiff(owner: string, repo: string, prNumber: number): Promise<string>;
   getCompareDiff(owner: string, repo: string, base: string, head: string): Promise<string>;
@@ -32,7 +34,7 @@ export interface ReviewGitHub {
     commitSha: string;
     event: 'APPROVE' | 'COMMENT';
     body: string;
-    comments: GitHubReviewComment[];
+    comments: ReviewComment[];
   }): Promise<{ id: number; postedIndices?: number[] }>;
   findBotReviewForCommit(owner: string, repo: string, prNumber: number, commitSha: string, botLogin: string): Promise<{ id: number } | null>;
   ensureLabel(owner: string, repo: string, name: string, color: string): Promise<unknown>;
@@ -40,6 +42,6 @@ export interface ReviewGitHub {
   removeIssueLabelsIfPresent(owner: string, repo: string, prNumber: number, labels: string[]): Promise<unknown>;
 }
 
-export interface GitHubClientFactory {
-  forInstallation(installationId: string): ReviewGitHub;
+export interface GitProviderFactory {
+  forInstallation(installationId: string): ReviewGitProvider;
 }

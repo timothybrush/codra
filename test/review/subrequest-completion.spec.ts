@@ -57,12 +57,16 @@ vi.mock('@server/db/app-settings', async (importOriginal) => {
   };
 });
 
-vi.mock('@server/services/github', () => ({
-  GitHubService: class {
-    getPullRequest = getPullRequestMock;
-    updateCheckRun = vi.fn().mockResolvedValue(undefined);
-  },
-}));
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
+  return {
+    ...mod,
+    GitHubService: class {
+      getPullRequest = getPullRequestMock;
+      updateCheckRun = vi.fn().mockResolvedValue(undefined);
+    },
+  };
+});
 
 // Imported after the mocks are registered.
 import { runReviewJob } from '@server/core/review';

@@ -1,7 +1,5 @@
-import { GitHubError, type GitHubRequestContext, repoApiPath, withRetry } from './http';
+import { assertResponseOk, type GitHubRequestContext, repoApiPath, withRetry } from './http';
 import type { GitHubIssueLabel } from './types';
-
-// Sibling of core/github.ts -- import from that barrel, not from here. Free functions over a GitHubRequestContext, so the class stays the mockable seam.
 
 export async function ensureLabel(
   ctx: GitHubRequestContext,
@@ -12,17 +10,10 @@ export async function ensureLabel(
 ) {
   return withRetry(`ensureLabel ${owner}/${repo} ${name}`, async () => {
     const listResponse = await ctx.request(`${repoApiPath(owner, repo)}/labels/${encodeURIComponent(name)}`);
-    if (listResponse.ok) {
-      return;
-    }
+    if (listResponse.ok) return;
+    
     if (listResponse.status !== 404) {
-      const errText = await listResponse.text();
-      throw new GitHubError(
-        listResponse.status,
-        errText,
-        name,
-        `GitHub label lookup failed with ${listResponse.status}: ${errText}`,
-      );
+      await assertResponseOk(listResponse, name, 'GitHub label lookup');
     }
 
     const createResponse = await ctx.request(`${repoApiPath(owner, repo)}/labels`, {
@@ -33,15 +24,9 @@ export async function ensureLabel(
       body: JSON.stringify({ name, color }),
     });
 
-    // 422 means it already exists -- a concurrent job created it between the lookup and here.
+    // 422: already exists (concurrent job).
     if (!createResponse.ok && createResponse.status !== 422) {
-      const errText = await createResponse.text();
-      throw new GitHubError(
-        createResponse.status,
-        errText,
-        name,
-        `GitHub label creation failed with ${createResponse.status}: ${errText}`,
-      );
+      await assertResponseOk(createResponse, name, 'GitHub label creation');
     }
   });
 }
@@ -98,13 +83,7 @@ export async function removeIssueLabel(
     );
 
     if (!response.ok && response.status !== 404) {
-      const errText = await response.text();
-      throw new GitHubError(
-        response.status,
-        errText,
-        label,
-        `GitHub label removal failed with ${response.status}: ${errText}`,
-      );
+      await assertResponseOk(response, label, 'GitHub label removal');
     }
   });
 }

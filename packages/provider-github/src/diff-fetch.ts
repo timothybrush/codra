@@ -1,35 +1,26 @@
-import { logger } from '@server/core/logger';
-import { buildUnifiedDiffFromFiles, type GitHubDiffFileEntry } from '@server/core/diff';
-import {
-  type GitHubRequestContext,
-  isDiffTooLargeError,
-  repoApiPath,
-  withRetry,
-} from './http';
+import { logger } from '@codra/core/logger';
+import { buildUnifiedDiffFromFiles, type DiffFileEntry } from '@codra/core/diff';
+import { type GitHubRequestContext, isDiffTooLargeError, repoApiPath, withRetry } from './http';
+import { DIFF_FILES_PER_PAGE, MAX_DIFF_FILE_PAGES } from './constants';
 
-// Sibling of core/github.ts -- import from that barrel, not from here. Free functions over a
-// GitHubRequestContext rather than methods, so the class stays the mockable seam.
+// Internal implementation. Class stays the mockable seam.
 
-const DIFF_FILES_PER_PAGE = 100;
-// Each page costs a subrequest, and 500 files is the maxFiles ceiling.
-const MAX_DIFF_FILE_PAGES = 5;
-
-// Rebuilds a diff from `GET /pulls/{n}/files`: the diff media type permanently 406s `too_large` beyond 20,000 lines, so without this a large PR can't be reviewed.
+// Rebuild diff if >20k lines (406 too_large).
 async function fetchPullRequestDiffFromFiles(
   ctx: GitHubRequestContext,
   owner: string,
   repo: string,
   pullNumber: number,
 ) {
-  const files: GitHubDiffFileEntry[] = [];
+  const files: DiffFileEntry[] = [];
 
-  // Bounded because each page is a subrequest against a budget of ~25; five pages covers the 500-file `maxFiles` ceiling.
+  // Bounded budget of ~25 subrequests. 5 pages = 500 files limit.
   for (let page = 1; page <= MAX_DIFF_FILE_PAGES; page++) {
     const pageFiles = await withRetry(`getPullRequestFiles ${owner}/${repo}#${pullNumber} p${page}`, async () => {
       const response = await ctx.requestAndCheck(
         `${repoApiPath(owner, repo)}/pulls/${pullNumber}/files?per_page=${DIFF_FILES_PER_PAGE}&page=${page}`,
       );
-      return (await response.json()) as GitHubDiffFileEntry[];
+      return (await response.json()) as DiffFileEntry[];
     });
 
     files.push(...pageFiles);
@@ -69,7 +60,7 @@ export async function fetchPullRequestDiff(
   }
 }
 
-// Diff between two specific commits, not "current PR state", so it stays correct after the PR has moved on; used to reconstruct a past job's diff once its KV cache has expired.
+// Diff between commits, reconstructs expired KV cache.
 export async function fetchCompareDiff(
   ctx: GitHubRequestContext,
   owner: string,
@@ -85,11 +76,11 @@ export async function fetchCompareDiff(
     });
   } catch (error) {
     if (!isDiffTooLargeError(error)) throw error;
-    // Same 20,000-line cap. The compare endpoint returns at most 300 files and doesn't paginate, so this is best-effort for the dashboard's diff view.
+    // Best-effort diff rebuild via JSON file list (max 300 files).
     logger.warn(`Compare diff ${owner}/${repo} ${base}...${head} is over the line cap; rebuilding from the JSON file list`);
     return withRetry(`getCompareFiles ${owner}/${repo} ${base}...${head}`, async () => {
       const response = await ctx.requestAndCheck(comparePath);
-      const payload = (await response.json()) as { files?: GitHubDiffFileEntry[] };
+      const payload = (await response.json()) as { files?: DiffFileEntry[] };
       return buildUnifiedDiffFromFiles(payload.files ?? []);
     });
   }

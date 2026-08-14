@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import type { PersistedReviewJob, ReviewGitHub, ReviewRuntime } from '../ports';
+import type { PersistedReviewJob, ReviewGitProvider, ReviewRuntime } from '../ports';
 
 
 // JobSummary, which is exactly what mapJob returns; see the note on the port.
@@ -46,7 +46,7 @@ export function hasCompletedStep(job: PersistedReviewJob, stepName: string) {
 export async function failJobAndCheckRun(
   env: ReviewRuntime,
   job: Pick<PersistedReviewJob, 'id' | 'owner' | 'repo' | 'checkRunId'>,
-  github: Pick<ReviewGitHub, 'updateCheckRun'>,
+  github: Pick<ReviewGitProvider, 'updateCheckRun'>,
   message: string,
 ) {
   try {

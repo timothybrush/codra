@@ -1,7 +1,4 @@
-import { logger } from '@server/core/logger';
-
-// Sibling of core/github.ts -- import from that barrel, not from here.
-export const GITHUB_TIMEOUT_MS = 30_000;
+import { logger } from '@codra/core/logger';
 
 export class GitHubError extends Error {
   constructor(
@@ -15,11 +12,17 @@ export class GitHubError extends Error {
   }
 }
 
-// GitHub's unified-diff media type refuses any diff over 20,000 lines with 406 `too_large`; matched narrowly so any other 406/status still surfaces as a real failure.
+export async function assertResponseOk(response: Response, path: string, action: string) {
+  if (!response.ok) {
+    let errText;
+    try { errText = await response.text(); } catch { errText = '<unreadable>'; }
+    throw new GitHubError(response.status, errText, path, `${action} failed with ${response.status}: ${errText}`);
+  }
+}
+
+// 406 too_large beyond 20,000 lines diff cap.
 export function isDiffTooLargeError(error: unknown): boolean {
-  return error instanceof GitHubError
-    && error.status === 406
-    && /too_large|maximum number of lines/i.test(error.body ?? '');
+  return error instanceof GitHubError && error.status === 406 && /too_large|maximum number of lines/i.test(error.body ?? '');
 }
 
 export async function withRetry<T>(

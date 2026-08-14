@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { GitHubClient, type GitHubReviewComment } from '@server/core/github';
+import { GitHubClient } from '@codra/provider-github';
+import type { ReviewComment } from '@codra/core/ports';
 
 // Regression: inline comments silently stopped reaching GitHub because `createReview` kept only
 // comments carrying a legacy diff `position` -- a value nothing in the pipeline computes anymore
@@ -23,7 +24,7 @@ function clientWithCapturedRequest() {
   return { client, sent };
 }
 
-const comment = (over: Partial<GitHubReviewComment> = {}): GitHubReviewComment => ({
+const comment = (over: Partial<ReviewComment> = {}): ReviewComment => ({
   path: 'src/app.ts',
   line: 12,
   body: 'Something is wrong here.',

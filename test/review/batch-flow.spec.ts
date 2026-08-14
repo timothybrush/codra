@@ -18,9 +18,10 @@ vi.mock('@server/db/app-settings', async (importOriginal) => {
   return { ...mod, getReviewSettings: vi.fn().mockResolvedValue(reviewSettingsSchema.parse({})) };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
 vi.mock('@server/services/model', async () => {
@@ -68,7 +69,7 @@ dbDescribe('Review flow: batched small files', () => {
   });
 
   it('reviews several small files in one call and writes a row per file', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff')
       .mockResolvedValue(generateMockDiff(smallFiles));
@@ -112,7 +113,7 @@ dbDescribe('Review flow: batched small files', () => {
   // An error after the write must not take committed rows down: the catch-all's comment DELETE
   // would wipe correct findings.
   it('keeps already-committed rows when a later step fails', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const { reviewBatchResponse } = await import('../mocks/services');
     const fileReviews = await import('@server/db/file-reviews');
@@ -143,7 +144,7 @@ dbDescribe('Review flow: batched small files', () => {
 
   // A silently omitted file is re-queued as retryable, and is not progress for the wedge counter.
   it('re-queues a file the model omitted instead of approving it', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const { reviewBatchResponse } = await import('../mocks/services');
     const jobsModule = await import('@server/db/jobs');
@@ -182,7 +183,7 @@ dbDescribe('Review flow: batched small files', () => {
   // After a transient failure the bin must not re-form. The ledger is seeded directly: a real
   // failure also sets a 30s job delay, which would pass for the wrong reason.
   it('falls back to single-file reviews once a bin member has failed transiently', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const { bulkRecordRetryableFileReviewFailures } = await import('@server/db/file-reviews');
     vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(generateMockDiff(smallFiles));

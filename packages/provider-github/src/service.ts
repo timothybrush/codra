@@ -1,10 +1,21 @@
-import { GitHubClient, type GitHubReviewComment } from '../core/github';
-import type { AppBindings } from '../env';
+import { GitHubClient } from './client';
+import type { ReviewComment } from './types';
+
+export type AppBindingsConfig = {
+  APP_KV: { get: (key: string, type?: any) => Promise<any | null>; put: (key: string, value: string, opts?: any) => Promise<void> };
+  APP_PRIVATE_KEY: string;
+  GITHUB_APP_ID: string;
+  BOT_USERNAME?: string;
+  GITHUB_APP_SLUG?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  AUTH_CALLBACK_URL?: string;
+};
 
 export class GitHubService {
   private client: GitHubClient;
 
-  constructor(env: AppBindings, installationId: string, tracker?: { incrementSubrequests(count?: number): void }) {
+  constructor(env: AppBindingsConfig, installationId: string, tracker?: { incrementSubrequests(count?: number): void }) {
     this.client = new GitHubClient(env, installationId, tracker);
   }
 
@@ -28,7 +39,7 @@ export class GitHubService {
     return this.client.updateCheckRun(owner, repo, checkRunId, params);
   }
 
-  async createReview(owner: string, repo: string, prNumber: number, params: { commitSha: string; event: 'APPROVE' | 'COMMENT'; body: string; comments: GitHubReviewComment[] }) {
+  async createReview(owner: string, repo: string, prNumber: number, params: { commitSha: string; event: 'APPROVE' | 'COMMENT'; body: string; comments: ReviewComment[] }) {
     return this.client.createReview(owner, repo, prNumber, params);
   }
 

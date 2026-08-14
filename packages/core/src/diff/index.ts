@@ -225,14 +225,15 @@ export function parseUnifiedDiff(rawDiff: string, reviewConfig?: RepoConfig['rev
   return files.filter((file) => file.path);
 }
 
-export type GitHubDiffFileEntry = {
+/** Shape returned by forge compare/files endpoints. Maps to GitHub's pulls/files JSON. */
+export type DiffFileEntry = {
   filename: string;
   previous_filename?: string | null;
   status?: string;
   patch?: string | null;
 };
 
-export function buildUnifiedDiffFromFiles(files: GitHubDiffFileEntry[]): string {
+export function buildUnifiedDiffFromFiles(files: DiffFileEntry[]): string {
   const out: string[] = [];
 
   for (const file of files) {

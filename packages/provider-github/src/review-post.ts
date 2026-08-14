@@ -1,9 +1,6 @@
-import { logger } from '@server/core/logger';
-import { GitHubError, type GitHubRequestContext, repoApiPath, withRetry } from './http';
-import type { GitHubReviewComment } from './types';
-
-// Sibling of core/github.ts -- import from that barrel, not from here. Free functions over a
-// GitHubRequestContext rather than methods, so the class stays the mockable seam.
+import { logger } from '@codra/core/logger';
+import { assertResponseOk, type GitHubRequestContext, repoApiPath, withRetry } from './http';
+import type { ReviewComment } from './types';
 
 export async function postReview(
   ctx: GitHubRequestContext,
@@ -14,11 +11,11 @@ export async function postReview(
     commitSha: string;
     event: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES';
     body: string;
-    comments: GitHubReviewComment[];
+    comments: ReviewComment[];
   },
 ) {
   return withRetry(`createReview ${owner}/${repo}#${pullNumber}`, async () => {
-    // Address by `line` + `side`, falling back to a legacy diff `position` if supplied; comments used to require `position`, which nothing computed, so inline comments were silently dropped.
+    // Address by `line` + `side`, or legacy `position`.
     const mapped = input.comments.map((comment) => {
       if (typeof comment.line === 'number' && comment.line > 0) {
         return {
@@ -87,26 +84,17 @@ export async function postReview(
           comments: [],
         }),
       });
-      // The summary still posts, but not a single inline comment did.
-      postedIndices = [];
+      postedIndices = []; // Summary posts, but no inline comments.
     }
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new GitHubError(
-        response.status,
-        errText,
-        reviewPath,
-        `GitHub review creation failed with ${response.status}: ${errText}`,
-      );
-    }
+    await assertResponseOk(response, reviewPath, 'GitHub review creation');
 
     const review = (await response.json()) as { id: number };
     return { id: review.id, postedIndices };
   });
 }
 
-// Used by finalize only when re-running past the posting stage, to avoid double-posting when an earlier invocation died between createReview() and completeJob().
+// Used by finalize to avoid double-posting when an earlier invocation died.
 export async function findBotReviewForCommit(
   ctx: GitHubRequestContext,
   owner: string,

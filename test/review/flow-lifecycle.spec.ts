@@ -5,6 +5,7 @@ import { findExistingJobForHead, getJobForProcessing, insertJob } from '@server/
 import { getFileReviewsForJobs } from '@server/db/file-reviews';
 import { defaultRepoConfig } from '@codra/schema';
 import { runWithDb, queryRows } from '@server/db/client';
+import { normalizeGitHubWebhook } from '@codra/provider-github';
 import { makeRunAndDrain, REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
@@ -28,9 +29,10 @@ vi.mock('@server/db/app-settings', async (importOriginal) => {
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
 vi.mock('@server/services/model', async () => {
@@ -74,8 +76,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
 
     await runAndDrain({
       deliveryId: 'delivery-123',
-      eventName: 'pull_request',
-      payload: {
+      ...normalizeGitHubWebhook('pull_request', {
         action: 'opened',
         installation: { id: 123 },
         repository: { owner: { login: 'test-owner' }, name: repo },
@@ -87,7 +88,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
           user: { login: 'author' },
           draft: false,
         }
-      }
+      }) as any
     });
 
     const finalJob = await findExistingJobForHead(env, {
@@ -101,7 +102,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('stops processing if the job is superseded mid-way', async () => {
-      const { GitHubService } = await import('@server/services/github');
+      const { GitHubService } = await import('@codra/provider-github');
       const repo = uniqueRepo('supersede');
       const headSha = sha('c');
       const baseSha = sha('d');
@@ -128,8 +129,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
 
       await runAndDrain({
         deliveryId: 'delivery-456',
-        eventName: 'pull_request',
-        payload: {
+        ...normalizeGitHubWebhook('pull_request', {
           action: 'opened',
           installation: { id: 123 },
           repository: { owner: { login: 'test-owner' }, name: repo },
@@ -141,8 +141,8 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
             user: { login: 'author' },
             draft: false,
           }
-        }
-      });
+        })
+      } as any);
 
       const finalJob = await findExistingJobForHead(env, {
         owner: 'test-owner',
@@ -218,7 +218,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   it('completes the job with the review recorded even if post-review check-run/label updates fail', async () => {
     // Regression: the review is posted mid-finalize, so if the cosmetic check-run or label calls
     // throw, the job must still finish 'done' with review_id set rather than stranded 'failed'.
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const checkRunSpy = vi.spyOn(GitHubService.prototype, 'updateCheckRun' as any)
       .mockRejectedValue(new Error('Too many subrequests by single Worker invocation'));
 
