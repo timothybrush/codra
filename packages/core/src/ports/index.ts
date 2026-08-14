@@ -8,3 +8,5 @@ export type { FileReviewOutcome, ModelErrorClassifier, ModelResponse, ModelRespo
 export type { ReviewFormatter } from './formatter';
 export type { ReviewTelemetryEvent, TelemetrySink } from './telemetry';
 export type { ReviewRuntime } from './runtime';
+export type { RepoConfigStore } from './repo-config';
+export type { InstanceIdStore } from './instance-id';

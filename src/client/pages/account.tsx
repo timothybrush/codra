@@ -1,8 +1,8 @@
+import { LoadError } from '@codra/ui';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import { PageHeader } from '@client/components/layout/page-header';
-import { LoadError } from '@client/components/shared/load-error';
 import {
   getStoredTimeZone,
   resolvedTimeZone,

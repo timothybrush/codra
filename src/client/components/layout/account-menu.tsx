@@ -1,9 +1,9 @@
+import { GithubMark } from '@codra/ui';
 import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@client/lib/api';
 import { LogOut, ChevronsUpDown, UserRound } from 'lucide-react';
-import { GithubMark } from '@client/components/shared/github-mark';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import type { AuthSessionUser } from '@codra/schema/api';
 
 /**

@@ -1,7 +1,7 @@
 import worker from '@server/index';
-import { claimJobLease, getJobForProcessing, insertJob, markJobContinuationQueued, recoverExpiredJobLeases, releaseJobLease } from '@server/db/jobs';
-import { getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@server/db/file-reviews';
-import { getDb } from '@server/db/client';
+import { claimJobLease, getJobForProcessing, insertJob, markJobContinuationQueued, recoverExpiredJobLeases, releaseJobLease } from '@codra/db/jobs';
+import { getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@codra/db/file-reviews';
+import { getDb } from '@codra/db/client';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
 
 

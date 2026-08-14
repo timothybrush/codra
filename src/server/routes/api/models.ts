@@ -14,7 +14,7 @@ import {
   updateLlmProvider,
   updateModelConfig,
   upsertDiscoveredModelConfigs,
-} from '@server/db/model-configs';
+} from '@codra/db/model-configs';
 import { jsonError } from '@server/core/http';
 import { getGlobalConfig, updateGlobalConfig } from '@server/core/config';
 import { encryptLlmApiKey, decryptLlmApiKey } from '@server/core/llm-crypto';

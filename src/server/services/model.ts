@@ -9,7 +9,7 @@ import type { RepoConfig } from '@codra/schema';
 import type { TokenTracker } from '../core/token-tracker';
 import type { ModelInput, ModelResponse } from '../models/types';
 import { logger } from '../core/logger';
-import { getResolvedModelConfig, type ResolvedModelConfig } from '@server/db/model-configs';
+import { getResolvedModelConfig, type ResolvedModelConfig } from '@codra/db/model-configs';
 import { decryptLlmApiKey } from '@server/core/llm-crypto';
 import {
   isSchemaDroppedError,

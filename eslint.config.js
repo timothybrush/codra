@@ -200,7 +200,7 @@ export default tseslint.config(
           },
           {
             target: 'packages/ui/**/*',
-            from: ['packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+            from: ['src/**/*', 'packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
           },
           {
             target: 'apps/dashboard/**/*',

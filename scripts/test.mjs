@@ -73,5 +73,5 @@ if (!usableEnvValue(process.env.TEST_DATABASE_URL)) {
 
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 
-run(process.execPath, ['scripts/migrate.mjs']);
+run(process.execPath, ['packages/db/scripts/migrate.mjs']);
 run(process.execPath, ['node_modules/vitest/vitest.mjs', 'run']);

@@ -19,9 +19,9 @@ const NotFoundPage = React.lazy(() => import('./pages/not-found').then(m => ({ d
 
 import './app.css';
 
-import { ThemeProvider } from './lib/theme';
-import { useIsDarkMode } from './hooks/use-is-dark-mode';
-import { SmoothScroll } from './components/motion/smooth-scroll';
+import { ThemeProvider } from '@codra/ui/theme';
+import { useIsDarkMode } from '@codra/ui/hooks';
+import { SmoothScroll } from '@codra/ui/motion';
 
 function ToasterWrapper() {
   const isDark = useIsDarkMode();

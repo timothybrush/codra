@@ -1,7 +1,7 @@
 import { describe } from 'vitest';
 import type { AppBindings } from '@server/env';
 import { encryptLlmApiKey } from '@server/core/llm-crypto';
-import { queryRows } from '@server/db/client';
+import { queryRows } from '@codra/db/client';
 
 export class MemoryKV {
   private readonly store = new Map<string, string>();

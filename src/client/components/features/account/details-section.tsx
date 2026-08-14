@@ -1,9 +1,6 @@
+import { SectionCard, Select, Skeleton, Text } from '@codra/ui';
 import { useMemo } from 'react';
 import { Mail } from 'lucide-react';
-import { Text } from '@client/components/ui/text';
-import { Select } from '@client/components/ui/select';
-import { Skeleton } from '@client/components/shared/skeleton';
-import { SectionCard } from '@client/components/shared/section-card';
 import {
   COMMON_TIME_ZONES,
   DEFAULT_TIME_ZONE,

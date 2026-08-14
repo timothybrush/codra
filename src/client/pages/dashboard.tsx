@@ -1,18 +1,16 @@
+import { Button, EmptyState, LoadError } from '@codra/ui';
 import { useState } from 'react';
 import { api } from '@client/lib/api';
 import type { StatsPayload, JobSummary } from '@codra/schema';
 import { ArrowRight, GitPullRequest, Activity } from 'lucide-react';
 import { JobsTable } from '@client/components/shared/jobs-table';
-import { EmptyState } from '@client/components/shared/empty-state';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';
 import { Link } from 'react-router-dom';
 
-import { Button } from '@client/components/ui/button';
 import { PageHeader } from '@client/components/layout/page-header';
 import { OverviewStats } from '@client/components/features/stats/overview-stats';
 import { usePolling } from '@client/hooks/use-polling';
 import { useStatsRange } from '@client/hooks/use-stats-range';
-import { LoadError } from '@client/components/shared/load-error';
 
 export function DashboardPage() {
   const [stats, setStats] = useState<StatsPayload | null>(null);

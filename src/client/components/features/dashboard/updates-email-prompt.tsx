@@ -1,8 +1,7 @@
+import { Button, Input } from '@codra/ui';
 import { useEffect, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { Check, Mail } from 'lucide-react';
-import { Button } from '@client/components/ui/button';
-import { Input } from '@client/components/ui/input';
 import { api } from '@client/lib/api';
 import type { UpdatesEmailResponse } from '@codra/schema/api';
 

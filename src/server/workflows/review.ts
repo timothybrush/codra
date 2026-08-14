@@ -2,10 +2,10 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import type { AppBindings } from '@server/env';
 import { runReviewJob, FRESH_INVOCATION_YIELD_SECONDS } from '@server/core/review';
 import { type ReviewJobMessage } from '@codra/schema';
-import { setJobWorkflowInstance } from '@server/db/jobs';
+import { setJobWorkflowInstance } from '@codra/db/jobs';
 import { logger } from '@server/core/logger';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
-import { runWithDb } from '@server/db/client';
+import { runWithDb } from '@codra/db/client';
 
 export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMessage> {
   async run(event: WorkflowEvent<ReviewJobMessage>, step: WorkflowStep) {

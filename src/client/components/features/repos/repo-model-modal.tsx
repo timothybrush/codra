@@ -1,9 +1,8 @@
+import { Alert, Button } from '@codra/ui';
 import { useMemo, useState } from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
-import { Button } from '@client/components/ui/button';
-import { Alert } from '@client/components/ui/alert';
 import { Save, RotateCcw, X } from 'lucide-react';
 import type { RepoConfigRecord } from '@codra/schema';
 import { ModelRouteEditor } from '@client/components/features/models/model-chain';

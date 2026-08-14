@@ -1,8 +1,8 @@
+import { LoadError } from '@codra/ui';
 import { useEffect, useState } from 'react';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';
 import { PageHeader } from '@client/components/layout/page-header';
-import { LoadError } from '@client/components/shared/load-error';
-import { useIsDarkMode } from '@client/hooks/use-is-dark-mode';
+import { useIsDarkMode } from '@codra/ui/hooks';
 import { usePolling } from '@client/hooks/use-polling';
 import { useStatsRange } from '@client/hooks/use-stats-range';
 import { api } from '@client/lib/api';

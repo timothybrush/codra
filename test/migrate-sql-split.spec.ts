@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDollarQuoteTag, splitSqlStatements } from '../scripts/migrate-sql-split.mjs';
+import { readDollarQuoteTag, splitSqlStatements } from '../packages/db/scripts/migrate-sql-split.mjs';
 
 describe('readDollarQuoteTag', () => {
   it('reads the bare $$ tag', () => {

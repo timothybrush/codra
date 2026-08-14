@@ -1,9 +1,10 @@
+import { Badge } from '@codra/ui';
 import { useMemo, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
-import { Badge, StatusBadge } from '@client/components/ui/badge';
-import { parsePromptDiff, diffStats, type DiffRow } from '@client/lib/prompt-diff';
-import { highlightLine, langForPath } from '@client/lib/highlight';
-import { cn } from '@client/lib/utils';
+import { StatusBadge } from './status-badge';
+import { parsePromptDiff, diffStats, type DiffRow } from '@codra/ui/prompt-diff';
+import { highlightLine, langForPath } from '@codra/ui/highlight';
+import { cn } from '@codra/ui/utils';
 import type { FileReviewRecord, ParsedReviewComment } from '@codra/schema';
 import { CommentCard } from './comment-card';
 import {

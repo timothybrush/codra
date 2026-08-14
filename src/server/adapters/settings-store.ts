@@ -1,30 +1,31 @@
-import type { LearningStore, ModelConfigReader, RepoConfigLoader, ReviewSettingsReader, WebhookDeliveryReader } from '@codra/core/ports';
 import type { AppBindings } from '@server/env';
-import { getReviewSettings } from '@server/db/app-settings';
-import { getResolvedModelConfig } from '@server/db/model-configs';
-import { getWebhookDelivery } from '@server/db/webhook-deliveries';
-import { getRejectedExemplars, getRepositoryIdForJob } from '@server/db/learning';
+import type { LearningStore, ModelConfigReader, RepoConfigLoader, ReviewSettingsReader, WebhookDeliveryReader } from '@codra/core/ports';
+import { makeLearningStore as makeDbLearningStore, makeModelConfigReader as makeDbModelConfigReader, makeReviewSettingsReader as makeDbReviewSettingsReader, makeWebhookDeliveryReader as makeDbWebhookDeliveryReader } from '@codra/db/repositories';
+import type { DbEnv } from '@codra/db/env';
 import { loadRepoConfig } from '@server/core/config';
 
+function toDbEnv(env: AppBindings): DbEnv {
+  return {
+    HYPERDRIVE: env.HYPERDRIVE,
+    APP_KV: env.APP_KV,
+    workerMode: true,
+  };
+}
+
 export function makeReviewSettingsReader(env: AppBindings): ReviewSettingsReader {
-  return { getReviewSettings: () => getReviewSettings(env) };
+  return makeDbReviewSettingsReader(toDbEnv(env));
 }
 
 export function makeModelConfigReader(env: AppBindings): ModelConfigReader {
-  // Returns the full ResolvedModelConfig, which the narrower port type discards -- deliberately, so
-  // encryptedApiKey has no path into the engine.
-  return { getResolvedModelConfig: (modelId) => getResolvedModelConfig(env, modelId) };
+  return makeDbModelConfigReader(toDbEnv(env));
 }
 
 export function makeWebhookDeliveryReader(env: AppBindings): WebhookDeliveryReader {
-  return { getWebhookDelivery: (deliveryId) => getWebhookDelivery(env, deliveryId) };
+  return makeDbWebhookDeliveryReader(toDbEnv(env));
 }
 
 export function makeLearningStore(env: AppBindings): LearningStore {
-  return {
-    getRepositoryIdForJob: (jobId) => getRepositoryIdForJob(env, jobId),
-    getRejectedExemplars: (input) => getRejectedExemplars(env, input),
-  };
+  return makeDbLearningStore(toDbEnv(env));
 }
 
 export function makeRepoConfigLoader(env: AppBindings): RepoConfigLoader {

@@ -4,8 +4,8 @@ import type { AppBindings } from './env';
 import { reviewJobMessageSchema } from '@codra/schema';
 import { logger } from '@server/core/logger';
 import { disposeRpc } from '@server/core/rpc';
-import { runWithDb } from '@server/db/client';
-import { failJob, hasPendingMaintenanceWork, clearSystemActive } from '@server/db/jobs';
+import { runWithDb } from '@codra/db/client';
+import { failJob, hasPendingMaintenanceWork, clearSystemActive } from '@codra/db/jobs';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
 
 const app = createApp();

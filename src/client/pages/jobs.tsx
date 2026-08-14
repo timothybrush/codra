@@ -1,11 +1,7 @@
+import { Button, EmptyState, Input, LoadError, Select } from '@codra/ui';
 import { useState, useCallback } from 'react';
 import { api } from '@client/lib/api';
 import { JobsTable } from '@client/components/shared/jobs-table';
-import { EmptyState } from '@client/components/shared/empty-state';
-import { Button } from '@client/components/ui/button';
-import { Input } from '@client/components/ui/input';
-import { Select } from '@client/components/ui/select';
-import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
 import { usePolling } from '@client/hooks/use-polling';
 import { Activity, ChevronLeft, ChevronRight, ListFilter, RefreshCw, Search } from 'lucide-react';

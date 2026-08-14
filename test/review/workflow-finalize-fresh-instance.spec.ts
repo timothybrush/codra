@@ -17,11 +17,11 @@ vi.mock('@server/core/review', async (importOriginal) => ({
   runReviewJob: runReviewJobMock,
 }));
 vi.mock('@server/core/job-recovery', () => ({ runBestEffortJobMaintenance: maintenanceMock }));
-vi.mock('@server/db/jobs', async (importOriginal) => ({
+vi.mock('@codra/db/jobs', async (importOriginal) => ({
   ...(await importOriginal<any>()),
   setJobWorkflowInstance: setInstanceMock,
 }));
-vi.mock('@server/db/client', () => ({ runWithDb: (_env: any, fn: any) => fn() }));
+vi.mock('@codra/db/client', () => ({ runWithDb: (_env: any, fn: any) => fn() }));
 
 import { ReviewWorkflow } from '@server/workflows/review';
 
@@ -49,7 +49,7 @@ describe('ReviewWorkflow: fresh instance on freshInstance flag', () => {
 
   it('re-enqueues the next phase as a fresh instance (carrying the resolved jobId) when freshInstance is set', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const env = { REVIEW_QUEUE: { send } };
+    const env = { REVIEW_QUEUE: { send }, HYPERDRIVE: { connectionString: 'mock' } };
     // Entering finalize -> freshInstance true, with the resolved jobId.
     runReviewJobMock.mockResolvedValueOnce({ action: 'next_phase', phase: 'finalize', delaySeconds: 60, jobId: 'real-job-id', freshInstance: true });
 
@@ -68,7 +68,7 @@ describe('ReviewWorkflow: fresh instance on freshInstance flag', () => {
 
   it('re-enqueues a fresh instance for a subrequest-limit review deferral (same phase)', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const env = { REVIEW_QUEUE: { send } };
+    const env = { REVIEW_QUEUE: { send }, HYPERDRIVE: { connectionString: 'mock' } };
     // A saturated instance hit the subrequest limit mid-review -> freshInstance true, phase stays review.
     runReviewJobMock.mockResolvedValueOnce({ action: 'next_phase', phase: 'review', delaySeconds: 60, jobId: 'real-job-id', freshInstance: true });
 
@@ -80,7 +80,7 @@ describe('ReviewWorkflow: fresh instance on freshInstance flag', () => {
 
   it('does NOT re-enqueue when freshInstance is not set (normal in-instance continuation)', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const env = { REVIEW_QUEUE: { send } };
+    const env = { REVIEW_QUEUE: { send }, HYPERDRIVE: { connectionString: 'mock' } };
     // Healthy per-chunk yield (hibernation resets the budget) -> stays in-instance, then completes.
     runReviewJobMock
       .mockResolvedValueOnce({ action: 'next_phase', phase: 'review', delaySeconds: 60, jobId: 'real-job-id', freshInstance: false })
@@ -95,7 +95,7 @@ describe('ReviewWorkflow: fresh instance on freshInstance flag', () => {
 
   it('uses the payload jobId to re-enqueue when the result omits it (auto jobs)', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const env = { REVIEW_QUEUE: { send } };
+    const env = { REVIEW_QUEUE: { send }, HYPERDRIVE: { connectionString: 'mock' } };
     runReviewJobMock.mockResolvedValueOnce({ action: 'next_phase', phase: 'finalize', delaySeconds: 60, freshInstance: true });
 
     await runWorkflow(env, { jobId: 'payload-job-id', phase: 'review' });

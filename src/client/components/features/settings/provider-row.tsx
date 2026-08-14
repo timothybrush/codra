@@ -1,10 +1,6 @@
+import { Badge, Button, Input, Select, Switch } from '@codra/ui';
 import { ChevronRight, Save, Trash2 } from 'lucide-react';
-import { Button } from '@client/components/ui/button';
-import { Input } from '@client/components/ui/input';
-import { Select } from '@client/components/ui/select';
-import { Switch } from '@client/components/ui/switch';
-import { Badge } from '@client/components/ui/badge';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import type { LlmApiFormat, LlmProvider } from '@codra/schema';
 import { FieldLabel } from './field-label';
 import {

@@ -1,7 +1,7 @@
 import { createApp } from '@server/app';
-import { getJobForProcessing, insertJob } from '@server/db/jobs';
+import { getJobForProcessing, insertJob } from '@codra/db/jobs';
 
-import { getRepoConfigRecord } from '@server/db/repo-configs';
+import { getRepoConfigRecord } from '@codra/db/repo-configs';
 import { loadRepoConfig, updateGlobalConfig } from '@server/core/config';
 import { GitHubClient } from '@codra/provider-github';
 

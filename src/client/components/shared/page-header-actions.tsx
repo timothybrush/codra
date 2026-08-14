@@ -1,5 +1,5 @@
+import { Button } from '@codra/ui';
 import { RefreshCw } from 'lucide-react';
-import { Button } from '@client/components/ui/button';
 import { TimeRangeSelect } from '@client/components/features/stats/time-range-select';
 
 interface PageHeaderActionsProps {

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '@server/env';
-import { getReviewSettings, updateReviewSettings } from '@server/db/app-settings';
+import { getReviewSettings, updateReviewSettings } from '@codra/db/app-settings';
 import { jsonError } from '@server/core/http';
 import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema } from '@codra/schema';
 

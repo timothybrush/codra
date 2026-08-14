@@ -1,10 +1,10 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, sha, uniqueRepo } from '../helpers';
 import { afterAll, vi } from 'vitest';
-import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
-import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
+import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@codra/db/jobs';
+import { getFileReviewsForJobs, upsertFileReview } from '@codra/db/file-reviews';
 import { defaultRepoConfig, type ParsedReviewComment } from '@codra/schema';
-import { runWithDb } from '@server/db/client';
+import { runWithDb } from '@codra/db/client';
 import { normalizeGitHubWebhook } from '@codra/provider-github';
 import { makeRunAndDrain, REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
@@ -12,7 +12,7 @@ const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@server/db/jobs', async (importOriginal) => {
+vi.mock('@codra/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
@@ -21,7 +21,7 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
 // parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@server/db/app-settings', async (importOriginal) => {
+vi.mock('@codra/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { reviewSettingsSchema } = await import('@codra/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
@@ -40,7 +40,7 @@ vi.mock('@server/services/model', async () => {
 });
 
 dbDescribe('Review flow: retries, inheritance and continuations', () => {
-  // Tripwire: if a refactor rewires runReviewJob past the @server/db/jobs barrel, the mock stops
+  // Tripwire: if a refactor rewires runReviewJob past the @codra/db/jobs barrel, the mock stops
   // applying and every test here still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();

@@ -1,8 +1,8 @@
+import { LoadError } from '@codra/ui';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { LazyMotion, m, domMax } from 'motion/react';
 import { ClipboardList, FileDiff } from 'lucide-react';
-import { LoadError } from '@client/components/shared/load-error';
 import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobHeader } from '@client/components/features/job-detail/job-header';
 import { JobProgress } from '@client/components/features/job-detail/job-progress';
@@ -11,7 +11,7 @@ import { JobReviewOverview } from '@client/components/features/job-detail/job-re
 import { JobFindingsList } from '@client/components/features/job-detail/job-findings-list';
 import { JobDiffs } from '@client/components/features/job-detail/job-diffs';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 
 type DetailTab = 'overview' | 'files';
 

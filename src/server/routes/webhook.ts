@@ -14,9 +14,9 @@ import { verifyGitHubWebhookSignature } from '@server/core/verify';
 import { jsonError } from '@server/core/http';
 import { logger } from '@server/core/logger';
 import { parseFindingMarker } from '@server/services/formatter';
-import { findExistingJobForHead, insertJob, supersedeOlderJobs } from '@server/db/jobs';
-import { clearResolvedFeedback, recordCommentFeedback, type CommentFeedbackInput, type CommentOutcome } from '@server/db/comment-feedback';
-import { recordWebhookDelivery } from '@server/db/webhook-deliveries';
+import { findExistingJobForHead, insertJob, supersedeOlderJobs } from '@codra/db/jobs';
+import { clearResolvedFeedback, recordCommentFeedback, type CommentFeedbackInput, type CommentOutcome } from '@codra/db/comment-feedback';
+import { recordWebhookDelivery } from '@codra/db/webhook-deliveries';
 
 // Matches via the invisible `codra-fp` marker GitHub echoes back verbatim; comments without one are ignored. Best-effort: failures here must never surface as a webhook error GitHub retries.
 async function handleFeedbackEvent(

@@ -1,5 +1,5 @@
 import { createApp } from '@server/app';
-import { getJobForProcessing, insertJob } from '@server/db/jobs';
+import { getJobForProcessing, insertJob } from '@codra/db/jobs';
 
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';

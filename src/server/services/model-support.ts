@@ -2,9 +2,9 @@ import { normalizeModelId } from '@codra/schema';
 import { isTimeoutMessage, matchesAnyTransientSubstring } from '@codra/schema/transient-errors';
 import { UnparseableModelResponseError } from '../models/types';
 
-// Pure helpers for the model service: alias resolution, prompt-size estimation, rate-limit parsing, error classification.
+// Model service pure helpers: aliases, prompt sizes, rate limits, errors.
 
-// Legacy id rewrites, applied before resolution. Empty today; kept as the hook for the next one.
+// Legacy ID rewrites (applied before resolution). Hook for future aliases.
 const MODEL_ALIASES: Record<string, string> = {};
 
 export function mergeCounts(sources: Array<Record<string, number> | undefined>): Record<string, number> {
@@ -17,68 +17,52 @@ export function mergeCounts(sources: Array<Record<string, number> | undefined>):
   return merged;
 }
 
-// Rough estimate at four chars/token, only good enough to answer "is this hopeless against a 16k bucket?" -- underestimating costs a wasted call, overestimating just routes onward.
+// Rough 4-chars/token estimate to preempt doomed calls. Overestimating safely routes onward.
 export function estimatePromptTokens(systemPrompt: string, userPrompt: string): number {
   return Math.ceil((systemPrompt.length + userPrompt.length) / 4);
 }
 
-// Only commit a prompt to a token-metered model if the estimate leaves this much headroom.
+// Headroom required before committing prompts to metered models.
 export const PROMPT_FIT_SAFETY_FACTOR = 0.8;
 
-// A learned bucket below this is not a token quota, whatever the body said. Belt to the metric-name
-// braces in parseRateLimitFromError: bodies already misparsed are persisted in KV for a job's 24h
-// life and are sticky by design, so the read path has to reject them too or those jobs stay broken.
-// No review prompt is ever this small, so a genuine bucket under it would skip every prompt anyway.
+// Minimum plausible token bucket. Rejects misparsed small numbers (like request quotas) to prevent jobs from permanently blocking valid prompts.
 export const MIN_PLAUSIBLE_TOKEN_BUCKET = 1_000;
 
 export function isPlausibleTokenBucket(limitTokens: number | undefined): boolean {
   return typeof limitTokens === 'number' && limitTokens >= MIN_PLAUSIBLE_TOKEN_BUCKET;
 }
 
-// Set by runModelChain on the deferral it throws when the chain still has untried models, so the
-// caller can tell "we made progress, resume lower down" from "the same models failed again".
-// A property rather than a constructor field, matching how retry-policy.ts attaches
-// `retryAfterSeconds`. Deliberately lives here and not on the services/model barrel: four specs
-// vi.mock that barrel with a hand-written object, and a symbol missing from it reads as `undefined`
-// at the call site -- which is a TypeError inside the very catch block that handles failures.
+// Extracted nextChainIndex from deferrals. Lets callers distinguish "progress made" from "same failures". Lives here to avoid vi.mock TypeError in specs.
 export function nextChainIndexOf(error: unknown): number | null {
   const value = (error as { nextChainIndex?: unknown } | null)?.nextChainIndex;
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
-// Set by the Gemini adapter on any error it throws after dropping the response grammar, so the
-// caller latches the (provider, model, grammar) triple even when that schema-less attempt also
-// failed. Lives here rather than on the barrel for the same reason as `nextChainIndexOf` above.
+// Detects if Gemini adapter dropped grammar before throwing. Lets callers latch the schema-dropped state.
 export function isSchemaDroppedError(error: unknown): boolean {
   return (error as { schemaDropped?: unknown } | null)?.schemaDropped === true;
 }
 
-// Calls that may queue on a serialized model before further files route elsewhere; deeper queues have cost files their per-file chain budget while waiting.
+// Max serialized queue depth before routing elsewhere, avoiding budget exhaustion while waiting.
 export const MAX_METERED_QUEUE_DEPTH = 2;
 
-// Every `metric: <name>, limit: <n>` pair Google states in a 429 body. A body may carry several, one
-// per violated quota.
+// Extracts metric/limit pairs from 429 bodies (may contain multiple).
 const QUOTA_VIOLATION_PATTERN = /metric:\s*(\S+?),\s*limit:\s*(\d[\d_,]*)/gi;
 
-// Which of those metrics measures TOKENS. The rest count requests, and reading a request count as a
-// bucket size is what took a model out for a whole job: Google's free tier reports
-// `generate_content_free_tier_requests, limit: 15` -- 15 requests per minute -- and storing 15 as
-// `limitTokens` made skipReason refuse every prompt over 12 tokens from then on, permanently, for a
-// model that was merely busy. An unrecognised metric therefore teaches nothing about prompt size.
+// Token metrics only. Prevents parsing request quotas (e.g. limit: 15) as token buckets, which would permanently disable the model.
 const TOKEN_QUOTA_METRIC = /(?:input_token|output_token|token_count|_tokens)/i;
 
-// Google states both numbers in the 429 body ("...limit: 16000, model: <id> Please retry in 26.9s."); anything absent is simply omitted.
+// Extracts limit/retry from 429 bodies ("limit: 16000... retry in 26.9s").
 export function parseRateLimitFromError(error: unknown): { limitTokens?: number; retryAfterMs?: number } {
   const message = error instanceof Error ? error.message : String(error ?? '');
 
-  // Deliberately NOT a bare /limit:\s*(\d+)/: the first stated limit in a multi-quota body is as
-  // likely to be the request count as the token bucket.
+  // Avoid bare limits; first stated limit might be request count.
   let limitTokens: number | undefined;
   for (const [, metric, limit] of message.matchAll(QUOTA_VIOLATION_PATTERN)) {
     if (!TOKEN_QUOTA_METRIC.test(metric)) continue;
     const parsed = Number(limit.replace(/[_,]/g, ''));
     if (!Number.isFinite(parsed) || !isPlausibleTokenBucket(parsed)) continue;
-    // Smallest stated token bucket wins: it is the one that will reject the prompt first.
+    // Smallest valid token bucket wins.
     if (limitTokens === undefined || parsed < limitTokens) limitTokens = parsed;
   }
 
@@ -137,7 +121,7 @@ export function isGoogleRateLimitError(error: unknown) {
 
 export function isTransientModelFailure(error: unknown) {
   if (isRetryableModelError(error)) return true;
-  // No reviewable output (reasoning-only / truncated / empty) is deterministic -- never retry it.
+  // Deterministic unparseable output (reasoning-only/truncated) is non-retryable.
   if (error instanceof UnparseableModelResponseError) return false;
   if (isCloudflareAllocationError(error)) return false;
   const message = error instanceof Error ? error.message : String(error);
@@ -153,7 +137,7 @@ export function isTransientModelFailure(error: unknown) {
     lower.includes('fetch failed') ||
     lower.includes('network') ||
     lower.includes('temporar') ||
-    // An upstream 5xx is a transient outage, not a client error, so it defers rather than permanently failing files.
+    // Upstream 5xx is transient; defer rather than failing.
     /\b50[0-9]\b/.test(lower) ||
     lower.includes('internal error')
   );

@@ -1,16 +1,16 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, sha, uniqueName, uniqueRepo } from '../helpers';
 import { afterAll, expect, vi } from 'vitest';
-import { findExistingJobForHead, getJobForProcessing } from '@server/db/jobs';
-import { getFileReviewsForJobs } from '@server/db/file-reviews';
-import { runWithDb, queryRows } from '@server/db/client';
+import { findExistingJobForHead, getJobForProcessing } from '@codra/db/jobs';
+import { getFileReviewsForJobs } from '@codra/db/file-reviews';
+import { runWithDb, queryRows } from '@codra/db/client';
 
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@server/db/jobs', async (importOriginal) => {
+vi.mock('@codra/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
@@ -19,7 +19,7 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
 // parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@server/db/app-settings', async (importOriginal) => {
+vi.mock('@codra/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { reviewSettingsSchema } = await import('@codra/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
@@ -68,7 +68,7 @@ vi.mock('@server/services/model', async () => {
 
 dbDescribe('Async batch review flow', () => {
   // Tripwire: if runReviewJob ever stops importing getOtherRunningJobsCount from the
-  // @server/db/jobs barrel, this mock silently stops applying and every test here still passes.
+  // @codra/db/jobs barrel, this mock silently stops applying and every test here still passes.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();

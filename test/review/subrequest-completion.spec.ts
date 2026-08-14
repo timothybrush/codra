@@ -32,7 +32,7 @@ const {
   getPullRequestMock: vi.fn(),
 }));
 
-vi.mock('@server/db/jobs', async (importOriginal) => {
+vi.mock('@codra/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<any>();
   return {
     ...mod,
@@ -49,7 +49,7 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
   };
 });
 
-vi.mock('@server/db/app-settings', async (importOriginal) => {
+vi.mock('@codra/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<any>();
   return {
     ...mod,

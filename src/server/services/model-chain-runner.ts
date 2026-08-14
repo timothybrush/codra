@@ -6,7 +6,7 @@ import { logger } from '../core/logger';
 import type { RepoConfig } from '@codra/schema';
 import type { TokenTracker } from '../core/token-tracker';
 import type { ModelInput, ModelResponse } from '../models/types';
-import type { ResolvedModelConfig } from '@server/db/model-configs';
+import type { ResolvedModelConfig } from '@codra/db/model-configs';
 
 // Import from services/model.ts, not here -- four specs vi.mock that specifier.
 

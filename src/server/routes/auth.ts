@@ -3,7 +3,7 @@ import type { AppEnv } from '@server/env';
 import { createOAuthState, consumeOAuthState, parseAllowedUsers } from '@server/core/oauth';
 import { createSession, destroySession } from '@server/core/sessions';
 import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@codra/provider-github';
-import { upsertAccountSettings } from '@server/db/accounts';
+import { upsertAccountSettings } from '@codra/db/accounts';
 import { logger } from '@server/core/logger';
 
 function redirectToLogin(reason: string) {

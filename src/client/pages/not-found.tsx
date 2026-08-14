@@ -1,5 +1,5 @@
+import { Button } from '@codra/ui';
 import { Link } from 'react-router-dom';
-import { Button } from '@client/components/ui/button';
 import { Ghost, Home, ArrowLeft } from 'lucide-react';
 
 export function NotFoundPage() {

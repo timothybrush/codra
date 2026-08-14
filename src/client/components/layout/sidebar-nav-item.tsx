@@ -1,6 +1,6 @@
 import { NavLink, useMatch, useResolvedPath } from 'react-router-dom';
 import { type ComponentType } from 'react';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 
 /**
  * Resolves active state via hooks instead of NavLink's render-prop pattern,

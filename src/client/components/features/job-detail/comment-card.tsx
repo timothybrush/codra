@@ -1,16 +1,16 @@
+import { CopyButton } from '@codra/ui';
 import { useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileText, ThumbsDown, ThumbsUp } from 'lucide-react';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import { api } from '@client/lib/api';
-import { CopyButton } from '@client/components/shared/copy-button';
-import { preventToggleOnTextSelection } from '@client/lib/selection';
+import { preventToggleOnTextSelection } from '@codra/ui/selection';
 import type { ParsedReviewComment } from '@codra/schema';
 import { severityConfig } from './constants';
 import { ContextSnippet } from './context-snippet';
 
-import { safeRehypePlugins } from '@client/lib/markdown-plugins';
+import { safeRehypePlugins } from '@codra/ui/markdown-plugins';
 /** Plain-English reason a finding never reached the pull request. */
 const DISPOSITION_LABEL: Record<string, string> = {
   severity: 'Below the severity threshold for this repository',

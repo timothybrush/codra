@@ -1,7 +1,6 @@
+import { LoadError, Skeleton } from '@codra/ui';
 import { Link } from 'react-router-dom';
 import { ChevronRight, ClipboardList, FileDiff, Info, ListChecks } from 'lucide-react';
-import { Skeleton } from '@client/components/shared/skeleton';
-import { LoadError } from '@client/components/shared/load-error';
 import { DETAIL_LABEL, DETAIL_ROW } from './job-chip-utils';
 
 interface JobDetailSkeletonProps {

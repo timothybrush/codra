@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codra/schema';
-import { getFindingLabelTarget } from '@server/db/file-reviews';
-import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
+import { getFindingLabelTarget } from '@codra/db/file-reviews';
+import { clearDashboardFeedback, upsertDashboardFeedback } from '@codra/db/comment-feedback';
 import type { AppBindings, AppEnv } from '@server/env';
-import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@server/db/jobs';
+import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@codra/db/jobs';
 import { jsonError } from '@server/core/http';
 import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';

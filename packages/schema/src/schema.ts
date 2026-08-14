@@ -405,6 +405,16 @@ export const modelConfigSchema = z.object({
 export type LlmApiFormat = z.infer<typeof llmProviderSchema>['apiFormat'];
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
+
+export type LlmProviderSecret = LlmProvider & {
+  encryptedApiKey: string | null;
+};
+
+export type ResolvedModelConfig = ModelConfig & {
+  providerEnabled: boolean;
+  baseUrl: string | null;
+  encryptedApiKey: string | null;
+};
 export type StatsPayload = z.infer<typeof statsSchema>;
 
 export const reviewSettingsSchema = z.object({

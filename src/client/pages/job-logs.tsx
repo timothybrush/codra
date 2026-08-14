@@ -1,8 +1,9 @@
+import { Badge, CopyButton, LoadError } from '@codra/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { LoadError } from '@client/components/shared/load-error';
-import { CopyButton } from '@client/components/shared/copy-button';
-import { preventToggleOnTextSelection } from '@client/lib/selection';
+
+
+import { preventToggleOnTextSelection } from '@codra/ui/selection';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
 import { groupBatches } from '@client/lib/batch-groups';
 import type { BatchGroup } from '@client/lib/batch-groups';
@@ -13,11 +14,11 @@ import {
 } from 'lucide-react';
 import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
-import { Badge } from '@client/components/ui/badge';
+
 import { api } from '@client/lib/api';
 import type { FileReviewRecord } from '@codra/schema';
 
-import { formatPreciseDuration } from '@client/lib/utils';
+import { formatPreciseDuration } from '@codra/ui/utils';
 
 function fmtK(n: number | null) {
   if (n === null) return null;

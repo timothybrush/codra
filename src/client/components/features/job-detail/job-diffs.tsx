@@ -9,8 +9,8 @@ import {
   Info,
 } from 'lucide-react';
 import { api } from '@client/lib/api';
-import { buildTree } from '@client/lib/file-tree';
-import { diffStats } from '@client/lib/prompt-diff';
+import { buildTree } from '@codra/ui/file-tree';
+import { diffStats } from '@codra/ui/prompt-diff';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
 import type { FileReviewRecord, JobDetail } from '@codra/schema';
 

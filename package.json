@@ -31,7 +31,7 @@
     "density": "node scripts/comment-density.mjs --top",
     "start": "npm run dev",
     "setup:cloudflare": "node scripts/setup-cloudflare.js",
-    "migrate": "node scripts/migrate.mjs",
+    "migrate": "node packages/db/scripts/migrate.mjs",
     "test": "node scripts/test.mjs",
     "test:all": "npm run test --workspaces --if-present",
     "test:watch": "vitest",
@@ -86,7 +86,8 @@
     "sonner": "^2.0.7",
     "sugar-high": "^2.0.0",
     "tailwind-merge": "^3.5.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@codra/ui": "*"
   },
   "allowScripts": {
     "esbuild": true,

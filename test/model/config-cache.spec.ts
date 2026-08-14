@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestEnv } from '../helpers';
 
-// Isolated in its own file: mocking @server/db/model-configs module-wide would break the
+// Isolated in its own file: mocking @codra/db/model-configs module-wide would break the
 // other model-service tests that resolve configs against the real test DB.
 const getResolvedModelConfigMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@server/db/model-configs', async (importOriginal) => {
+vi.mock('@codra/db/model-configs', async (importOriginal) => {
   const mod = await importOriginal<any>();
   return { ...mod, getResolvedModelConfig: getResolvedModelConfigMock };
 });

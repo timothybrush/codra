@@ -1,18 +1,18 @@
 import { BIN_MAX_FILES, runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterEach, expect, it, vi } from 'vitest';
-import { insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
-import { getFileReviewsForJobs } from '@server/db/file-reviews';
+import { insertJob, updateJobFileCount, updateJobStep } from '@codra/db/jobs';
+import { getFileReviewsForJobs } from '@codra/db/file-reviews';
 import { defaultRepoConfig } from '@codra/schema';
-import { runWithDb } from '@server/db/client';
+import { runWithDb } from '@codra/db/client';
 import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
-vi.mock('@server/db/jobs', async (importOriginal) => {
+vi.mock('@codra/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: vi.fn().mockResolvedValue(0) };
 });
 
-vi.mock('@server/db/app-settings', async (importOriginal) => {
+vi.mock('@codra/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { reviewSettingsSchema } = await import('@codra/schema');
   return { ...mod, getReviewSettings: vi.fn().mockResolvedValue(reviewSettingsSchema.parse({})) };
@@ -116,7 +116,7 @@ dbDescribe('Review flow: batched small files', () => {
     const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const { reviewBatchResponse } = await import('../mocks/services');
-    const fileReviews = await import('@server/db/file-reviews');
+    const fileReviews = await import('@codra/db/file-reviews');
     vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(generateMockDiff(smallFiles));
 
     vi.spyOn(ModelService.prototype as any, 'reviewFiles').mockImplementation(async () => {
@@ -147,7 +147,7 @@ dbDescribe('Review flow: batched small files', () => {
     const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
     const { reviewBatchResponse } = await import('../mocks/services');
-    const jobsModule = await import('@server/db/jobs');
+    const jobsModule = await import('@codra/db/jobs');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff')
       .mockResolvedValue(generateMockDiff(smallFiles));
 
@@ -185,7 +185,7 @@ dbDescribe('Review flow: batched small files', () => {
   it('falls back to single-file reviews once a bin member has failed transiently', async () => {
     const { GitHubService } = await import('@codra/provider-github');
     const { ModelService } = await import('@server/services/model');
-    const { bulkRecordRetryableFileReviewFailures } = await import('@server/db/file-reviews');
+    const { bulkRecordRetryableFileReviewFailures } = await import('@codra/db/file-reviews');
     vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(generateMockDiff(smallFiles));
 
     const job = await seedJob(env, uniqueRepo('batch-deescalate'));

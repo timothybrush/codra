@@ -1,8 +1,7 @@
+import { BarSparkline, Skeleton } from '@codra/ui';
 import * as React from 'react';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import type { LucideIcon } from 'lucide-react';
-import { Skeleton } from '@client/components/shared/skeleton';
-import { BarSparkline } from '@client/components/shared/bar-sparkline';
 
 export interface StatDelta {
   /** Signed percentage change vs. the previous period. */

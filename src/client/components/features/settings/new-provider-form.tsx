@@ -1,8 +1,6 @@
+import { Button, Input, Select } from '@codra/ui';
 import type { Dispatch, SetStateAction } from 'react';
 import { Plus } from 'lucide-react';
-import { Button } from '@client/components/ui/button';
-import { Input } from '@client/components/ui/input';
-import { Select } from '@client/components/ui/select';
 import { FieldLabel } from './field-label';
 import {
   PROVIDER_PRESETS,

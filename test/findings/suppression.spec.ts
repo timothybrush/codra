@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
-import { upsertDashboardFeedback } from '@server/db/comment-feedback';
-import { runWithDb, queryRows } from '@server/db/client';
-import { insertJob } from '@server/db/jobs';
-import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@server/db/file-reviews';
+import { upsertDashboardFeedback } from '@codra/db/comment-feedback';
+import { runWithDb, queryRows } from '@codra/db/client';
+import { insertJob } from '@codra/db/jobs';
+import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@codra/db/file-reviews';
 import type { ParsedReviewComment } from '@codra/schema';
 
 

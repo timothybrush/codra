@@ -1,0 +1,24 @@
+{
+  "name": "@codra/db",
+  "version": "0.9.4",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./repositories": "./src/repositories/index.ts",
+    "./env": "./src/env.ts",
+    "./jobs": "./src/jobs.ts",
+    "./file-reviews": "./src/file-reviews.ts",
+    "./test/fakes": "./test/fakes/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codra/schema": "*",
+    "postgres": "^3.4.9"
+  }
+}

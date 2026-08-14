@@ -51,6 +51,25 @@ export interface JobStore {
     trigger: 'auto' | 'mention';
   }): Promise<PersistedReviewJob | null>;
 
+  recoverExpiredJobLeases(maxCount: number): Promise<{
+    requeuedJobIds: string[];
+    failedJobs: Array<{ id: string }>;
+  }>;
+  getTerminalJobsNeedingCheckRunCompletion(limit: number): Promise<Array<{
+    id: string;
+    status: string;
+    check_run_id: number | null;
+    installation_id: string;
+    owner: string;
+    repo: string;
+    verdict: string | null;
+    file_count: number | null;
+    comment_count: number | null;
+    error_msg: string | null;
+  }>>;
+  hasPendingMaintenanceWork(): Promise<boolean>;
+  clearSystemActive(): Promise<void>;
+
   updateJobCheckRun(jobId: string, checkRunId: number): Promise<void>;
   markJobCheckRunCompleted(jobId: string): Promise<void>;
   completePreparationStep(jobId: string, fileCount: number): Promise<void>;

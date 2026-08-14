@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { highlightLine, langForPath } from '@client/lib/highlight';
-import { cn } from '@client/lib/utils';
+import { highlightLine, langForPath } from '@codra/ui/highlight';
+import { cn } from '@codra/ui/utils';
 import { ROW_TONES } from './diff-file-panel-utils';
 
 /**

@@ -5,7 +5,7 @@ import { truncateFileDiff } from '../core/diff';
 import { logger } from '../core/logger';
 import type { RepoConfig } from '@codra/schema';
 import type { ModelResponse } from '../models/types';
-import type { ResolvedModelConfig } from '@server/db/model-configs';
+import type { ResolvedModelConfig } from '@codra/db/model-configs';
 import { COMPACT_REVIEW_PROMPT_LINE_CAP, type ModelReviewContext } from './model-review-file';
 
 // Import from services/model.ts, not here -- four specs vi.mock that specifier.
