@@ -25,7 +25,7 @@ type Ambiguity = { index: ReturnType<typeof buildBinAmbiguityIndex>; stats: { am
 type RawEntry = { findings: unknown[]; overall_correctness: string; overall_explanation: string };
 
 const basename = (path: string) => path.split('/').pop() ?? path;
-const SEVERITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'nit'];
+import { SEVERITY_ORDER } from '../constants';
 
 function resolveEntryPath(reported: string, candidates: readonly FileDiff[], claimed: Set<string>): FileDiff | null {
   const unclaimed = (matches: readonly FileDiff[]) => matches.find((f) => !claimed.has(f.path)) ?? null;

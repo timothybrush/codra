@@ -1,19 +1,11 @@
 import { logger } from '../logger';
-import type { PersistedReviewJob, ReviewGitHub, ReviewRuntime } from '../ports';
-
+import type { PersistedReviewJob, ReviewGitProvider, ReviewRuntime } from '../ports';
+import {
+  JOB_LEASE_SECONDS,
+} from '../constants';
 
 // JobSummary, which is exactly what mapJob returns; see the note on the port.
 export type { PersistedReviewJob };
-
-export const REVIEW_CHUNK_WALL_CLOCK_MS = 12 * 60 * 1000;
-export const JOB_LEASE_SECONDS = 15 * 60;
-export const BUSY_RETRY_SECONDS = 60;
-export const RETRYABLE_MODEL_FAILURE_RETRY_DELAYS_SECONDS = [30, 2 * 60, 5 * 60];
-export const FRESH_INVOCATION_YIELD_SECONDS = 8;
-export const ASYNC_BATCH_POLL_DELAY_SECONDS = 20;
-export const MAX_RETRYABLE_FILE_REVIEW_FAILURES = 6;
-export const MAX_JOB_CONTINUATIONS = 20;
-export const MAX_FINALIZE_CONTINUATIONS = 3;
 
 export async function heartbeatAndCheckSuperseded(env: ReviewRuntime, jobId: string, leaseOwner: string) {
   await env.jobs.heartbeatJobLease(jobId, leaseOwner, JOB_LEASE_SECONDS);
@@ -46,7 +38,7 @@ export function hasCompletedStep(job: PersistedReviewJob, stepName: string) {
 export async function failJobAndCheckRun(
   env: ReviewRuntime,
   job: Pick<PersistedReviewJob, 'id' | 'owner' | 'repo' | 'checkRunId'>,
-  github: Pick<ReviewGitHub, 'updateCheckRun'>,
+  github: Pick<ReviewGitProvider, 'updateCheckRun'>,
   message: string,
 ) {
   try {

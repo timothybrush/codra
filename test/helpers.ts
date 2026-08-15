@@ -1,7 +1,10 @@
 import { describe } from 'vitest';
 import type { AppBindings } from '@server/env';
-import { encryptLlmApiKey } from '@server/core/llm-crypto';
-import { queryRows } from '@server/db/client';
+import { InMemorySessionStore } from '@codra/core';
+import { encryptLlmApiKey, ModelRunner } from '@codra/models';
+import { queryRows } from '@codra/db/client';
+import { getResolvedModelConfig } from '@codra/db/model-configs';
+import type { TokenTracker } from '@codra/core/token-tracker';
 
 export class MemoryKV {
   private readonly store = new Map<string, string>();
@@ -10,7 +13,7 @@ export class MemoryKV {
     this.store.set(key, value);
   }
 
-  async get(key: string, type?: 'text' | 'json' | Partial<KVNamespaceGetOptions<undefined>>) {
+  async get(key: string, type?: 'text' | 'json' | Partial<any>) {
     const value = this.store.get(key) ?? null;
     if (value === null) return null;
     if (type === 'json') {
@@ -19,7 +22,7 @@ export class MemoryKV {
     return value;
   }
 
-  async getWithMetadata(key: string, type?: 'text' | 'json' | Partial<KVNamespaceGetOptions<undefined>>) {
+  async getWithMetadata(key: string, type?: 'text' | 'json' | Partial<any>) {
     return {
       value: await this.get(key, type as 'text' | 'json'),
       metadata: null,
@@ -105,7 +108,8 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
         return { response: '{"findings":[],"file_verdict":"approve","file_summary":"ok"}', usage: { prompt_tokens: 1, completion_tokens: 1 } };
       },
     },
-    APP_KV: new MemoryKV() as unknown as KVNamespace,
+    APP_KV: new MemoryKV() as unknown as any,
+    SESSION_STORE: new InMemorySessionStore(),
     REVIEW_QUEUE: new MockQueue() as any,
     REVIEW_WORKFLOW: new MockWorkflow() as any,
     ASSETS: new MockAssets() as any,
@@ -130,6 +134,17 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
   };
 }
 
+export function createTestModelRunner(env: AppBindings, tracker?: TokenTracker, opts: { jobId?: string } = {}) {
+  return new ModelRunner({
+    kv: env.APP_KV as any,
+    secretStore: { getSecret: async (k: string) => (env as any)[k] as string || null },
+    getConfig: async (id: string) => getResolvedModelConfig(env as any, id),
+    aiBinding: env.AI,
+    tracker,
+    jobId: opts.jobId,
+  });
+}
+
 // These Gemini fixtures are NOT real catalog entries -- only Cloudflare models are seeded by
 // ensureModelCatalog -- so tests must create them here, or they'd pass locally and fail on a fresh
 // CI database. gemini-3.1-flash-lite lets a test assert fall-through to a model that actually
@@ -137,7 +152,7 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
 const GOOGLE_TEST_MODEL_IDS = ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-3.1-flash-lite'];
 
 export async function saveTestProviderApiKey(env: AppBindings, providerName = 'Google', apiKey = 'test-key') {
-  const encrypted = await encryptLlmApiKey(env, apiKey);
+  const encrypted = await encryptLlmApiKey({ getSecret: async (key) => env[key as keyof AppBindings] as string || null }, apiKey);
   await queryRows(
     env,
     `

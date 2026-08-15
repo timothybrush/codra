@@ -1,6 +1,6 @@
+import { Button } from '@codra/ui';
 import { isRouteErrorResponse, Link, useRouteError } from 'react-router-dom';
 import { AlertTriangle, Compass, LayoutDashboard, RefreshCw } from 'lucide-react';
-import { Button } from '@client/components/ui/button';
 
 interface Presentation {
   code: string;

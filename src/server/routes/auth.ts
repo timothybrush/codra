@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import type { AppEnv } from '@server/env';
 import { createOAuthState, consumeOAuthState, parseAllowedUsers } from '@server/core/oauth';
 import { createSession, destroySession } from '@server/core/sessions';
-import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@server/core/github/oauth';
-import { upsertAccountSettings } from '@server/db/accounts';
+import { exchangeGitHubOAuthCode, fetchGitHubOAuthProfile, toDashboardSessionUser } from '@codra/provider-github';
+import { upsertAccountSettings } from '@codra/db/accounts';
 import { logger } from '@server/core/logger';
 
 function redirectToLogin(reason: string) {

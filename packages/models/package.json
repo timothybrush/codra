@@ -1,0 +1,26 @@
+{
+  "name": "@codra/models",
+  "version": "0.9.4",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./runner": "./src/runner.ts",
+    "./cloudflare": "./src/providers/cloudflare.ts",
+    "./google": "./src/providers/google.ts",
+    "./vertex": "./src/providers/vertex.ts",
+    "./anthropic": "./src/providers/anthropic.ts",
+    "./openai": "./src/providers/openai.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codra/schema": "*",
+    "@codra/core": "*"
+  },
+  "devDependencies": {
+  }
+}

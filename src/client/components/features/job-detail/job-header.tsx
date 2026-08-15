@@ -1,3 +1,4 @@
+import { Button, ConfirmDialog } from '@codra/ui';
 import { useState } from 'react';
 import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
@@ -13,9 +14,7 @@ import {
   Terminal,
   Trash2,
 } from 'lucide-react';
-import { Button } from '@client/components/ui/button';
-import type { ButtonProps } from '@client/components/ui/button';
-import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
+import type { ButtonProps } from '@codra/ui';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
 import { AuthorChip, JobStatusLine, MetaChip, VerdictPill } from './job-chips';
 import { formatAbsoluteDate, formatRelativeDate } from './job-chip-utils';

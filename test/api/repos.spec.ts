@@ -1,9 +1,9 @@
 import { createApp } from '@server/app';
-import { getJobForProcessing, insertJob } from '@server/db/jobs';
+import { getJobForProcessing, insertJob } from '@codra/db/jobs';
 
-import { getRepoConfigRecord } from '@server/db/repo-configs';
+import { getRepoConfigRecord } from '@codra/db/repo-configs';
 import { loadRepoConfig, updateGlobalConfig } from '@server/core/config';
-import { GitHubClient } from '@server/core/github';
+import { GitHubClient } from '@codra/provider-github';
 
 import { defaultRepoConfig } from '@codra/schema';
 import { createTestEnv, uniqueName } from '../helpers';

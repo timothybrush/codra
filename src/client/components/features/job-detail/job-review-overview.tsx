@@ -5,7 +5,7 @@ import type { JobDetail } from '@codra/schema';
 import { reviewSeverities } from '@codra/schema/review-limits';
 import { OutlinePill } from './job-chips';
 
-import { safeRehypePlugins } from '@client/lib/markdown-plugins';
+import { safeRehypePlugins } from '@codra/ui/markdown-plugins';
 interface JobReviewOverviewProps {
   job: JobDetail;
 }

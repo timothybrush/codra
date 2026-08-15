@@ -1,15 +1,16 @@
 import { logger } from '../logger';
 import { defaultRepoConfig, type RepoConfig } from '@codra/schema';
-import type { ReviewGitHub, ReviewRuntime } from '../ports';
+import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { getDiffFiles } from './diff-cache';
 import type { RejectedExemplar } from '../prompts/file-review';
-import { type PersistedReviewJob, JOB_LEASE_SECONDS, FRESH_INVOCATION_YIELD_SECONDS, enqueueJobPhase } from './phase-control';
+import { type PersistedReviewJob, enqueueJobPhase } from './phase-control';
+import { JOB_LEASE_SECONDS, FRESH_INVOCATION_YIELD_SECONDS } from '../constants';
 
 export async function runPreparePhase(
   env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: ReviewGitHub,
+  github: ReviewGitProvider,
 ) {
   await env.jobs.updateJobStep(job.id, 'Preparation', { status: 'running' });
   const pr = await github.getPullRequest(job.owner, job.repo, job.prNumber);

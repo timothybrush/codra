@@ -14,14 +14,16 @@ import {
 } from 'recharts';
 import { Activity, Boxes, Coins, FolderGit2, ShieldCheck } from 'lucide-react';
 import type { StatsPayload } from '@codra/schema';
-import {
-  ChartDefs,
-  ChartTooltip,
-  GraphShell,
-  LegendChip,
-  MeterList,
-  TickMeter,
+import { 
+  ChartTooltip
 } from './chart-primitives';
+import { 
+  GraphShell, 
+  LegendChip, 
+  ChartDefs, 
+  MeterList, 
+  TickMeter 
+} from '@codra/ui';
 import {
   CHART,
   MONO_STACK,

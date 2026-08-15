@@ -178,6 +178,11 @@ export function createInMemoryRuntime(
       resetJobContinuationCount: async () => {},
       getOtherRunningJobsCount: async () => 0,
 
+      recoverExpiredJobLeases: async () => ({ requeuedJobIds: [], failedJobs: [] }),
+      getTerminalJobsNeedingCheckRunCompletion: async () => [],
+      hasPendingMaintenanceWork: async () => false,
+      clearSystemActive: async () => {},
+
       setJobWorkflowInstance: async () => {},
       setJobPullRequestMeta: async (jobId, meta) => { patch(jobId, meta); },
       insertJob: async () => job,

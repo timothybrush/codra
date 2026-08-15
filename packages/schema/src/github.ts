@@ -1,10 +1,3 @@
-export const supportedGitHubWebhookEvents = ['pull_request', 'issue_comment'] as const;
-
-export type GitHubWebhookEventName = typeof supportedGitHubWebhookEvents[number];
-
-export function isSupportedGitHubWebhookEvent(eventName: string): eventName is GitHubWebhookEventName {
-  return (supportedGitHubWebhookEvents as readonly string[]).includes(eventName);
-}
 
 export const feedbackGitHubWebhookEvents = ['pull_request_review_comment', 'pull_request_review_thread'] as const;
 
@@ -78,4 +71,8 @@ export type IssueCommentWebhookPayload = {
   };
 };
 
-export type GitHubWebhookPayload = PullRequestWebhookPayload | IssueCommentWebhookPayload;
+export type GitHubWebhookPayload =
+  | FeedbackWebhookPayload
+  | PullRequestWebhookPayload
+  | IssueCommentWebhookPayload
+  | Record<string, unknown>;

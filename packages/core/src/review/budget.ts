@@ -1,7 +1,5 @@
 
-const FILE_FIXED_SUBREQUESTS = 2;
-
-const MAX_MODEL_ATTEMPTS_ESTIMATE = 4;
+import { FILE_FIXED_SUBREQUESTS, MAX_MODEL_ATTEMPTS_ESTIMATE } from '../constants';
 
 export function budgetAwareFileLimit(
   remainingSafeBudget: number,

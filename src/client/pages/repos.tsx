@@ -1,15 +1,10 @@
+import { Button, EmptyState, Input, LinkButton, LoadError, Select, Skeleton } from '@codra/ui';
 import { useEffect, useMemo, useReducer, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
-import { Skeleton } from '@client/components/shared/skeleton';
-import { EmptyState } from '@client/components/shared/empty-state';
-import { Button, LinkButton } from '@client/components/ui/button';
-import { LoadError } from '@client/components/shared/load-error';
 import { PageHeader } from '@client/components/layout/page-header';
-import { Input } from '@client/components/ui/input';
-import { Select } from '@client/components/ui/select';
 import { GitBranch, RefreshCw, ArrowUpRight, Search } from 'lucide-react';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import type { RepoConfigRecord } from '@codra/schema';
 import {
   EMPTY_MODEL_ROUTE,

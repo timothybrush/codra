@@ -1,8 +1,5 @@
-import { SectionCard } from '@client/components/shared/section-card';
-import { Input } from '@client/components/ui/input';
-import { Skeleton } from '@client/components/shared/skeleton';
-import { SteppedSlider } from '@client/components/motion/stepped-slider';
-import { ConfirmDialog } from '@client/components/ui/confirm-dialog';
+import { ConfirmDialog, Input, SectionCard, Skeleton } from '@codra/ui';
+import { SteppedSlider } from '@codra/ui/motion';
 import type { ReviewSettings } from '@codra/schema';
 import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange } from '@codra/schema/review-limits';
 import { FieldLabel } from './field-label';

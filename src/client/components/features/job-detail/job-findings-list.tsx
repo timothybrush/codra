@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { FileText } from 'lucide-react';
 import type { JobDetail } from '@codra/schema';
 import { reviewSeverities } from '@codra/schema/review-limits';
-import { Tabs, TabsList, TabsTrigger } from '@client/components/motion/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@codra/ui/motion';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';
 import { severityConfig } from './constants';

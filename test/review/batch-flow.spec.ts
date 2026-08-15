@@ -1,31 +1,32 @@
 import { BIN_MAX_FILES, runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterEach, expect, it, vi } from 'vitest';
-import { insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
-import { getFileReviewsForJobs } from '@server/db/file-reviews';
+import { insertJob, updateJobFileCount, updateJobStep } from '@codra/db/jobs';
+import { getFileReviewsForJobs } from '@codra/db/file-reviews';
 import { defaultRepoConfig } from '@codra/schema';
-import { runWithDb } from '@server/db/client';
+import { runWithDb } from '@codra/db/client';
 import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
-vi.mock('@server/db/jobs', async (importOriginal) => {
+vi.mock('@codra/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: vi.fn().mockResolvedValue(0) };
 });
 
-vi.mock('@server/db/app-settings', async (importOriginal) => {
+vi.mock('@codra/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { reviewSettingsSchema } = await import('@codra/schema');
   return { ...mod, getReviewSettings: vi.fn().mockResolvedValue(reviewSettingsSchema.parse({})) };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@server/services/model', async () => {
+vi.mock('@codra/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
+  return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 const batchingConfig = {
@@ -68,13 +69,13 @@ dbDescribe('Review flow: batched small files', () => {
   });
 
   it('reviews several small files in one call and writes a row per file', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
+    const { GitHubService } = await import('@codra/provider-github');
+    const { ModelRunner } = await import('@codra/models');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff')
       .mockResolvedValue(generateMockDiff(smallFiles));
 
-    const reviewFilesSpy = vi.spyOn(ModelService.prototype as any, 'reviewFiles');
-    const reviewFileSpy = vi.spyOn(ModelService.prototype as any, 'reviewFile');
+    const reviewFilesSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFiles');
+    const reviewFileSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFile');
 
     const job = await seedJob(env, uniqueRepo('batch-happy'));
 
@@ -112,13 +113,13 @@ dbDescribe('Review flow: batched small files', () => {
   // An error after the write must not take committed rows down: the catch-all's comment DELETE
   // would wipe correct findings.
   it('keeps already-committed rows when a later step fails', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
+    const { GitHubService } = await import('@codra/provider-github');
+    const { ModelRunner } = await import('@codra/models');
     const { reviewBatchResponse } = await import('../mocks/services');
-    const fileReviews = await import('@server/db/file-reviews');
+    const fileReviews = await import('@codra/db/file-reviews');
     vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(generateMockDiff(smallFiles));
 
-    vi.spyOn(ModelService.prototype as any, 'reviewFiles').mockImplementation(async () => {
+    vi.spyOn(ModelRunner.prototype as any, 'reviewFiles').mockImplementation(async () => {
       const response = reviewBatchResponse(['src/a.ts', 'src/b.ts']);
       response.batch.missing = ['src/c.ts'];
       return response;
@@ -143,15 +144,15 @@ dbDescribe('Review flow: batched small files', () => {
 
   // A silently omitted file is re-queued as retryable, and is not progress for the wedge counter.
   it('re-queues a file the model omitted instead of approving it', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
+    const { GitHubService } = await import('@codra/provider-github');
+    const { ModelRunner } = await import('@codra/models');
     const { reviewBatchResponse } = await import('../mocks/services');
-    const jobsModule = await import('@server/db/jobs');
+    const jobsModule = await import('@codra/db/jobs');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff')
       .mockResolvedValue(generateMockDiff(smallFiles));
 
     const resetSpy = vi.spyOn(jobsModule, 'resetJobContinuationCount');
-    const reviewFilesSpy = vi.spyOn(ModelService.prototype as any, 'reviewFiles')
+    const reviewFilesSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFiles')
       .mockImplementation(async () => {
         const response = reviewBatchResponse([]);
         response.batch.missing = smallFiles.map((f) => f.path);
@@ -182,9 +183,9 @@ dbDescribe('Review flow: batched small files', () => {
   // After a transient failure the bin must not re-form. The ledger is seeded directly: a real
   // failure also sets a 30s job delay, which would pass for the wrong reason.
   it('falls back to single-file reviews once a bin member has failed transiently', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
-    const { bulkRecordRetryableFileReviewFailures } = await import('@server/db/file-reviews');
+    const { GitHubService } = await import('@codra/provider-github');
+    const { ModelRunner } = await import('@codra/models');
+    const { bulkRecordRetryableFileReviewFailures } = await import('@codra/db/file-reviews');
     vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(generateMockDiff(smallFiles));
 
     const job = await seedJob(env, uniqueRepo('batch-deescalate'));
@@ -195,8 +196,8 @@ dbDescribe('Review flow: batched small files', () => {
       errorMessage: 'provider outage; retrying later',
     }]);
 
-    const reviewFilesSpy = vi.spyOn(ModelService.prototype as any, 'reviewFiles');
-    const reviewFileSpy = vi.spyOn(ModelService.prototype as any, 'reviewFile');
+    const reviewFilesSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFiles');
+    const reviewFileSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFile');
 
     await runWithDb(env, async () => {
       await runReviewJob(env, { jobId: job.id, deliveryId: 'delivery-d2', phase: 'review' }).catch(() => undefined);

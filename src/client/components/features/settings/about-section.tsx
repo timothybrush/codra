@@ -1,9 +1,6 @@
+import { Badge, LayerCard, SectionCard, Text } from '@codra/ui';
 import pkg from '../../../../../package.json';
 import { ExternalLink } from 'lucide-react';
-import { SectionCard } from '@client/components/shared/section-card';
-import { LayerCard } from '@client/components/ui/layer-card';
-import { Text } from '@client/components/ui/text';
-import { Badge } from '@client/components/ui/badge';
 
 // No props and no state, which is why this is a component rather than inlined JSX: it keeps 50 lines of markup out of SettingsPage.
 export function AboutSection() {

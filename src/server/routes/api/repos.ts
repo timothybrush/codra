@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '@server/env';
-import { getRepoConfigRecord, listRepoConfigs, upsertRepoConfig, syncRepoConfig, updateRepoConfigEnabled, deleteStaleRepoConfigs } from '@server/db/repo-configs';
+import { getRepoConfigRecord, listRepoConfigs, upsertRepoConfig, syncRepoConfig, updateRepoConfigEnabled, deleteStaleRepoConfigs } from '@codra/db/repo-configs';
 import { jsonError } from '@server/core/http';
-import { GitHubClient, type GitHubRepository } from '@server/core/github';
+import { GitHubClient, type GitHubRepository } from '@codra/provider-github';
 import { invalidateRepoConfigCache } from '@server/core/config';
 import { repoConfigSchema } from '@codra/schema';
 

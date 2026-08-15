@@ -1,7 +1,6 @@
+import { Button, Select } from '@codra/ui';
 import { useId, useMemo, useState } from 'react';
-import { cn } from '@client/lib/utils';
-import { Select } from '@client/components/ui/select';
-import { Button } from '@client/components/ui/button';
+import { cn } from '@codra/ui/utils';
 import { Trash2, ListPlus } from 'lucide-react';
 
 import type {

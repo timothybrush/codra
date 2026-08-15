@@ -4,19 +4,21 @@ import { budgetAwareFileLimit } from './budget';
 import { narrowUnit, planReviewUnits } from './pack';
 import { reviewAndPersistBin } from './bin-runner';
 import { getDiffFiles } from './diff-cache';
-import type { ReviewGitHub, ReviewModel, ReviewRuntime } from '../ports';
+import type { ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';
 import { TokenTracker } from '../token-tracker';
 import {
   type PersistedReviewJob,
-  ASYNC_BATCH_POLL_DELAY_SECONDS,
-  FRESH_INVOCATION_YIELD_SECONDS,
-  MAX_JOB_CONTINUATIONS,
   NextPhaseError,
-  REVIEW_CHUNK_WALL_CLOCK_MS,
   enqueueJobPhase,
   hasCompletedStep,
   heartbeatAndCheckSuperseded,
 } from './phase-control';
+import {
+  ASYNC_BATCH_POLL_DELAY_SECONDS,
+  FRESH_INVOCATION_YIELD_SECONDS,
+  MAX_JOB_CONTINUATIONS,
+  REVIEW_CHUNK_WALL_CLOCK_MS,
+} from '../constants';
 import {
   canInheritParentFileReview,
   countsAsHandledFileReview,
@@ -31,7 +33,7 @@ export async function runReviewPhase(
   env: ReviewRuntime,
   job: PersistedReviewJob,
   leaseOwner: string,
-  github: ReviewGitHub,
+  github: ReviewGitProvider,
   model: ReviewModel,
   tracker: TokenTracker,
 ) {

@@ -6,7 +6,7 @@ import {
   generatorFindingCap,
 } from '@server/prompts/file-review';
 import { BIN_DIFF_CHAR_BUDGET, BIN_MAX_FILES } from '@server/core/review';
-import { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from '@server/services/model';
+import { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from '@codra/models';
 import { defaultRepoConfig } from '@codra/schema';
 import type { FileDiff } from '@server/core/diff';
 

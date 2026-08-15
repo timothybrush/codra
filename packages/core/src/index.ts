@@ -25,4 +25,4 @@ export {
   type VerifyOutcome,
 } from './review';
 
-export type * from './ports';
+export * from './ports';

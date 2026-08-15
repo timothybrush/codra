@@ -1,6 +1,4 @@
-import { Button } from '@client/components/ui/button';
-import { Badge } from '@client/components/ui/badge';
-import { Switch } from '@client/components/ui/switch';
+import { Badge, Button, Switch } from '@codra/ui';
 import { Settings2 } from 'lucide-react';
 import type { RepoConfigRecord } from '@codra/schema';
 import { describeModelRoute, type ModelOption, type ModelRouteConfig } from '@client/components/features/models/model-route';

@@ -1,9 +1,10 @@
 
 import type { FileDiff } from '../diff';
 
-export const NON_ANSWER_MAX_RESPONSE_CHARS = 600;
-
-export const NON_ANSWER_MIN_DIFF_LINES = 200;
+import {
+  NON_ANSWER_MAX_RESPONSE_CHARS,
+  NON_ANSWER_MIN_DIFF_LINES,
+} from '../constants';
 
 /**
  * True when a review response is a non-answer: a substantive diff dismissed in a sentence with no

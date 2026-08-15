@@ -2,6 +2,15 @@ import { z } from 'zod';
 import { reviewSeverities } from './review-limits';
 import { reviewCategories } from './schema-enums';
 import { claimTypes, DEFAULT_DENIED_CLAIM_TYPES, DEFAULT_SHADOW_RULE_IDS } from './schema-claims';
+import {
+  DEFAULT_REVIEW_EVENTS,
+  DEFAULT_MENTION_TRIGGER,
+  DEFAULT_SKIP_FILES,
+  DEFAULT_EXEC_FILE_TYPES,
+  DEFAULT_EXEC_COMMAND,
+  DEFAULT_LABELS,
+  DEPRECATED_MODEL_ALIASES,
+} from './constants';
 
 const labelsSchema = z.union([
   z.literal(false),
@@ -13,12 +22,12 @@ const labelsSchema = z.union([
 ]);
 
 export const reviewConfigSchema = z.object({
-  on: z.array(z.enum(['opened', 'synchronize', 'ready_for_review', 'reopened', 'closed'])).default(['opened', 'synchronize', 'ready_for_review', 'reopened']),
+  on: z.array(z.enum(['opened', 'synchronize', 'ready_for_review', 'reopened', 'closed'])).default([...DEFAULT_REVIEW_EVENTS]),
   ignore_drafts: z.boolean().default(true),
-  mention_trigger: z.union([z.literal(false), z.string().min(1)]).default('@codra-app'),
+  mention_trigger: z.union([z.literal(false), z.string().min(1)]).default(DEFAULT_MENTION_TRIGGER),
   skip_files: z
     .array(z.string().min(1))
-    .default(['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**']),
+    .default([...DEFAULT_SKIP_FILES]),
   large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
   batch_small_files: z.boolean().default(true),
@@ -40,56 +49,25 @@ export const reviewConfigSchema = z.object({
       shadow_rule_ids: [...DEFAULT_SHADOW_RULE_IDS],
     }),
   custom_rules: z.array(z.string().min(1)).default([]),
-  labels: labelsSchema.default({
-    p1: 'review: needs-attention',
-    p2: 'review: approved',
-    p3: 'review: approved',
-  }),
+  labels: labelsSchema.default({ ...DEFAULT_LABELS }),
   exec: z
     .object({
       enabled: z.boolean().default(false),
-      on_file_types: z.array(z.string().min(1)).default(['.ts', '.tsx', '.js']),
-      command: z.string().min(1).default('npm run lint && npm run typecheck'),
+      on_file_types: z.array(z.string().min(1)).default([...DEFAULT_EXEC_FILE_TYPES]),
+      command: z.string().min(1).default(DEFAULT_EXEC_COMMAND),
     })
     .default({
       enabled: false,
-      on_file_types: ['.ts', '.tsx', '.js'],
-      command: 'npm run lint && npm run typecheck',
+      on_file_types: [...DEFAULT_EXEC_FILE_TYPES],
+      command: DEFAULT_EXEC_COMMAND,
     }),
 });
 
+export const DEFAULT_REVIEW_CONFIG = reviewConfigSchema.parse({});
+export const DEFAULT_MODEL_CONFIG = { main: null, fallbacks: [], size_overrides: [] };
+
 export const repoConfigSchema = z.object({
-  review: reviewConfigSchema.default({
-    on: ['opened', 'synchronize', 'ready_for_review', 'reopened'],
-    ignore_drafts: true,
-    mention_trigger: '@codra-app',
-    skip_files: ['**/*.lock', 'dist/**', 'build/**', '.next/**', '*.generated.*', 'coverage/**'],
-    large_file_threshold_lines: 200,
-    max_diff_lines_per_file: 800,
-    batch_small_files: true,
-    max_total_diff_chars: 150_000,
-    max_comments: 10,
-    min_severity: 'P3',
-    min_confidence: 0,
-    focus: [...reviewCategories],
-    deny_claim_types: [...DEFAULT_DENIED_CLAIM_TYPES],
-    rules: {
-      enabled: true,
-      disabled_rule_ids: [],
-      shadow_rule_ids: [...DEFAULT_SHADOW_RULE_IDS],
-    },
-    custom_rules: [],
-    labels: {
-      p1: 'review: needs-attention',
-      p2: 'review: approved',
-      p3: 'review: approved',
-    },
-    exec: {
-      enabled: false,
-      on_file_types: ['.ts', '.tsx', '.js'],
-      command: 'npm run lint && npm run typecheck',
-    },
-  }),
+  review: reviewConfigSchema.default(DEFAULT_REVIEW_CONFIG),
   model: z
     .object({
       main: z.string().nullable().default(null),
@@ -105,19 +83,10 @@ export const repoConfigSchema = z.object({
         .nullable()
         .optional(),
     })
-    .default({
-      main: null,
-      fallbacks: [],
-      size_overrides: [],
-    }),
+    .default(DEFAULT_MODEL_CONFIG),
 });
 
 export type RepoConfig = z.infer<typeof repoConfigSchema>;
-export const KIMI_K2_5_MODEL = '@cf/moonshotai/kimi-k2.5';
-export const KIMI_K2_6_MODEL = '@cf/moonshotai/kimi-k2.6';
-export const DEPRECATED_MODEL_ALIASES: Record<string, string> = {
-  [KIMI_K2_5_MODEL]: KIMI_K2_6_MODEL,
-};
 
 export function normalizeModelId(model: string) {
   return DEPRECATED_MODEL_ALIASES[model] ?? model;

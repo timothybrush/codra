@@ -1,0 +1,19 @@
+{
+  "name": "@codra/provider-github",
+  "version": "0.9.4",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./oauth": "./src/oauth.ts",
+    "./webhook": "./src/webhook.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codra/core": "*",
+    "@codra/schema": "*"
+  }
+}

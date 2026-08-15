@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { jsonError } from '@server/core/http';
 import { getUpdatesEmailPreference, syncUpdatesEmail } from '@server/core/updates-email';
-import { getAccountSettings, updateAccountSettings, upsertAccountSettings } from '@server/db/accounts';
+import { getAccountSettings, updateAccountSettings, upsertAccountSettings } from '@codra/db/accounts';
 import type { AppEnv } from '@server/env';
 
 const emailSchema = z.strictObject({

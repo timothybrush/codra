@@ -1,7 +1,7 @@
 import { logger } from '../logger';
-import { isSupportedGitHubWebhookEvent, type GitHubWebhookPayload, type PullRequestWebhookPayload } from '@codra/schema/github';
+import { type WebhookPayload, type ChangeRequestWebhookPayload } from '@codra/schema/webhook';
 import { REVIEW_CONCURRENCY_LIMITS, type ReviewJobMessage } from '@codra/schema';
-import type { ReviewGitHub, ReviewRuntime } from '../ports';
+import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { extractReviewRequest } from './request';
 
 export { getDiffFiles, getOrFetchRawDiffForCompletedJob } from './diff-cache';
@@ -9,16 +9,19 @@ export { getDiffFiles, getOrFetchRawDiffForCompletedJob } from './diff-cache';
 export { budgetAwareFileLimit, estimatedSubrequestsPerFile } from './budget';
 
 export {
-  BIN_DIFF_CHAR_BUDGET,
-  BIN_MAX_FILES,
-  BIN_TARGET_DIFF_LINES,
-  PACKABLE_MAX_DIFF_LINES,
   narrowUnit,
   planReviewUnits,
   unitFiles,
   type LedgerEntry,
   type ReviewUnit,
 } from './pack';
+
+export {
+  BIN_DIFF_CHAR_BUDGET,
+  BIN_MAX_FILES,
+  BIN_TARGET_DIFF_LINES,
+  PACKABLE_MAX_DIFF_LINES,
+} from '../constants';
 
 export { proportionalSplit } from './bin-runner';
 
@@ -27,18 +30,20 @@ export { verifyFindings, type VerifyDrop, type VerifyOutcome } from '../finding-
 export { extractReviewRequest, type ReviewRequest } from './request';
 
 // workflows/review.ts floors its inter-phase sleep here; the eslint barrel guard stops it
-export { FRESH_INVOCATION_YIELD_SECONDS } from './phase-control';
+export { FRESH_INVOCATION_YIELD_SECONDS } from '../constants';
 
 import {
   type PersistedReviewJob,
+  NextPhaseError,
+  failJobAndCheckRun,
+} from './phase-control';
+import {
   BUSY_RETRY_SECONDS,
   FRESH_INVOCATION_YIELD_SECONDS,
   JOB_LEASE_SECONDS,
   MAX_FINALIZE_CONTINUATIONS,
   MAX_JOB_CONTINUATIONS,
-  NextPhaseError,
-  failJobAndCheckRun,
-} from './phase-control';
+} from '../constants';
 import { getRetryableModelFailureDelaySeconds, isAwaitingAsyncReview, isSubrequestBudgetError } from './retry-policy';
 import { persistFailedFileReview } from './file-runner';
 import { runPreparePhase } from './prepare';
@@ -166,6 +171,7 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
       return continueOrFailWedgedJob(env, job, github, leaseOwner, phase, delaySeconds, 'per-invocation subrequest limits');
     }
 
+    console.error('JOB FAILED WITH ERROR:', error);
     logger.error(`Review job failed: ${job.owner}/${job.repo} PR #${job.prNumber}`, error);
     await failJobAndCheckRun(env, job, github, messageText);
     await env.jobs.releaseJobLease(job.id, leaseOwner);
@@ -176,7 +182,7 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
 async function continueOrFailWedgedJob(
   env: ReviewRuntime,
   job: PersistedReviewJob,
-  github: ReviewGitHub,
+  github: ReviewGitProvider,
   leaseOwner: string,
   phase: 'prepare' | 'review' | 'finalize',
   delaySeconds: number,
@@ -239,7 +245,7 @@ async function resolveQueuedJob(
   }
 
   let eventName = message.eventName;
-  let payload = message.payload as GitHubWebhookPayload | undefined;
+  let payload = message.payload as WebhookPayload | undefined;
 
   if (payload === undefined) {
     const delivery = await env.webhooks.getWebhookDelivery(message.deliveryId);
@@ -249,15 +255,15 @@ async function resolveQueuedJob(
     }
 
     eventName = delivery.event_name;
-    payload = delivery.payload as GitHubWebhookPayload;
+    payload = delivery.payload as WebhookPayload;
   }
 
-  if (!isSupportedGitHubWebhookEvent(eventName)) {
-    logger.info(`Queue message ignored: unsupported GitHub event ${eventName}`);
+  if (eventName !== 'change_request' && eventName !== 'comment') {
+    logger.info(`Queue message ignored: unsupported webhook event ${eventName}`);
     return null;
   }
 
-  const installationId = String(payload.installation?.id ?? '');
+  const installationId = String(payload.installationId ?? '');
   if (!installationId || !('repository' in payload) || !payload.repository) {
     logger.info('Queue message ignored: missing installation or repository info');
     return null;
@@ -265,12 +271,12 @@ async function resolveQueuedJob(
 
   const repoConfig = await env.repoConfig.loadRepoConfig({
     installationId,
-    owner: payload.repository.owner.login,
+    owner: payload.repository.owner,
     repo: payload.repository.name,
   });
 
   if (repoConfig.enabled === false) {
-    logger.info(`Job ignored: repository ${payload.repository.owner.login}/${payload.repository.name} is disabled`);
+    logger.info(`Job ignored: repository ${payload.repository.owner}/${payload.repository.name} is disabled`);
     return null;
   }
 
@@ -282,15 +288,15 @@ async function resolveQueuedJob(
   });
 
   if (!extracted) {
-    if (eventName === 'pull_request') {
-      const prPayload = payload as PullRequestWebhookPayload;
+    if (eventName === 'change_request') {
+      const prPayload = payload as ChangeRequestWebhookPayload;
       if (prPayload.action === 'closed' && repoConfig.parsedJson.review.labels !== false) {
         const labels = repoConfig.parsedJson.review.labels;
         const gh = env.githubClients.forInstallation(installationId);
         await gh.removeIssueLabelsIfPresent(
-          prPayload.repository.owner.login,
+          prPayload.repository.owner,
           prPayload.repository.name,
-          prPayload.pull_request.number,
+          prPayload.changeRequest.number,
           [labels.p1, labels.p2, labels.p3],
         );
       }
@@ -300,7 +306,7 @@ async function resolveQueuedJob(
 
   let resolved = extracted;
   const githubClient = env.githubClients.forInstallation(installationId);
-  if (eventName === 'issue_comment') {
+  if (eventName === 'comment') {
     const pr = await githubClient.getPullRequest(extracted.owner, extracted.repo, extracted.prNumber);
     resolved = {
       ...extracted,

@@ -1,17 +1,17 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterAll, vi } from 'vitest';
-import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@server/db/jobs';
-import { getFileReviewsForJobs, upsertFileReview } from '@server/db/file-reviews';
+import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@codra/db/jobs';
+import { getFileReviewsForJobs, upsertFileReview } from '@codra/db/file-reviews';
 import { defaultRepoConfig } from '@codra/schema';
-import { runWithDb } from '@server/db/client';
+import { runWithDb } from '@codra/db/client';
 import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@server/db/jobs', async (importOriginal) => {
+vi.mock('@codra/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
@@ -20,25 +20,26 @@ vi.mock('@server/db/jobs', async (importOriginal) => {
 // parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@server/db/app-settings', async (importOriginal) => {
+vi.mock('@codra/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { reviewSettingsSchema } = await import('@codra/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@server/services/github', async () => {
+vi.mock('@codra/provider-github', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
-  return { GitHubService: makeGitHubServiceMock() };
+  return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@server/services/model', async () => {
+vi.mock('@codra/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
+  return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
-  // Tripwire: if a refactor rewires runReviewJob past the @server/db/jobs barrel, the mock stops
+  // Tripwire: if a refactor rewires runReviewJob past the @codra/db/jobs barrel, the mock stops
   // applying and every test here still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
@@ -54,8 +55,8 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   };
 
   it('reviews files in a chunk concurrently', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
+    const { GitHubService } = await import('@codra/provider-github');
+    const { ModelRunner } = await import('@codra/models');
     const repo = uniqueRepo('concurrent');
     const headSha = sha('8');
     const baseSha = sha('9');
@@ -67,7 +68,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
     );
     let active = 0;
     let maxActive = 0;
-    const reviewSpy = vi.spyOn(ModelService.prototype as any, 'reviewFile').mockImplementation(async (params: any) => {
+    const reviewSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFile').mockImplementation(async (params: any) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -129,8 +130,8 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('marks completed jobs with skipped files as partial reviews', async () => {
-    const { GitHubService } = await import('@server/services/github');
-    const { ModelService } = await import('@server/services/model');
+    const { GitHubService } = await import('@codra/provider-github');
+    const { ModelRunner } = await import('@codra/models');
     const repo = uniqueRepo('partial');
     const headSha = sha('e');
     const baseSha = sha('f');
@@ -155,7 +156,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
       baseRef: 'main',
       configSnapshot: defaultRepoConfig,
     });
-    const summarySpy = vi.spyOn(ModelService.prototype as any, 'generateSummary');
+    const summarySpy = vi.spyOn(ModelRunner.prototype as any, 'generateSummary');
     await updateJobFileCount(env, job.id, 2);
     await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
     await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });
@@ -215,7 +216,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('reuses an already-posted review instead of double-posting when finalize re-runs past the posting stage', async () => {
-    const { GitHubService } = await import('@server/services/github');
+    const { GitHubService } = await import('@codra/provider-github');
     const repo = uniqueRepo('doublepost');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
       generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),

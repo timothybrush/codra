@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { defaultRepoConfig } from '@codra/schema';
-import { queryRows } from '@server/db/client';
-import { insertJob } from '@server/db/jobs';
-import { upsertFileReview } from '@server/db/file-reviews';
-import { syncRepoConfig, upsertRepoConfig } from '@server/db/repo-configs';
+import { queryRows } from '@codra/db/client';
+import { insertJob } from '@codra/db/jobs';
+import { upsertFileReview } from '@codra/db/file-reviews';
+import { syncRepoConfig, upsertRepoConfig } from '@codra/db/repo-configs';
 import { createTestEnv } from './helpers';
 
 // `JSON.stringify(x)` bound to `$n::jsonb` stores a jsonb STRING SCALAR, so every SQL JSON operator

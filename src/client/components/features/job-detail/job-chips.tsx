@@ -4,7 +4,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import { STATUS_DOT, jobDuration, statusLabel } from '@client/lib/job-format';
 
 import type { JobDetail, JobSummary } from '@codra/schema';

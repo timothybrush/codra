@@ -14,19 +14,28 @@ import {
   updateLlmProvider,
   updateModelConfig,
   upsertDiscoveredModelConfigs,
-} from '@server/db/model-configs';
+} from '@codra/db/model-configs';
 import { jsonError } from '@server/core/http';
 import { getGlobalConfig, updateGlobalConfig } from '@server/core/config';
-import { encryptLlmApiKey, decryptLlmApiKey } from '@server/core/llm-crypto';
+import {
+  encryptLlmApiKey,
+  decryptLlmApiKey,
+  reviewWithCloudflare,
+  reviewWithGoogle,
+  reviewWithVertex,
+  reviewWithOpenAI,
+  reviewWithAnthropic,
+  listProviderModels,
+  ProviderRequestError,
+  type ModelInput,
+} from '@codra/models';
 import { llmApiFormats } from '@codra/schema';
-import { reviewWithCloudflare } from '@server/models/cloudflare';
-import { reviewWithGoogle } from '@server/models/google';
-import { reviewWithVertex } from '@server/models/vertex';
-import { reviewWithOpenAI } from '@server/models/openai';
-import { reviewWithAnthropic } from '@server/models/anthropic';
-import { listProviderModels } from '@server/models/catalog';
-import { ProviderRequestError, type ModelInput } from '@server/models/types';
 import { buildReviewResponseSchema } from '@server/prompts/file-review';
+import type { SecretStore } from '@codra/core/ports';
+
+function getSecretStore(env: AppEnv['Bindings']): SecretStore {
+  return { getSecret: async (key: string) => (env as any)[key] as string || null };
+}
 
 // Per-attempt budget for "Test connection": a person is waiting, and a retry ladder multiplies it.
 const PREFLIGHT_TIMEOUT_MS = 15_000;
@@ -83,7 +92,7 @@ async function encryptedApiKeyFromBody(env: AppEnv['Bindings'], apiKey?: string,
   if (apiKey === undefined) return undefined;
   const trimmed = apiKey.trim();
   if (!trimmed) return undefined;
-  return encryptLlmApiKey(env, trimmed);
+  return encryptLlmApiKey(getSecretStore(env), trimmed);
 }
 
 function isEncryptionConfigError(error: unknown) {
@@ -143,7 +152,7 @@ async function syncProviderModelCatalog(env: AppEnv['Bindings']) {
 
     try {
       const apiKey = provider.encryptedApiKey
-        ? await decryptLlmApiKey(env, provider.encryptedApiKey)
+        ? await decryptLlmApiKey(getSecretStore(env), provider.encryptedApiKey)
         : undefined;
       const modelNames = await listProviderModels({
         apiFormat: provider.apiFormat,
@@ -348,12 +357,12 @@ export function createModelsRouter() {
       };
       let response;
       if (config.apiFormat === 'cloudflare-workers-ai') {
-        response = await reviewWithCloudflare(c.env, config.modelName, input, undefined, config.providerName);
+        response = await reviewWithCloudflare(c.env.AI, config.modelName, input, undefined, config.providerName);
       } else {
         if (!config.encryptedApiKey) {
           return jsonError(`Provider ${config.providerName} does not have a saved API key.`, 400);
         }
-        const apiKey = await decryptLlmApiKey(c.env, config.encryptedApiKey);
+        const apiKey = await decryptLlmApiKey(getSecretStore(c.env), config.encryptedApiKey);
         
         switch (config.apiFormat) {
           case 'gemini':

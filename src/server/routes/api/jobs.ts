@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codra/schema';
-import { getFindingLabelTarget } from '@server/db/file-reviews';
-import { clearDashboardFeedback, upsertDashboardFeedback } from '@server/db/comment-feedback';
+import { getFindingLabelTarget } from '@codra/db/file-reviews';
+import { clearDashboardFeedback, upsertDashboardFeedback } from '@codra/db/comment-feedback';
 import type { AppBindings, AppEnv } from '@server/env';
-import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@server/db/jobs';
+import { bytesToHex, cancelJob, deleteJob, getJobDetail, getJobForProcessing, insertJob, listJobs, mapJob, supersedeOlderJobs } from '@codra/db/jobs';
 import { jsonError } from '@server/core/http';
 import { scheduleBestEffortJobMaintenance } from '@server/core/job-recovery';
 import { loadRepoConfig } from '@server/core/config';
@@ -14,7 +14,7 @@ import { getOrFetchRawDiffForCompletedJob } from '@codra/core';
 import { createReviewRuntime } from '@server/adapters';
 import { parseUnifiedDiff } from '@server/core/diff';
 import { buildFileReviewPrompts } from '@server/prompts/file-review';
-import { GitHubService } from '@server/services/github';
+import { GitHubService } from '@codra/provider-github';
 
 // Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.
 async function terminateJobWorkflow(env: AppBindings, job: { id: string; workflowInstanceId?: string | null }) {

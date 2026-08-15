@@ -1,11 +1,7 @@
+import { Badge, Button, GithubMark, Input, LinkButton, Skeleton } from '@codra/ui';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
-import { Button, LinkButton } from '@client/components/ui/button';
-import { Input } from '@client/components/ui/input';
-import { Badge } from '@client/components/ui/badge';
-import { Skeleton } from '@client/components/shared/skeleton';
-import { GithubMark } from '@client/components/shared/github-mark';
 import { ExternalLink, Pencil, Check, X } from 'lucide-react';
 import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
 

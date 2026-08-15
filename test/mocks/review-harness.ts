@@ -1,5 +1,5 @@
 import { runReviewJob } from '@server/core/review';
-import { runWithDb, queryRows } from '@server/db/client';
+import { runWithDb, queryRows } from '@codra/db/client';
 import type { AppBindings } from '@server/env';
 
 // Drives a review job through every phase the way the workflow would, in-process.

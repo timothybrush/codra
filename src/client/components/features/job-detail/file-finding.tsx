@@ -3,11 +3,11 @@ import remarkGfm from 'remark-gfm';
 import { ChevronRight } from 'lucide-react';
 import type { FileReviewRecord, ParsedReviewComment } from '@codra/schema';
 import { CommentCard } from './comment-card';
-import { preventToggleOnTextSelection } from '@client/lib/selection';
+import { preventToggleOnTextSelection } from '@codra/ui/selection';
 import { MonoPath, StatusDot, VerdictPill } from './job-chips';
 import { statusLabel } from './job-chip-utils';
 
-import { safeRehypePlugins } from '@client/lib/markdown-plugins';
+import { safeRehypePlugins } from '@codra/ui/markdown-plugins';
 interface FileFindingProps {
   file: FileReviewRecord;
 }

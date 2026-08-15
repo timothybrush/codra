@@ -1,7 +1,7 @@
 import { defaultRepoConfig, normalizeRepoModelConfig, repoConfigSchema, type RepoConfig } from '@codra/schema';
-import { REPO_CONFIG_CACHE_VERSION } from '@codra/schema/config';
+import { REPO_CONFIG_CACHE_VERSION } from '@codra/schema';
 import type { AppBindings } from '@server/env';
-import { getRepoConfigRecord, syncRepoConfig } from '@server/db/repo-configs';
+import { getRepoConfigRecord, syncRepoConfig } from '@codra/db/repo-configs';
 
 type CachedConfig = {
   parsedJson: RepoConfig;

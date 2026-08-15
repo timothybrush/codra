@@ -1,7 +1,7 @@
 import { foldEvidenceText } from '../fingerprint';
 import type { DiffLine, FileDiff } from '../diff';
 
-export const MIN_DISCRIMINATING_EVIDENCE_CHARS = 8;
+import { MIN_DISCRIMINATING_EVIDENCE_CHARS } from '../constants';
 
 export type EvidenceIndex = {
   byContent: Map<string, DiffLine[]>;

@@ -1,5 +1,16 @@
 {
   "name": "@codra/worker",
   "version": "0.9.4",
-  "private": true
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@codra/core": "*",
+    "@codra/db": "*",
+    "@codra/schema": "*",
+    "hono": "^4.12.25"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "wrangler": "^4.114.0"
+  }
 }

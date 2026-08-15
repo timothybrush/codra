@@ -11,7 +11,8 @@
     "./hex": "./src/hex.ts",
     "./review-limits": "./src/review-limits.ts",
     "./timezone": "./src/timezone.ts",
-    "./transient-errors": "./src/transient-errors.ts"
+    "./transient-errors": "./src/transient-errors.ts",
+    "./webhook": "./src/webhook.ts"
   },
   "dependencies": {
     "zod": "^4.3.6"

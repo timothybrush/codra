@@ -1,8 +1,9 @@
+import { Skeleton } from '@codra/ui';
 import { Link } from 'react-router-dom';
 import { FolderGit2, GitCommitHorizontal, GitPullRequest } from 'lucide-react';
-import { Skeleton } from '@client/components/shared/skeleton';
+
 import { VerdictPill, MetaChip, AuthorAvatar } from '@client/components/features/job-detail/job-chips';
-import { cn } from '@client/lib/utils';
+import { cn } from '@codra/ui/utils';
 import { formatDateTime } from '@client/lib/timezone';
 import { STATUS_DOT, formatRelativeDate, jobDuration, statusLabel } from '@client/lib/job-format';
 

@@ -28,7 +28,7 @@ function verifyCandidateLimit(effectiveMaxComments: number) {
   return Math.min(40, Math.max(10, effectiveMaxComments * 3));
 }
 
-const VERIFY_MIN_ANSWER_RATIO = 0.6;
+import { VERIFY_MIN_ANSWER_RATIO } from './constants';
 
 export type VerifyDrop = {
   comment: ParsedReviewComment;

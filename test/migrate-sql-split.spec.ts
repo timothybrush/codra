@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readDollarQuoteTag, splitSqlStatements } from '../scripts/migrate-sql-split.mjs';
+// @ts-expect-error - No declaration file for this script
+import { readDollarQuoteTag, splitSqlStatements } from '../packages/db/scripts/migrate-sql-split.mjs';
 
 describe('readDollarQuoteTag', () => {
   it('reads the bare $$ tag', () => {

@@ -12,4 +12,8 @@ export interface IdGenerator {
   randomUUID(): string;
 }
 
+export interface SecretStore {
+  getSecret(key: string): Promise<string | null>;
+}
+
 export type { Logger } from '../logger';

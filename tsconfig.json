@@ -25,8 +25,8 @@
     "types": ["vite/client", "node", "vitest/globals"]
   },
   "include": [
-    "worker-configuration.d.ts",
-    "src/server/worker-env.d.ts",
+    "apps/worker/worker-configuration.d.ts",
+    "apps/worker/src/worker-env.d.ts",
     "vite.config.ts",
     "vitest.config.ts",
     "src/**/*.ts",
@@ -39,6 +39,7 @@
     // `tsc -p` (npm run typecheck:all) is the narrower program that enforces its boundaries, since
     // this one has worker-configuration.d.ts in scope and would happily accept a KVNamespace.
     "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.tsx",
     "packages/*/test/**/*.ts"
   ]
 }

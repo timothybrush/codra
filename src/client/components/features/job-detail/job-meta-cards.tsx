@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { AtSign, ExternalLink, Info, ListChecks, RotateCcw, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, formatPreciseDuration } from '@client/lib/utils';
+import { cn, formatPreciseDuration } from '@codra/ui/utils';
 import type { JobDetail, JobStep } from '@codra/schema';
 import {
   EmptyValue,

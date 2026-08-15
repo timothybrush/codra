@@ -16,7 +16,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/**/*.spec.ts', 'test/**/*.spec.tsx'],
-    setupFiles: ['./test/setup.ts'],
+    passWithNoTests: true,
+    setupFiles: [resolve(__dirname, './test/setup.ts')],
     // The suite is dominated by round trips to a remote Postgres, so wall clock is latency-bound,
     // not CPU-bound: running files concurrently overlaps the waiting. Safe because DB-backed suites
     // isolate by unique row names (see `uniqueName`) and nothing truncates a shared table.
