@@ -2,7 +2,6 @@ import type { DbEnv } from './env';
 import type { SuppressedFinding } from '@codra/core/ports';
 import { queryRows } from './client';
 
-// Part of the FileReviewStore port contract; @codra/core/ports owns it and this module re-exports.
 export type { SuppressedFinding } from '@codra/core/ports';
 
 // Findings already posted on an EARLIER commit with the anchored line unchanged, or rejected by a human anywhere in this repository.

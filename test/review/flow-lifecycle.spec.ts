@@ -35,9 +35,9 @@ vi.mock('@codra/provider-github', async (importOriginal) => {
   return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@server/services/model', async () => {
+vi.mock('@codra/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
+  return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 // Whether the maintenance sweep would pick THIS job up, mirroring its predicate exactly. Asserted

@@ -1,6 +1,7 @@
 import type { DbEnv } from './env';
 
 import { queryRows } from './client';
+import { PROVIDER_COLUMNS, MODEL_SELECT } from './constants';
 import {
   KIMI_K2_5_MODEL,
   llmProviderSchema,
@@ -68,19 +69,9 @@ function mapModelConfig(row: ModelConfigRow): ModelConfig {
 }
 
 // The llm_providers column list, in one place, since it was inlined at six sites before, all needing updates for one new column.
-const PROVIDER_COLUMNS = 'id, name, api_format, base_url, encrypted_api_key, enabled, created_at, updated_at';
 
-const MODEL_SELECT = `
-  SELECT
-    mc.model_id,
-    mc.provider_id,
-    p.name AS provider_name,
-    p.api_format,
-    mc.model_name,
-    mc.updated_at
-  FROM model_configs mc
-  JOIN llm_providers p ON p.id = mc.provider_id
-`;
+
+
 
 export async function listLlmProviders(env: DbEnv): Promise<LlmProvider[]> {
   const rows = await queryRows<ProviderRow>(

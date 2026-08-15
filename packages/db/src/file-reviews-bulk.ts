@@ -63,8 +63,6 @@ export async function bulkInheritFileReviews(
   });
 }
 
-// Part of the FileReviewStore port contract, so @codra/core/ports owns the shape and this module
-// re-exports it: one definition, and the engine does not depend on this file.
 export type { BulkFileReviewInput } from '@codra/core/ports';
 
 // One transaction: per-file upserts would spend the saved model calls back on DB subrequests. `diff_input` is not written (migration 003 nulls it).
@@ -120,25 +118,16 @@ export async function bulkUpsertFileReviews(
           transient_error_count = 0
         RETURNING id, file_path
       `,
-      [
-        jobId,
-        inputs.map((i) => i.filePath),
-        inputs.map((i) => i.fileStatus),
-        inputs.map((i) => i.modelUsed),
-        inputs.map((i) => i.diffLineCount),
-        inputs.map((i) => i.rawAiOutput),
-        inputs.map((i) => i.inputTokens),
-        inputs.map((i) => i.outputTokens),
-        inputs.map((i) => i.durationMs),
-        inputs.map((i) => i.verdict),
-        inputs.map((i) => i.fileSummary),
-        inputs.map((i) => i.overallCorrectness ?? null),
-        inputs.map((i) => i.confidenceScore ?? null),
-        inputs.map((i) => i.errorMessage),
-        inputs.map((i) => i.modelProvider ?? null),
-        inputs.map((i) => (i.withheldCounts ? JSON.stringify(i.withheldCounts) : null)),
-        inputs.map((i) => i.batchSize),
-      ],
+      (() => {
+        const res: any[] = [jobId, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
+        for (const i of inputs) {
+          res[1].push(i.filePath); res[2].push(i.fileStatus); res[3].push(i.modelUsed); res[4].push(i.diffLineCount);
+          res[5].push(i.rawAiOutput); res[6].push(i.inputTokens); res[7].push(i.outputTokens); res[8].push(i.durationMs);
+          res[9].push(i.verdict); res[10].push(i.fileSummary); res[11].push(i.overallCorrectness ?? null); res[12].push(i.confidenceScore ?? null);
+          res[13].push(i.errorMessage); res[14].push(i.modelProvider ?? null); res[15].push(i.withheldCounts ? JSON.stringify(i.withheldCounts) : null); res[16].push(i.batchSize);
+        }
+        return res;
+      })(),
     );
 
     await tx.query('DELETE FROM review_comments WHERE file_review_id = ANY($1::uuid[])', [inserted.map((r) => r.id)]);

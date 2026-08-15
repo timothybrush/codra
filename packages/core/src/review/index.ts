@@ -80,7 +80,6 @@ export type ReviewJobRunResult =
 export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): Promise<ReviewJobRunResult> {
   const resolved = await resolveQueuedJob(env, message);
   if (!resolved) {
-    console.error('TRACE: resolveQueuedJob returned null');
     return { action: 'ack' };
   }
 
@@ -97,12 +96,10 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
   const leaseOwner = env.ids.randomUUID();
   const claim = await env.jobs.claimJobLease(resolved.job.id, leaseOwner, JOB_LEASE_SECONDS);
   if (claim.status === 'missing') {
-    console.error('TRACE: claim status missing');
     logger.warn(`Job not found for processing: ${resolved.job.id}`);
     return { action: 'ack' };
   }
   if (claim.status === 'terminal') {
-    console.error('TRACE: claim status terminal');
     logger.info(`Job ${resolved.job.id} is already terminal (${claim.row.status}), acking queue delivery.`);
     return { action: 'ack' };
   }
@@ -129,7 +126,6 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
     model = env.createModel(job.id, tracker);
     formatter = env.createFormatter();
   } catch (err) {
-    console.error('INITIALIZATION FAILED', err);
     throw err;
   }
 
@@ -143,7 +139,6 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
     }
 
     await env.jobs.releaseJobLease(job.id, leaseOwner);
-    console.error('TRACE: finished successfully, returning ack');
     return { action: 'ack' };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unknown review failure';

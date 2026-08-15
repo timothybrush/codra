@@ -33,9 +33,9 @@ vi.mock('@codra/provider-github', async (importOriginal) => {
   return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@server/services/model', async () => {
+vi.mock('@codra/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
+  return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
@@ -56,7 +56,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
 
   it('reviews files in a chunk concurrently', async () => {
     const { GitHubService } = await import('@codra/provider-github');
-    const { ModelService } = await import('@server/services/model');
+    const { ModelRunner } = await import('@codra/models');
     const repo = uniqueRepo('concurrent');
     const headSha = sha('8');
     const baseSha = sha('9');
@@ -68,7 +68,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
     );
     let active = 0;
     let maxActive = 0;
-    const reviewSpy = vi.spyOn(ModelService.prototype as any, 'reviewFile').mockImplementation(async (params: any) => {
+    const reviewSpy = vi.spyOn(ModelRunner.prototype as any, 'reviewFile').mockImplementation(async (params: any) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -131,7 +131,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
 
   it('marks completed jobs with skipped files as partial reviews', async () => {
     const { GitHubService } = await import('@codra/provider-github');
-    const { ModelService } = await import('@server/services/model');
+    const { ModelRunner } = await import('@codra/models');
     const repo = uniqueRepo('partial');
     const headSha = sha('e');
     const baseSha = sha('f');
@@ -156,7 +156,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
       baseRef: 'main',
       configSnapshot: defaultRepoConfig,
     });
-    const summarySpy = vi.spyOn(ModelService.prototype as any, 'generateSummary');
+    const summarySpy = vi.spyOn(ModelRunner.prototype as any, 'generateSummary');
     await updateJobFileCount(env, job.id, 2);
     await updateJobStep(env, job.id, 'Preparation', { status: 'done' });
     await updateJobStep(env, job.id, 'Reviewing Files', { status: 'done' });

@@ -1,4 +1,4 @@
-import type { DashboardSessionUser } from '@server/env';
+import type { DashboardSessionUser } from '@codra/core';
 import type { AppBindingsConfig } from './service';
 
 export type GitHubOAuthProfile = {

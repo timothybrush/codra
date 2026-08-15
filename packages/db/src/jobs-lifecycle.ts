@@ -3,7 +3,6 @@ import { queryRows } from './client';
 import type { JobRow } from './jobs-mapping';
 import { markSystemActive } from './jobs-activity';
 
-// Import from db/jobs.ts, not from here.
 
 export async function updateJobCheckRun(env: DbEnv, jobId: string, checkRunId: number) {
   await queryRows(
@@ -122,7 +121,7 @@ export async function failJob(env: Pick<DbEnv, 'HYPERDRIVE' | 'APP_KV'>, jobId: 
   await markSystemActive(env);
 }
 
-// Clears the lease so recovery won't requeue it. Returns false if already terminal; caller must terminate the Cloudflare Workflow instance separately.
+// Clears lease. Returns false if terminal (caller must terminate Workflow).
 export async function cancelJob(env: Pick<DbEnv, 'HYPERDRIVE' | 'APP_KV'>, jobId: string): Promise<boolean> {
   const rows = await queryRows<{ id: string }>(
     env,
@@ -155,7 +154,7 @@ export async function cancelJob(env: Pick<DbEnv, 'HYPERDRIVE' | 'APP_KV'>, jobId
   return rows.length > 0;
 }
 
-// file_reviews/review_comments cascade automatically; child retry jobs have retry_of_job_id nulled instead of being deleted.
+// review_comments cascade; child retries have retry_of_job_id nulled.
 export async function deleteJob(env: DbEnv, jobId: string): Promise<boolean> {
   const rows = await queryRows<{ id: string }>(
     env,

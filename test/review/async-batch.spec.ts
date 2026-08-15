@@ -37,7 +37,7 @@ vi.mock('@codra/provider-github', async (importOriginal) => {
 // pending, the second completes. reviewFile must NOT be called on the async path.
 const pollCalls = { count: 0 };
 const reviewFileSpy = vi.fn();
-vi.mock('@server/services/model', async () => {
+vi.mock('@codra/models', async () => {
   class MockModelService {
     async submitReviewBatch() {
       return { requestId: 'req-async-1', model: '@cf/moonshotai/kimi-k2.6' };
@@ -62,7 +62,7 @@ vi.mock('@server/services/model', async () => {
     async generateSummary() { return { modelUsed: 'm', provider: 'p', rawText: '{"summary":"s"}', inputTokens: 1, outputTokens: 1 }; }
   }
   const { nextChainIndexOfMock } = await import('../mocks/services');
-  return { ModelService: MockModelService, isRetryableModelError: (e: unknown) => Boolean(e && typeof e === 'object' && (e as any).retryable === true), nextChainIndexOf: nextChainIndexOfMock };
+  return { ModelRunner: MockModelService, isRetryableModelError: (e: unknown) => Boolean(e && typeof e === 'object' && (e as any).retryable === true), nextChainIndexOf: nextChainIndexOfMock };
 });
 
 

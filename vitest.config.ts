@@ -9,6 +9,7 @@ export default defineConfig({
       '@server': resolve(__dirname, './src/server'),
       '@client': resolve(__dirname, './src/client'),
       '@': resolve(__dirname, './src/client'),
+      '@codra/models': resolve(__dirname, './packages/models/src'),
       'cloudflare:workers': resolve(__dirname, './test/mocks/cloudflare-workers.ts'),
     },
   },

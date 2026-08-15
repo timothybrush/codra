@@ -1,9 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2024"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@client/*": ["./src/client/*", "../../src/client/*"],
+      "@server/*": ["./src/server/*", "../../src/server/*"],
+      "@/*": ["./src/client/*", "../../src/client/*"]
+    },
     "strict": true,
     "composite": true,
     "declaration": true,

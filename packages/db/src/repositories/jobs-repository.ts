@@ -27,20 +27,14 @@ import {
   clearSystemActive,
 } from '../jobs';
 
-// Pins PersistedReviewJob to what mapJob actually returns, in both directions. mapJob ends in
-// jobSummarySchema.parse(), so the two are already the same type -- this makes that a compile error
-// to break rather than something to notice later.
+// Pins PersistedReviewJob to mapJob's return type for compile-time safety.
 type _PinPersistedReviewJob = ReturnType<typeof mapJob> extends PersistedReviewJob
   ? PersistedReviewJob extends ReturnType<typeof mapJob> ? true : never
   : never;
 const _pinPersistedReviewJob: _PinPersistedReviewJob = true;
 void _pinPersistedReviewJob;
 
-// JobLeaseClaim is the one port contract that stays hand-copied rather than re-exported: the db
-// version carries the FULL jobs row, which the engine must not see, so the two cannot be the same
-// type. This pins the part that matters -- the discriminant set and the extra `busy` field -- so
-// adding a fifth status on the db side is a compile error here rather than a silent fall-through in
-// the engine's claim ladder.
+// Hand-copied because DB version has full job row. Pins status/busy fields.
 type _PinLeaseStatuses = Awaited<ReturnType<typeof claimJobLease>>['status'] extends CoreJobLeaseClaim['status']
   ? CoreJobLeaseClaim['status'] extends Awaited<ReturnType<typeof claimJobLease>>['status'] ? true : never
   : never;

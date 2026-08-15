@@ -1,6 +1,6 @@
 import type { ParsedReviewComment } from '@codra/schema';
 
-// One definition of the `review_comments` field list, shared by every reader/writer. Exception: `bulkInheritFileReviews` in file-reviews-bulk.ts hand-writes its own, so columns added here go there too.
+// Shared review_comments field list. Update bulkInheritFileReviews if changed.
 
 // Column order for INSERT INTO review_comments (...). Must match REVIEW_COMMENT_INSERT_CASTS.
 export const REVIEW_COMMENT_INSERT_COLUMNS = [

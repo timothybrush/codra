@@ -2,11 +2,12 @@ import type { GitProviderFactory, ModelErrorClassifier, ReviewFormatter, ReviewG
 import type { TokenTracker } from '@codra/core/token-tracker';
 import type { AppBindings } from '@server/env';
 import { GitHubService } from '@codra/provider-github';
-import { isRetryableModelError, ModelService, nextChainIndexOf } from '@server/services/model';
+import { isRetryableModelError, ModelRunner, nextChainIndexOf } from '@codra/models';
 import { FormatterService } from '@server/services/formatter';
+import { getResolvedModelConfig } from '@codra/db/model-configs';
 
 // The only place the four job-scoped collaborators are constructed. Every specifier above is the
-// barrel form on purpose: nine specs vi.mock '@server/services/github' and '@server/services/model',
+// barrel form on purpose: nine specs vi.mock '@server/services/github' and '@codra/models',
 // and reaching for a sibling here would bypass those mocks while the tests kept passing.
 
 export function makeGitHubFactory(env: AppBindings) {
@@ -15,7 +16,16 @@ export function makeGitHubFactory(env: AppBindings) {
 }
 
 export function makeModelFactory(env: AppBindings) {
-  return (jobId: string, tracker: TokenTracker): ReviewModel => new ModelService(env, tracker, { jobId });
+  return (jobId: string, tracker: TokenTracker): ReviewModel => new ModelRunner({
+    kv: env.APP_KV as any, // APP_KV matches KvStore interface
+    secretStore: {
+      getSecret: async (key) => env[key as keyof AppBindings] as string || null,
+    },
+    getConfig: (modelId) => getResolvedModelConfig(env, modelId),
+    aiBinding: env.AI,
+    tracker,
+    jobId,
+  });
 }
 
 export function makeFormatterFactory(env: AppBindings) {

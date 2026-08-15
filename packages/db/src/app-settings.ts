@@ -1,14 +1,21 @@
 import type { DbEnv } from './env';
 import { queryRows } from './client';
-import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@codra/schema';
+import {
+  CONCURRENCY_KEY,
+  MAX_COMMENTS_KEY,
+  MAX_FILES_KEY,
+  CONCURRENCY_LEVELS,
+  MAX_COMMENTS_OPTIONS
+} from './constants';
+import { reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@codra/schema';
 
-const CONCURRENCY_KEY = 'review_concurrency_level';
-const MAX_COMMENTS_KEY = 'review_max_comments';
-const MAX_FILES_KEY = 'review_max_files';
+
+
+
 
 const DEFAULT_REVIEW_SETTINGS: ReviewSettings = reviewSettingsSchema.parse({});
-const CONCURRENCY_LEVELS = new Set<string>(reviewConcurrencyLevels);
-const MAX_COMMENTS_OPTIONS = new Set<number>(reviewMaxCommentsOptions);
+
+
 
 export async function getReviewSettings(env: DbEnv): Promise<ReviewSettings> {
   try {

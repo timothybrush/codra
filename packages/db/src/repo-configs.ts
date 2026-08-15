@@ -78,7 +78,7 @@ export async function upsertRepoConfig(
   );
 }
 
-// Only creates the record if missing, so an existing repo's model overrides are never overwritten.
+// Creates record if missing; preserves model overrides.
 export async function syncRepoConfig(
   env: DbEnv,
   input: {

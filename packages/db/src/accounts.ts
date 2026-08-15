@@ -1,5 +1,6 @@
 import type { DbEnv } from './env';
 import { queryRows } from './client';
+import { ACCOUNT_COLUMNS } from './constants';
 
 // Durable account record (see db/migrations/004_account_settings.sql).
 export type AccountSettingsRecord = {
@@ -29,12 +30,12 @@ type Row = {
   timezone: string | null;
 };
 
-const COLUMNS = 'id, github_user_id, github_username, account_name, account_email, timezone';
+
 
 function mapRow(row: Row): AccountSettingsRecord {
   return {
     id: row.id,
-    // BIGINT comes back as a string from postgres.js; GitHub ids are well within Number's safe integer range.
+    // BIGINT returns as string; GitHub ids fit in Number.
     githubUserId: Number(row.github_user_id),
     githubUsername: row.github_username,
     accountName: row.account_name,
@@ -57,7 +58,7 @@ export async function upsertAccountSettings(
        account_name    = COALESCE(account_settings.account_name, EXCLUDED.account_name),
        account_email   = EXCLUDED.account_email,
        updated_at      = now()
-     RETURNING ${COLUMNS}`,
+     RETURNING ${ACCOUNT_COLUMNS}`,
     [input.githubUserId, input.githubUsername, input.accountName, input.accountEmail],
   );
   return mapRow(rows[0]);
@@ -69,13 +70,13 @@ export async function getAccountSettings(
 ): Promise<AccountSettingsRecord | null> {
   const rows = await queryRows<Row>(
     env,
-    `SELECT ${COLUMNS} FROM account_settings WHERE github_user_id = $1`,
+    `SELECT ${ACCOUNT_COLUMNS} FROM account_settings WHERE github_user_id = $1`,
     [githubUserId],
   );
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-// Only keys present in `patch` are written, so one field can't clobber the other; `timezone: null` is a meaningful value ("follow the browser"), hence the `!== undefined` checks.
+// Only write present keys; `timezone: null` is meaningful.
 export async function updateAccountSettings(
   env: DbEnv,
   githubUserId: number,
@@ -99,7 +100,7 @@ export async function updateAccountSettings(
     `UPDATE account_settings
      SET ${assignments.join(', ')}, updated_at = now()
      WHERE github_user_id = $1
-     RETURNING ${COLUMNS}`,
+     RETURNING ${ACCOUNT_COLUMNS}`,
     params,
   );
   return rows[0] ? mapRow(rows[0]) : null;

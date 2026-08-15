@@ -1,37 +1,8 @@
-import type { ReviewJobMessage } from '@codra/schema';
-
-export interface WorkersAiBinding {
-  run(model: string, input: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<any>;
-}
-
-export interface QueueProducer<T> {
-  send(message: T, options?: { delaySeconds?: number }): Promise<void>;
-}
-
-export interface AssetsBinding {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-}
-
-export interface HyperdriveBinding {
-  connectionString: string;
-}
-
-export interface DashboardSessionUser {
-  githubUserId: number;
-  login: string;
-  name: string | null;
-  avatarUrl: string | null;
-  email: string | null;
-  signedInAt: string;
-}
+import type { DashboardSessionUser, SessionStore } from '@codra/core';
+export type { DashboardSessionUser };
 
 export interface AppBindings {
-  AI: WorkersAiBinding;
-  APP_KV: KVNamespace;
-  REVIEW_QUEUE: QueueProducer<ReviewJobMessage>;
-  REVIEW_WORKFLOW: Workflow;
-  ASSETS: AssetsBinding;
-  HYPERDRIVE: HyperdriveBinding;
+  SESSION_STORE: SessionStore;
   APP_PRIVATE_KEY: string;
   GITHUB_APP_ID: string;
   GITHUB_APP_SLUG?: string;
@@ -44,8 +15,18 @@ export interface AppBindings {
   LLM_CONFIG_ENCRYPTION_KEY: string;
   BOT_USERNAME: string;
   ENVIRONMENT: string;
+  
+  // These are still used by DB for now, until DB is fully ported
   CF_API_TOKEN: string;
   CF_ACCOUNT_ID: string;
+
+  // Temporary aliases while we port everything else
+  APP_KV: any;
+  REVIEW_QUEUE: any;
+  REVIEW_WORKFLOW: any;
+  ASSETS: any;
+  HYPERDRIVE: any;
+  AI: any;
 }
 
 export interface AppVariables {

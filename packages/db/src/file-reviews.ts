@@ -134,7 +134,7 @@ export async function upsertFileReview(
         input.modelProvider ?? null,
         input.asyncRequestId ?? null,
         input.asyncModel ?? null,
-        // JSON text into a `::text::jsonb` placeholder: the one jsonb-writing idiom (see normalizeParam in db/client.ts); mixing idioms is how the string-scalar bug spread to five columns.
+        // JSON text to ::text::jsonb placeholder prevents string-scalar bugs.
         input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
       ],
     );

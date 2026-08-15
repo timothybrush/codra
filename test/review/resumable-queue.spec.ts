@@ -1,4 +1,4 @@
-import worker from '@server/index';
+import worker from '../../apps/worker/src/index';
 import { claimJobLease, getJobForProcessing, insertJob, markJobContinuationQueued, recoverExpiredJobLeases, releaseJobLease } from '@codra/db/jobs';
 import { getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@codra/db/file-reviews';
 import { getDb } from '@codra/db/client';

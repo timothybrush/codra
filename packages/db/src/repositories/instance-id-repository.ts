@@ -1,8 +1,9 @@
 import type { InstanceIdStore } from '@codra/core/ports';
 import type { DbEnv } from '../env';
 import { queryRows } from '../client';
+import { INSTANCE_ID_KEY } from '../constants';
 
-const INSTANCE_ID_KEY = 'codra:instance_id';
+
 
 export function makeInstanceIdStore(env: DbEnv): InstanceIdStore {
   return {
@@ -18,8 +19,7 @@ export function makeInstanceIdStore(env: DbEnv): InstanceIdStore {
             'INSERT INTO global_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', 
             [INSTANCE_ID_KEY, instanceId]
           );
-          // Fetch again in case another instance inserted it concurrently
-          const rowsAfter = await queryRows<{ value: string }>(env, 'SELECT value FROM global_settings WHERE key = $1', [INSTANCE_ID_KEY]);
+                const rowsAfter = await queryRows<{ value: string }>(env, 'SELECT value FROM global_settings WHERE key = $1', [INSTANCE_ID_KEY]);
           instanceId = rowsAfter[0]?.value ?? instanceId;
         }
         return instanceId;

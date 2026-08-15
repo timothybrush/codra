@@ -34,9 +34,9 @@ vi.mock('@codra/provider-github', async (importOriginal) => {
   return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@server/services/model', async () => {
+vi.mock('@codra/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
-  return { ModelService: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
+  return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 dbDescribe('Review flow: retries, inheritance and continuations', () => {
@@ -97,8 +97,8 @@ dbDescribe('Review flow: retries, inheritance and continuations', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('does not inherit parent file reviews from models outside the current retry strategy', async () => {
-    const { ModelService } = await import('@server/services/model');
-    const reviewSpy = vi.spyOn(ModelService.prototype, 'reviewFile');
+    const { ModelRunner } = await import('@codra/models');
+    const reviewSpy = vi.spyOn(ModelRunner.prototype, 'reviewFile');
     const repo = uniqueRepo('retry-model-filter');
     const sourceHeadSha = sha('8');
     const retryHeadSha = sha('9');
@@ -181,8 +181,8 @@ dbDescribe('Review flow: retries, inheritance and continuations', () => {
     // Regression: file reviews persist the bare model id (e.g. `gemini-3.1-flash-lite`) while the
     // configured strategy stores the provider-qualified id (e.g. `google:gemini-3.1-flash-lite`).
     // Inheritance must match on the bare name; otherwise every retry re-reviews every file.
-    const { ModelService } = await import('@server/services/model');
-    const reviewSpy = vi.spyOn(ModelService.prototype, 'reviewFile');
+    const { ModelRunner } = await import('@codra/models');
+    const reviewSpy = vi.spyOn(ModelRunner.prototype, 'reviewFile');
     const repo = uniqueRepo('retry-prefix');
     const sourceHeadSha = sha('a');
     const retryHeadSha = sha('b');
@@ -312,9 +312,9 @@ dbDescribe('Review flow: retries, inheritance and continuations', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('schedules a delayed continuation instead of spending queue retries on transient model failures', async () => {
-    const { ModelService } = await import('@server/services/model');
+    const { ModelRunner } = await import('@codra/models');
     const retryableError = Object.assign(new Error('Google API timed out after 45000ms'), { retryable: true });
-    const reviewSpy = vi.spyOn(ModelService.prototype, 'reviewFile').mockRejectedValue(retryableError);
+    const reviewSpy = vi.spyOn(ModelRunner.prototype, 'reviewFile').mockRejectedValue(retryableError);
     const repo = uniqueRepo('transient');
     const headSha = sha('6');
     const baseSha = sha('7');

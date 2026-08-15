@@ -3,7 +3,6 @@ import { queryRows } from './client';
 import type { JobRow } from './jobs-mapping';
 import { markSystemActive } from './jobs-activity';
 
-// Import from db/jobs.ts, not here.
 
 // Lives here rather than with the other read queries because claimJobLease is its main caller; keeping it in the barrel would make jobs.ts <-> jobs-leases.ts an import cycle.
 export async function getJobForProcessing(env: DbEnv, jobId: string) {
@@ -130,7 +129,7 @@ export async function releaseJobLease(env: DbEnv, jobId: string, leaseOwner: str
   );
 }
 
-// Bumps the no-progress continuation counter for a job rescheduling the same phase; cleared by resetJobContinuationCount() whenever a chunk completes a file, so a stuck job climbs toward MAX_JOB_CONTINUATIONS.
+// Bumps continuation counter; cleared on file completion to detect stuck jobs.
 export async function markJobContinuationQueued(env: DbEnv, jobId: string, delaySeconds = 0) {
   const rows = await queryRows<{ continuation_count: number }>(
     env,
@@ -151,8 +150,7 @@ export async function markJobContinuationQueued(env: DbEnv, jobId: string, delay
   return rows[0]?.continuation_count ?? 0;
 }
 
-// Clears the no-progress continuation counter after a chunk completes at least one file review,
-// so slow-but-progressing jobs never trip the MAX_JOB_CONTINUATIONS safety net.
+// Clears continuation counter on file completion.
 export async function resetJobContinuationCount(env: DbEnv, jobId: string) {
   await queryRows(
     env,
@@ -167,9 +165,7 @@ export async function resetJobContinuationCount(env: DbEnv, jobId: string) {
   );
 }
 
-// `onlyJobIds` narrows both sweeps to specific jobs. Production leaves it unset and takes the whole
-// table; tests pass their own job so the LIMIT 25 window and FOR UPDATE SKIP LOCKED cannot hand the
-// slot to an unrelated stale 'running' row inserted by a suite running in a parallel worker.
+// onlyJobIds isolates tests from stealing stale rows.
 export async function recoverExpiredJobLeases(
   env: DbEnv,
   maxRecoveryCount = 3,

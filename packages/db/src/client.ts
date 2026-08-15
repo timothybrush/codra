@@ -62,19 +62,10 @@ export function runWithDb<T>(env: DbEnv, fn: () => T): T {
   return dbStorage.run(createDbClient(env), fn);
 }
 
-// Keyed by connection string so a caller outside a runWithDb() scope shares one bounded pool instead of leaking a fresh pool per query.
-//
-// This Map lives at MODULE SCOPE, which in Workers outlives the request that filled it -- so a cached
-// client holds a socket opened in an earlier request context, and the next request to reuse it dies with
-// "Cannot perform I/O on behalf of a different request". It was described as test-only ("production
-// always wraps work in runWithDb()"), but production hit it repeatedly: binding a workflow ID to a job,
-// recovering expired job leases, and at least one outright failed file review. AsyncLocalStorage context
-// can also be lost crossing into a Workflow/jsrpc entrypoint, which drops callers onto this path without
-// them changing anything. So the cache has to be self-healing rather than merely convenient.
+// Module-scoped Map pools connections outside runWithDb, but must self-heal when request context changes.
 const fallbackClients = new Map<string, DbClient>();
 
-// Both faces of a socket belonging to a dead request context: the runtime's refusal, and a pooled
-// connection that was already torn down with it.
+// Catch dead request context I/O errors and terminated connections.
 function isStaleConnectionError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes('Cannot perform I/O on behalf of a different request')
@@ -94,10 +85,7 @@ export function getDb(env: DbEnv) {
   return client;
 }
 
-// Runs `op` against the ambient client, and if a request-scoped socket from the module cache has gone
-// stale, discards it and retries ONCE on a fresh one. Only the cached path is retried: inside
-// runWithDb() the client belongs to this request already, so the same error there is a real bug and must
-// surface rather than be papered over.
+// Retries op once on a fresh client if the module-cached socket has gone stale.
 async function withStaleConnectionRecovery<T>(env: DbEnv, op: (db: DbClient) => Promise<T>): Promise<T> {
   const inScope = dbStorage.getStore() !== undefined;
   try {

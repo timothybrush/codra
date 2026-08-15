@@ -20,7 +20,7 @@ vi.mock('@codra/db/jobs', async (importOriginal) => ({
   hasPendingMaintenanceWork: hasPendingMaintenanceWorkMock,
 }));
 
-import worker from '@server/index';
+import worker from '../../apps/worker/src/index';
 
 const controller = {} as ScheduledController;
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;

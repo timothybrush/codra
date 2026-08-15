@@ -23,7 +23,7 @@ export async function setJobWorkflowInstance(env: DbEnv, jobId: string, workflow
   );
 }
 
-// Values are snapshotted at job-creation time (and copied verbatim onto retries), so without this a title edited on GitHub afterward would keep showing stale on the dashboard.
+// Snapshotted values; prevents stale dashboard if PR title changes.
 export async function setJobPullRequestMeta(
   env: DbEnv,
   jobId: string,
@@ -41,7 +41,7 @@ export async function setJobPullRequestMeta(
   );
 }
 
-// False lets the cron clear `system:active_jobs` so later ticks skip the DB and serverless Postgres can suspend.
+// False allows cron to clear SYSTEM_ACTIVE_JOBS_KEY.
 export async function hasPendingMaintenanceWork(env: DbEnv): Promise<boolean> {
   const rows = await queryRows<{ has_work: boolean }>(
     env,
@@ -321,7 +321,7 @@ export async function findExistingJobForHead(
   return row ? mapJob(row) : null;
 }
 
-// Re-exported so '@server/db/jobs' stays the single import path: eight specs vi.mock this specifier, and a direct sibling import would bypass the mock silently.
+// Re-export so imports use db/jobs.ts (respects vi.mock).
 export { type JobRow, bytesToHex, mapJob } from './jobs-mapping';
 export { markSystemActive, clearSystemActive } from './jobs-activity';
 export {

@@ -1,4 +1,4 @@
-import type { BatchReviewOutcome } from '@server/services/model';
+import type { BatchReviewOutcome } from '@codra/models';
 // Shared service doubles for the DB-backed review suites. `vi.mock` factories are hoisted, so pull
 // these in with a dynamic `await import(...)` inside the factory.
 
@@ -141,7 +141,7 @@ export function makeModelServiceMock(overrides: Record<string, unknown> = {}) {
 export const isRetryableModelErrorMock = (error: unknown) =>
   Boolean(error && typeof error === 'object' && (error as { retryable?: boolean }).retryable === true);
 
-// Every hand-built mock of the '@server/services/model' barrel must include this. The review
+// Every hand-built mock of the '@codra/models' barrel must include this. The review
 // runners call it inside their catch block, so a missing export is a TypeError raised while
 // handling a failure -- which silently converts a deferral into a terminal one.
 export const nextChainIndexOfMock = (error: unknown) => {

@@ -1,4 +1,3 @@
-import { randomHex } from '@codra/schema/hex';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import type { AppEnv, DashboardSessionUser } from '@server/env';
@@ -8,16 +7,9 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 type SessionRecord = DashboardSessionUser;
 
-function sessionKey(token: string) {
-  return `session:${token}`;
-}
 
 export async function createSession(c: Context<AppEnv>, session: SessionRecord) {
-  const token = randomHex();
-
-  await c.env.APP_KV.put(sessionKey(token), JSON.stringify(session), {
-    expirationTtl: SESSION_TTL_SECONDS,
-  });
+  const token = await c.env.SESSION_STORE.createSession(session);
 
   setCookie(c, SESSION_COOKIE_NAME, token, {
     httpOnly: true,
@@ -36,7 +28,7 @@ export async function createSession(c: Context<AppEnv>, session: SessionRecord) 
 export async function destroySession(c: Context<AppEnv>) {
   const token = getCookie(c, SESSION_COOKIE_NAME);
   if (token) {
-    await c.env.APP_KV.delete(sessionKey(token));
+    await c.env.SESSION_STORE.destroySession(token);
   }
 
   c.set('sessionToken', null);
@@ -56,7 +48,7 @@ export async function readSession(c: Context<AppEnv>) {
     return null;
   }
 
-  const session = await c.env.APP_KV.get(sessionKey(token), 'json') as SessionRecord | null;
+  const session = await c.env.SESSION_STORE.readSession(token);
   c.set('sessionUser', session);
   return session;
 }

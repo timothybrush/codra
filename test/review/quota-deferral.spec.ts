@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isRetryableModelError, ModelService } from '@server/services/model';
+import { isRetryableModelError } from '@codra/models';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
 import { defaultRepoConfig } from '@codra/schema';
+import { makeModelFactory } from '@server/adapters/services';
 
 const file = {
   path: 'src/app.ts',
@@ -38,7 +39,7 @@ describe('quota 429 handling', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => quotaResponse(56));
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
-    const service = new ModelService(env);
+    const service = makeModelFactory(env)('job-x', undefined as any);
 
     await expect(
       service.reviewFile({
@@ -107,7 +108,7 @@ describe('learning a provider rate limit from its own 429', () => {
     const fetchMock = googleMock(() => quotaResponse(56));
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
-    const service = new ModelService(env);
+    const service = makeModelFactory(env)('job-x', undefined as any);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
     // First file: metered model 429s, fallback answers.
@@ -129,7 +130,7 @@ describe('learning a provider rate limit from its own 429', () => {
     const fetchMock = googleMock(() => quotaResponse(1));
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
-    const service = new ModelService(env);
+    const service = makeModelFactory(env)('job-x', undefined as any);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
     // Teach 16k bucket with small file, let cool-off lapse.
@@ -168,13 +169,13 @@ describe('learning a provider rate limit from its own 429', () => {
     await saveTestProviderApiKey(env);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
-    const first = new ModelService(env, undefined, { jobId: 'job-continuation' });
+    const first = makeModelFactory(env)('job-continuation', undefined as any);
     await first.reviewFile({ ...params, file });
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('pro-preview'))).toBe(true);
 
     // Brand-new service mimics fresh invocation.
     fetchMock.mockClear();
-    const next = new ModelService(env, undefined, { jobId: 'job-continuation' });
+    const next = makeModelFactory(env)('job-continuation', undefined as any);
     await next.reviewFile({ ...params, file: { ...file, path: 'src/second.ts' } });
 
     // Metered model correctly skipped.
@@ -188,11 +189,11 @@ describe('learning a provider rate limit from its own 429', () => {
     await saveTestProviderApiKey(env);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
-    await new ModelService(env, undefined, { jobId: 'job-a' }).reviewFile({ ...params, file });
+    await makeModelFactory(env)('job-a', undefined as any).reviewFile({ ...params, file });
 
     // Unrelated jobs must not inherit cool-offs (which could silently narrow coverage).
     fetchMock.mockClear();
-    await new ModelService(env, undefined, { jobId: 'job-b' }).reviewFile({ ...params, file });
+    await makeModelFactory(env)('job-b', undefined as any).reviewFile({ ...params, file });
 
     expect(fetchMock.mock.calls.map((c) => String(c[0])).some((url) => url.includes('pro-preview'))).toBe(true);
   });
@@ -209,7 +210,7 @@ describe('learning a provider rate limit from its own 429', () => {
 
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
-    const service = new ModelService(env);
+    const service = makeModelFactory(env)('job-x', undefined as any);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
     await service.reviewFile({ ...params, file });

@@ -23,7 +23,7 @@ vi.mock('@codra/db/jobs', async (importOriginal) => ({
 }));
 vi.mock('@codra/db/client', () => ({ runWithDb: (_env: any, fn: any) => fn() }));
 
-import { ReviewWorkflow } from '@server/workflows/review';
+import { ReviewWorkflow } from '../../apps/worker/src/workflows/review';
 
 // step.do(name, optsOrFn, maybeFn) runs the callback; step.sleep is a no-op.
 function makeStep() {
