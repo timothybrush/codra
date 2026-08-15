@@ -18,8 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@codra/schema": "workspace:*",
-    "@codra/core": "workspace:*"
+    "@codra/schema": "*",
+    "@codra/core": "*"
   },
   "devDependencies": {
   }
