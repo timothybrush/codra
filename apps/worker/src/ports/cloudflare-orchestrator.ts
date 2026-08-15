@@ -6,7 +6,7 @@ import { setJobWorkflowInstance } from '@codra/db/jobs';
 import { logger } from '@codra/core/logger';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
 import type { AppBindings } from '../env';
-import type { Workflow, WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowStep } from 'cloudflare:workers';
 
 export class CloudflareOrchestrator implements JobOrchestrator {
   constructor(private readonly workflow: Workflow, private readonly env?: AppBindings) {}
