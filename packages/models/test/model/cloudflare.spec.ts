@@ -21,7 +21,7 @@ const input = { systemPrompt: 'sys', userPrompt: 'user' };
 describe('reviewWithCloudflare response extraction', () => {
   it('accepts a structured object response (parsed JSON) and passes it through verbatim', async () => {
     const res = await reviewWithCloudflare(
-      envReturning({ response: REVIEW_JSON, usage: { prompt_tokens: 3, completion_tokens: 4 } }),
+      envReturning({ response: REVIEW_JSON, usage: { prompt_tokens: 3, completion_tokens: 4 } }).AI,
       '@cf/qwen/qwen2.5-coder-32b-instruct',
       input,
     );
@@ -34,7 +34,7 @@ describe('reviewWithCloudflare response extraction', () => {
 
   it('accepts a structured object under a nested result.response', async () => {
     const res = await reviewWithCloudflare(
-      envReturning({ result: { response: REVIEW_JSON } }),
+      envReturning({ result: { response: REVIEW_JSON } }).AI,
       '@cf/qwen/qwen2.5-coder-32b-instruct',
       input,
     );
@@ -44,7 +44,7 @@ describe('reviewWithCloudflare response extraction', () => {
 
   it('still accepts a plain string response (existing behavior)', async () => {
     const res = await reviewWithCloudflare(
-      envReturning({ response: JSON.stringify(REVIEW_JSON) }),
+      envReturning({ response: JSON.stringify(REVIEW_JSON) }).AI,
       '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
       input,
     );
@@ -53,14 +53,14 @@ describe('reviewWithCloudflare response extraction', () => {
 
   it('throws (fails the file) instead of synthesizing a fake review when the model returns nothing usable', async () => {
     await expect(
-      reviewWithCloudflare(envReturning({ something_unexpected: true }), '@cf/qwen/qwen2.5-coder-32b-instruct', input),
+      reviewWithCloudflare(envReturning({ something_unexpected: true }).AI, '@cf/qwen/qwen2.5-coder-32b-instruct', input),
     ).rejects.toThrow(/no reviewable output/i);
   });
 
   it('throws on a reasoning-only / token-truncated response (marks the file failed, not inconclusive)', async () => {
     const reasoningOnly = { choices: [{ finish_reason: 'length', message: { content: null, reasoning: 'thinking, thinking, never answering...' } }] };
     await expect(
-      reviewWithCloudflare(envReturning(reasoningOnly), '@cf/moonshotai/kimi-k2.6', input),
+      reviewWithCloudflare(envReturning(reasoningOnly).AI, '@cf/moonshotai/kimi-k2.6', input),
     ).rejects.toThrow(/no reviewable output/i);
   });
 });
@@ -69,7 +69,7 @@ describe('Cloudflare async batch submit/poll', () => {
   it('submits a batch request and returns the queue request_id', async () => {
     const run = vi.fn().mockResolvedValue({ status: 'queued', request_id: 'req-123', model: '@cf/moonshotai/kimi-k2.6' });
     const env = { AI: { run } } as any;
-    const id = await submitCloudflareBatch(env, '@cf/moonshotai/kimi-k2.6', input);
+    const id = await submitCloudflareBatch(env.AI, '@cf/moonshotai/kimi-k2.6', input);
     expect(id).toBe('req-123');
     // Must send a `requests` array with queueRequest option.
     expect(run.mock.calls[0][1]).toHaveProperty('requests');
@@ -78,13 +78,13 @@ describe('Cloudflare async batch submit/poll', () => {
 
   it('throws when the model does not return a request_id (async unsupported → caller falls back to sync)', async () => {
     const env = { AI: { async run() { return { response: '{"findings":[]}' }; } } } as any;
-    await expect(submitCloudflareBatch(env, '@cf/meta/llama-3.1-8b-instruct', input)).rejects.toThrow(/async queueing unsupported|did not return/i);
+    await expect(submitCloudflareBatch(env.AI, '@cf/meta/llama-3.1-8b-instruct', input)).rejects.toThrow(/async queueing unsupported|did not return/i);
   });
 
   it('reports pending while the batch is queued or running', async () => {
     for (const status of ['queued', 'running']) {
       const env = { AI: { async run() { return { status, request_id: 'req-1' }; } } } as any;
-      const res = await pollCloudflareBatch(env, '@cf/moonshotai/kimi-k2.6', 'req-1');
+      const res = await pollCloudflareBatch(env.AI, '@cf/moonshotai/kimi-k2.6', 'req-1');
       expect(res.status).toBe('pending');
     }
   });
@@ -93,7 +93,7 @@ describe('Cloudflare async batch submit/poll', () => {
     const env = { AI: { async run() {
       return { responses: [{ id: 0, external_reference: 'src/app.ts', result: { response: JSON.stringify(REVIEW_JSON), usage: { prompt_tokens: 5, completion_tokens: 6 } } }] };
     } } } as any;
-    const res = await pollCloudflareBatch(env, '@cf/moonshotai/kimi-k2.6', 'req-1');
+    const res = await pollCloudflareBatch(env.AI, '@cf/moonshotai/kimi-k2.6', 'req-1');
     expect(res.status).toBe('done');
     if (res.status === 'done') {
       expect(JSON.parse(res.response.rawText)).toMatchObject({ overall_correctness: 'patch is correct' });
@@ -106,7 +106,7 @@ describe('Cloudflare async batch submit/poll', () => {
     const env = { AI: { async run() {
       return { result: { responses: [{ id: 0, response: REVIEW_JSON }] } };
     } } } as any;
-    const res = await pollCloudflareBatch(env, '@cf/moonshotai/kimi-k2.6', 'req-1');
+    const res = await pollCloudflareBatch(env.AI, '@cf/moonshotai/kimi-k2.6', 'req-1');
     expect(res.status).toBe('done');
     if (res.status === 'done') {
       expect(JSON.parse(res.response.rawText)).toMatchObject({ overall_explanation: 'Looks good.' });
