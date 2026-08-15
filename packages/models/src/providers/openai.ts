@@ -53,7 +53,11 @@ export async function reviewWithOpenAI(
   assertPublicBaseUrl(config.baseUrl, config.providerName);
   const prompts = jsonOnlyPrompts(input);
 
-  const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  let baseUrl = config.baseUrl;
+  while (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
+  }
+  const url = `${baseUrl}/chat/completions`;
 
   if (tracker) tracker.incrementSubrequests(1);
   const response = await withTimeout('OpenAI API', timeoutMs, (signal) =>

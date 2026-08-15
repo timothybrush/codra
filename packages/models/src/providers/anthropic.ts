@@ -28,7 +28,10 @@ export async function reviewWithAnthropic(
   logger.info(`Calling Anthropic model: ${model}`);
   assertPublicBaseUrl(config.baseUrl, config.providerName);
   const prompts = jsonOnlyPrompts(input);
-  const baseUrl = (config.baseUrl || DEFAULT_ANTHROPIC_BASE_URL).replace(/\/+$/, '');
+  let baseUrl = config.baseUrl || DEFAULT_ANTHROPIC_BASE_URL;
+  while (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
+  }
   const timeoutMs = config.timeoutMs ?? ANTHROPIC_TIMEOUT_MS;
 
   if (tracker) tracker.incrementSubrequests(1);

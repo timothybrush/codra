@@ -153,7 +153,10 @@ export async function reviewWithVertex(
   const prompts = jsonOnlyPrompts(input);
 
   const startTime = Date.now();
-  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  let baseUrl = config.baseUrl;
+  while (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
+  }
   const url = `${baseUrl}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
 
   const body = JSON.stringify({

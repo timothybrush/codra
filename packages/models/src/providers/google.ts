@@ -121,7 +121,10 @@ export async function reviewWithGoogle(
   };
 
   const startTime = Date.now();
-  const baseUrl = (config.baseUrl || DEFAULT_GEMINI_BASE_URL).replace(/\/+$/, '');
+  let baseUrl = config.baseUrl || DEFAULT_GEMINI_BASE_URL;
+  while (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
+  }
   const url = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(config.apiKey)}`;
   const maxRetries = GEMINI_MAX_RETRIES;
   let lastError: unknown;
