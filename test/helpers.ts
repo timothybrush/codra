@@ -4,7 +4,7 @@ import { InMemorySessionStore } from '@codra/core';
 import { encryptLlmApiKey, ModelRunner } from '@codra/models';
 import { queryRows } from '@codra/db/client';
 import { getResolvedModelConfig } from '@codra/db/model-configs';
-import type { TokenTracker } from '@server/core/token-tracker';
+import type { TokenTracker } from '@codra/core/token-tracker';
 
 export class MemoryKV {
   private readonly store = new Map<string, string>();
@@ -13,7 +13,7 @@ export class MemoryKV {
     this.store.set(key, value);
   }
 
-  async get(key: string, type?: 'text' | 'json' | Partial<KVNamespaceGetOptions<undefined>>) {
+  async get(key: string, type?: 'text' | 'json' | Partial<any>) {
     const value = this.store.get(key) ?? null;
     if (value === null) return null;
     if (type === 'json') {
@@ -22,7 +22,7 @@ export class MemoryKV {
     return value;
   }
 
-  async getWithMetadata(key: string, type?: 'text' | 'json' | Partial<KVNamespaceGetOptions<undefined>>) {
+  async getWithMetadata(key: string, type?: 'text' | 'json' | Partial<any>) {
     return {
       value: await this.get(key, type as 'text' | 'json'),
       metadata: null,
@@ -108,7 +108,7 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
         return { response: '{"findings":[],"file_verdict":"approve","file_summary":"ok"}', usage: { prompt_tokens: 1, completion_tokens: 1 } };
       },
     },
-    APP_KV: new MemoryKV() as unknown as KVNamespace,
+    APP_KV: new MemoryKV() as unknown as any,
     SESSION_STORE: new InMemorySessionStore(),
     REVIEW_QUEUE: new MockQueue() as any,
     REVIEW_WORKFLOW: new MockWorkflow() as any,

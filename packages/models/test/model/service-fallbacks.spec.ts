@@ -4,7 +4,7 @@ import { isRetryableModelError } from '@codra/models';
 
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 import { defaultRepoConfig } from '@codra/schema';
-import { TokenTracker } from '@server/core/token-tracker';
+import { TokenTracker } from '@codra/core/token-tracker';
 
 // Walking the model chain: fallback, the two subrequest-budget breakers, and marking a provider
 // unavailable. The inline retry ladder lives in service-retries.spec.ts.

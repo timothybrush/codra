@@ -1,5 +1,5 @@
-import { parseFileReviewResponse, dedupeFindings } from '@server/core/model-output';
-import type { FileDiff } from '@server/core/diff';
+import { parseFileReviewResponse, dedupeFindings } from '@codra/core/model-output';
+import type { FileDiff } from '@codra/core/diff';
 import type { ParsedReviewComment } from '@codra/schema';
 
 describe('Model Output Parsing Deep Dive', () => {

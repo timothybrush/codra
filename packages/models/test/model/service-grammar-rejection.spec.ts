@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { reviewWithGoogle } from '@codra/models/google';
-import { buildReviewResponseSchema } from '@server/prompts/file-review';
+import { buildReviewResponseSchema } from '@codra/core/prompts/file-review';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 import { defaultRepoConfig } from '@codra/schema';
 

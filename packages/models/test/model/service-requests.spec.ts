@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { reviewWithCloudflare } from '@codra/models/cloudflare';
 import { reviewWithGoogle } from '@codra/models/google';
 
-import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@server/prompts/file-review';
-import { VERIFY_RESPONSE_SCHEMA } from '@server/prompts/verify';
+import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codra/core/prompts/file-review';
+import { VERIFY_RESPONSE_SCHEMA } from '@codra/core/prompts/verify';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 
 

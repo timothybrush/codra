@@ -4,12 +4,12 @@ import {
   buildFileReviewPrompts,
   buildReviewResponseSchema,
   type RejectedExemplar,
-} from '@server/prompts/file-review';
-import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '@server/core/model-output';
+} from '@codra/core/prompts/file-review';
+import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '@codra/core/model-output';
 import { UnparseableModelResponseError } from '../types';
-import { chunkFileDiff, type FileDiff } from '@server/core/diff';
+import { chunkFileDiff, type FileDiff } from '@codra/core/diff';
 import { adaptiveModelTimeoutMs, reviewOutputBudgetTokens } from '../limits';
-import { generatorFindingCap } from '@server/prompts/file-review';
+import { generatorFindingCap } from '@codra/core/prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
 import { logger } from '@codra/core/logger';

@@ -1,5 +1,5 @@
 import { logger } from '@codra/core/logger';
-import { withTimeout } from '@server/core/timeout';
+import { withTimeout } from '@codra/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelInput, type ModelResponse } from '../types';
 import { toGeminiResponseJsonSchema } from '../gemini-schema';
 import { assertPublicBaseUrl } from '../url-guard';

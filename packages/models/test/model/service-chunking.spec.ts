@@ -7,9 +7,9 @@ import { ModelRunner } from '@codra/models';
 
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 import { defaultRepoConfig } from '@codra/schema';
-import { TokenTracker } from '@server/core/token-tracker';
+import { TokenTracker } from '@codra/core/token-tracker';
 import { geminiThinkingBudgetTokens, reviewOutputBudgetTokens } from '../../src/limits';
-import { generatorFindingCap } from '@server/prompts/file-review';
+import { generatorFindingCap } from '@codra/core/prompts/file-review';
 
 describe('ModelRunner: diff chunking', () => {
   afterEach(() => {

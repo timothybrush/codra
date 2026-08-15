@@ -1,5 +1,5 @@
 import { logger } from '@codra/core/logger';
-import { withTimeout } from '@server/core/timeout';
+import { withTimeout } from '@codra/core/timeout';
 import { ProviderRequestError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from '../types';
 import { assertPublicBaseUrl } from '../url-guard';
 import { MODEL_TIMEOUT_MAX_MS, resolveOutputTokenCeiling } from '../limits';

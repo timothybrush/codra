@@ -2,8 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2024", "DOM"],
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "composite": false,
+    "rootDir": "../..",
     "declaration": false,
     "emitDeclarationOnly": false,
     "noEmit": true

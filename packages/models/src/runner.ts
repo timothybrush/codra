@@ -5,7 +5,7 @@ import { reviewWithVertex } from './providers/vertex';
 import { reviewWithCloudflare } from './providers/cloudflare';
 import { reviewWithOpenAI } from './providers/openai';
 import { reviewWithAnthropic } from './providers/anthropic';
-import type { VerifyCandidate } from '@server/prompts/verify';
+import type { VerifyCandidate } from '@codra/core/prompts/verify';
 import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
 import type { TokenTracker } from '@codra/core/token-tracker';
 import type { ModelInput, ModelResponse } from './types';

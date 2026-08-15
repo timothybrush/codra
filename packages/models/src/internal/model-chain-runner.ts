@@ -1,5 +1,5 @@
-import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '@server/prompts/summary';
-import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '@server/prompts/verify';
+import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '@codra/core/prompts/summary';
+import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '@codra/core/prompts/verify';
 import { adaptiveModelTimeoutMs, clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../limits';
 import { isCloudflareAllocationError, isTransientModelFailure, RetryableModelError } from './model-support';
 import { logger } from '@codra/core/logger';

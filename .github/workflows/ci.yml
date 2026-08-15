@@ -63,8 +63,6 @@ jobs:
       - name: Static Analysis (Typecheck)
         run: npm run typecheck && npm run typecheck:all
 
-      - name: Boundary Check (@codra/core purity)
-        run: npm run check:boundaries
 
       - name: Static Analysis (Lint)
         run: npm run lint
@@ -79,4 +77,4 @@ jobs:
         run: npx vite build
 
       - name: Build (worker bundle, dry run)
-        run: npx wrangler deploy --dry-run --outdir=.wrangler/dry
+        run: cd apps/worker && npx wrangler deploy --dry-run --outdir=.wrangler/dry

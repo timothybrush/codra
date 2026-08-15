@@ -1,7 +1,7 @@
 import { submitCloudflareBatch, pollCloudflareBatch } from '../providers/cloudflare';
-import { buildFileReviewPrompts, buildReviewResponseSchema } from '@server/prompts/file-review';
-import { parseFileReviewResponse } from '@server/core/model-output';
-import { truncateFileDiff } from '@server/core/diff';
+import { buildFileReviewPrompts, buildReviewResponseSchema } from '@codra/core/prompts/file-review';
+import { parseFileReviewResponse } from '@codra/core/model-output';
+import { truncateFileDiff } from '@codra/core/diff';
 import { logger } from '@codra/core/logger';
 import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
 import type { ModelResponse } from '../types';

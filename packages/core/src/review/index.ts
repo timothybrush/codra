@@ -119,15 +119,10 @@ export async function runReview(env: ReviewRuntime, message: ReviewJobMessage): 
   }
 
   const phase = resolved.phase;
-  let github, model, formatter, tracker;
-  try {
-    tracker = env.createTokenTracker();
-    github = env.createGitHub(job.installationId, tracker);
-    model = env.createModel(job.id, tracker);
-    formatter = env.createFormatter();
-  } catch (err) {
-    throw err;
-  }
+  const tracker = env.createTokenTracker();
+  const github = env.createGitHub(job.installationId, tracker);
+  const model = env.createModel(job.id, tracker);
+  const formatter = env.createFormatter();
 
   try {
     if (phase === 'prepare') {
