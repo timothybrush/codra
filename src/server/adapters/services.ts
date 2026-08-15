@@ -11,7 +11,6 @@ import { getResolvedModelConfig } from '@codra/db/model-configs';
 // and reaching for a sibling here would bypass those mocks while the tests kept passing.
 
 export function makeGitHubFactory(env: AppBindings) {
-  console.log('TRACE makeGitHubFactory: GitHubService is', GitHubService.name, 'Mock?', GitHubService.name === 'MockGitHubService');
   return (installationId: string, tracker: TokenTracker): ReviewGitProvider => new GitHubService(env, installationId, tracker);
 }
 

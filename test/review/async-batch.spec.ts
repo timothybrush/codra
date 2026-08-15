@@ -27,7 +27,6 @@ vi.mock('@codra/db/app-settings', async (importOriginal) => {
 });
 
 vi.mock('@codra/provider-github', async (importOriginal) => {
-  console.log('TRACE vi.mock called for provider-github');
   const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
   return { ...mod, GitHubService: makeGitHubServiceMock() };

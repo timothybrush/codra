@@ -8,7 +8,7 @@ export class CloudflareSessionStore implements SessionStore {
   }
 
   async createSession(session: DashboardSessionUser): Promise<string> {
-    const token = Math.random().toString(36).substring(2);
+    const token = crypto.randomUUID();
     await this.kv.put(this.sessionKey(token), JSON.stringify(session), {
       expirationTtl: 60 * 60 * 24 * 7,
     });
