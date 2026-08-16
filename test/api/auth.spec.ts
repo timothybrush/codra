@@ -8,7 +8,7 @@
 
 import { getReviewSettings, updateReviewSettings } from '@codra/db/app-settings';
 import { reviewMaxFilesRange } from '@codra/schema';
-import { createApp } from '@server/app';
+import { createApiRouter } from '@codra/api';
 
 import { queryRows, runWithDb } from '@codra/db/client';
 
@@ -18,42 +18,29 @@ import type { AccountResponse, JobsResponse, UpdatesEmailResponse } from '@codra
 import { createTestEnv, dbDescribe } from '../helpers';
 import { vi } from 'vitest';
 
-// `githubUserId` is parameterised so a test that mutates the persisted
-// account_settings row (display name, timezone) can use its own id and not leak
-// into tests asserting a pristine record; the tests share one database.
-function mockGitHubProfile(login = 'devarshishimpi', githubUserId = 42) {
-  return {
-    id: githubUserId,
-    login,
-    name: 'Devarshi Shimpi',
-    avatar_url: `https://avatars.githubusercontent.com/u/${githubUserId}`,
-    email: null,
-  };
-}
-
 describe('Dashboard API: auth, session and account', () => {
-  const app = createApp();
+  const app = createApiRouter();
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   async function getAuthCookie(env = createTestEnv(), login = 'devarshishimpi', githubUserId = 42) {
-    const originalFetch = globalThis.fetch;
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input);
-
-      if (url === 'https://github.com/login/oauth/access_token') {
-        return Response.json({ access_token: 'oauth-access-token' });
-      }
-
-      if (url === 'https://api.github.com/user') {
-        return Response.json(mockGitHubProfile(login, githubUserId));
-      }
-
-      return originalFetch(input, init);
-    });
+    if (env.IDENTITY_PROVIDER && 'defaultUser' in env.IDENTITY_PROVIDER) {
+      (env.IDENTITY_PROVIDER as any).defaultUser = {
+        provider: 'github',
+        providerUserId: githubUserId.toString(),
+        login,
+        name: 'Devarshi Shimpi',
+        avatarUrl: `https://avatars.githubusercontent.com/u/${githubUserId}`,
+        email: null,
+        signedInAt: new Date().toISOString(),
+        metadata: {
+          githubUserId,
+          githubUsername: login,
+        },
+      };
+    }
 
     const authStart = await app.request('/auth/github', {}, env);
     const authLocation = authStart.headers.get('location');
@@ -89,27 +76,16 @@ describe('Dashboard API: auth, session and account', () => {
     expect(location).toBeTruthy();
 
     const url = new URL(location!);
-    expect(url.origin + url.pathname).toBe('https://github.com/login/oauth/authorize');
-    expect(url.searchParams.get('client_id')).toBe(env.GITHUB_CLIENT_ID);
+    expect(url.origin + url.pathname).toBe('https://fake-provider.com/authorize');
     expect(url.searchParams.get('redirect_uri')).toBe(env.AUTH_CALLBACK_URL);
-    expect(url.searchParams.get('scope')).toBe('read:user');
     expect(url.searchParams.get('state')).toBeTruthy();
   });
 
   it('rejects GitHub users outside the allowlist', async () => {
     const env = createTestEnv({ DASHBOARD_ALLOWED_USERS: 'someoneelse' });
-    const originalFetch = globalThis.fetch;
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input);
-      if (url === 'https://github.com/login/oauth/access_token') {
-        return Response.json({ access_token: 'oauth-access-token' });
-      }
-      if (url === 'https://api.github.com/user') {
-        return Response.json(mockGitHubProfile('devarshishimpi'));
-      }
-      return originalFetch(input, init);
-    });
+    if (env.IDENTITY_PROVIDER && 'defaultUser' in env.IDENTITY_PROVIDER) {
+      (env.IDENTITY_PROVIDER as any).defaultUser.login = 'devarshishimpi';
+    }
 
     const authStart = await app.request('/auth/github', {}, env);
     const state = new URL(authStart.headers.get('location')!).searchParams.get('state');

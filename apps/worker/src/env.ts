@@ -19,6 +19,7 @@ export interface HyperdriveBinding {
 
 export interface AppBindings {
   SESSION_STORE: SessionStore;
+  IDENTITY_PROVIDER: any; // Type 'any' used to avoid importing from core yet
   AI: WorkersAiBinding;
   APP_KV: KVNamespace;
   REVIEW_QUEUE: QueueProducer<ReviewJobMessage>;

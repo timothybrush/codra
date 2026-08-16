@@ -1,10 +1,8 @@
 import { isSupportedTimeZone } from '@codra/schema/timezone';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { jsonError } from '@server/core/http';
-import { getUpdatesEmailPreference, syncUpdatesEmail } from '@server/core/updates-email';
-import { getAccountSettings, updateAccountSettings, upsertAccountSettings } from '@codra/db/accounts';
-import type { AppEnv } from '@server/env';
+import { jsonError } from '../../http';
+import type { ApiEnv } from '../../ports';
 
 const emailSchema = z.strictObject({
   email: z.string().trim().email().max(254),
@@ -22,7 +20,7 @@ const accountUpdateSchema = z.strictObject({
 );
 
 export function createAuthApiRouter() {
-  const app = new Hono<AppEnv>();
+  const app = new Hono<ApiEnv>();
 
   app.get('/session', async (c) => {
     const sessionUser = c.get('sessionUser');
@@ -39,11 +37,14 @@ export function createAuthApiRouter() {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const accounts = c.env.deps.repositories.accounts;
+    const githubUserId = Number(sessionUser.providerUserId);
+
     // Self-heals for sessions created before the account_settings table existed.
-    let account = await getAccountSettings(c.env, sessionUser.githubUserId);
+    let account = await accounts.getAccountSettings(c.env as any, githubUserId);
     if (!account) {
-      account = await upsertAccountSettings(c.env, {
-        githubUserId: sessionUser.githubUserId,
+      account = await accounts.upsertAccountSettings(c.env as any, {
+        githubUserId,
         githubUsername: sessionUser.login,
         accountName: sessionUser.name,
         accountEmail: sessionUser.email,
@@ -69,18 +70,21 @@ export function createAuthApiRouter() {
       );
     }
 
+    const accounts = c.env.deps.repositories.accounts;
+    const githubUserId = Number(sessionUser.providerUserId);
+
     // Ensure a row exists first (self-heal for pre-existing sessions), then update.
-    const existing = await getAccountSettings(c.env, sessionUser.githubUserId);
+    const existing = await accounts.getAccountSettings(c.env as any, githubUserId);
     if (!existing) {
-      await upsertAccountSettings(c.env, {
-        githubUserId: sessionUser.githubUserId,
+      await accounts.upsertAccountSettings(c.env as any, {
+        githubUserId,
         githubUsername: sessionUser.login,
         accountName: sessionUser.name,
         accountEmail: sessionUser.email,
       });
     }
 
-    const account = await updateAccountSettings(c.env, sessionUser.githubUserId, {
+    const account = await accounts.updateAccountSettings(c.env as any, githubUserId, {
       accountName: parsed.data.name,
       timezone: parsed.data.timezone,
     });
@@ -93,7 +97,8 @@ export function createAuthApiRouter() {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const preference = await getUpdatesEmailPreference(c.env, sessionUser.githubUserId);
+    const githubUserId = Number(sessionUser.providerUserId);
+    const preference = await c.env.deps.platform.getUpdatesEmailPreference(githubUserId);
     return c.json({
       status: preference?.status ?? 'pending',
       email: preference?.email ?? null,
@@ -113,7 +118,10 @@ export function createAuthApiRouter() {
       return jsonError('Enter a valid email address.', 400);
     }
 
-    const existingPreference = await getUpdatesEmailPreference(c.env, sessionUser.githubUserId);
+    const platform = c.env.deps.platform;
+    const githubUserId = Number(sessionUser.providerUserId);
+
+    const existingPreference = await platform.getUpdatesEmailPreference(githubUserId);
     if (existingPreference) {
       return c.json({
         status: existingPreference.status,
@@ -122,12 +130,12 @@ export function createAuthApiRouter() {
       });
     }
 
-    const synced = await syncUpdatesEmail(c.env, sessionUser.githubUserId, parsed.data.email);
+    const synced = await platform.syncUpdatesEmail(githubUserId, parsed.data.email);
     if (!synced) {
       return jsonError('Could not save updates email right now.', 502);
     }
 
-    const preference = await getUpdatesEmailPreference(c.env, sessionUser.githubUserId);
+    const preference = await platform.getUpdatesEmailPreference(githubUserId);
 
     return c.json({
       status: preference?.status ?? 'pending',

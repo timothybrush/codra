@@ -5,6 +5,7 @@ import { encryptLlmApiKey, ModelRunner } from '@codra/models';
 import { queryRows } from '@codra/db/client';
 import { getResolvedModelConfig } from '@codra/db/model-configs';
 import type { TokenTracker } from '@codra/core/token-tracker';
+import { createApiRouterDeps } from '../apps/worker/src/api-deps';
 
 export class MemoryKV {
   private readonly store = new Map<string, string>();
@@ -101,8 +102,10 @@ export function hasConfiguredTestDatabaseUrl() {
   return Boolean(usableEnvValue(process.env.TEST_DATABASE_URL));
 }
 
+import { FakeIdentityProvider } from '../packages/core/test/fakes/identity-provider';
+
 export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings {
-  return {
+  const env = {
     AI: {
       async run() {
         return { response: '{"findings":[],"file_verdict":"approve","file_summary":"ok"}', usage: { prompt_tokens: 1, completion_tokens: 1 } };
@@ -110,6 +113,7 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
     },
     APP_KV: new MemoryKV() as unknown as any,
     SESSION_STORE: new InMemorySessionStore(),
+    IDENTITY_PROVIDER: new FakeIdentityProvider(),
     REVIEW_QUEUE: new MockQueue() as any,
     REVIEW_WORKFLOW: new MockWorkflow() as any,
     ASSETS: new MockAssets() as any,
@@ -131,7 +135,9 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
     get CF_API_TOKEN() { return unusedEnv('CF_API_TOKEN'); },
     get CF_ACCOUNT_ID() { return unusedEnv('CF_ACCOUNT_ID'); },
     ...overrides,
-  };
+  } as AppBindings;
+  (env as any).deps = createApiRouterDeps(env, {} as any);
+  return env;
 }
 
 export function createTestModelRunner(env: AppBindings, tracker?: TokenTracker, opts: { jobId?: string } = {}) {

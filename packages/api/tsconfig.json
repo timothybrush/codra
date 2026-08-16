@@ -5,11 +5,7 @@
     "moduleResolution": "Bundler",
     "outDir": "./dist",
     "rootDir": "./src",
-    "target": "ES2022",
     "types": ["node"]
   },
-  "include": [
-    "src/**/*",
-    "test/**/*"
-  ]
+  "include": ["src/**/*"]
 }

@@ -20,5 +20,8 @@
   "dependencies": {
     "@codra/schema": "*",
     "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
   }
 }

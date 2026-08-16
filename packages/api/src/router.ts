@@ -1,24 +1,30 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { AppEnv } from '@server/env';
-import { requireSession } from '@server/middleware/auth';
-import { requireCsrfHeader } from '@server/middleware/csrf';
-import { observability } from '@server/middleware/observability';
-import { createAuthRouter } from '@server/routes/auth';
-import { createWebhookRouter } from '@server/routes/webhook';
-import { createAuthApiRouter } from '@server/routes/api/auth';
-import { createJobsRouter } from '@server/routes/api/jobs';
-import { createReposRouter } from '@server/routes/api/repos';
-import { createStatsRouter } from '@server/routes/api/stats';
-import { createModelsRouter } from '@server/routes/api/models';
-import { createSettingsRouter } from '@server/routes/api/settings';
+import type { ApiEnv } from './ports';
+import { requireSession } from './middleware/auth';
+import { requireCsrfHeader } from './middleware/csrf';
+import { observability } from './middleware/observability';
+import { createAuthRouter } from './routes/auth';
+import { createWebhookRouter } from './routes/webhook';
+import { createAuthApiRouter } from './routes/api/auth';
+import { createJobsRouter } from './routes/api/jobs';
+import { createReposRouter } from './routes/api/repos';
+import { createStatsRouter } from './routes/api/stats';
+import { createModelsRouter } from './routes/api/models';
+import { createSettingsRouter } from './routes/api/settings';
 
-async function serveIndex(c: Context<AppEnv>) {
-  return c.env.ASSETS.fetch(new URL('/index.html', c.req.url));
+async function serveIndex(c: Context<ApiEnv>) {
+  // If the host platform passes an ASSETS binding via `c.env`, use it (e.g., Cloudflare Workers).
+  const assetsFetch = (c.env as any).ASSETS?.fetch;
+  if (typeof assetsFetch === 'function') {
+    return assetsFetch(new URL('/index.html', c.req.url));
+  }
+  
+  return c.text('Not Found: Please mount UI static assets handler here.', 404);
 }
 
-export function createApp() {
-  const app = new Hono<AppEnv>();
+export function createApiRouter() {
+  const app = new Hono<ApiEnv>();
 
   app.use('*', observability);
   app.use('/auth/logout', requireSession);

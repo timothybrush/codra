@@ -1,8 +1,8 @@
 import type { MiddlewareHandler } from 'hono';
-import type { AppEnv } from '@server/env';
-import { logger } from '@server/core/logger';
+import type { ApiEnv } from '../ports';
+import { logger } from '../logger';
 
-export const observability: MiddlewareHandler<AppEnv> = async (c, next) => {
+export const observability: MiddlewareHandler<ApiEnv> = async (c, next) => {
   const requestId = c.req.header('x-request-id') || crypto.randomUUID();
   c.set('requestId', requestId);
 

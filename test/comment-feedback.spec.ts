@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createApp } from '@server/app';
+import { createApiRouter } from '@codra/api';
 import { createTestEnv } from './helpers';
 import { FormatterService, formatFindingMarker, parseFindingMarker } from '@server/services/formatter';
 import type { ParsedReviewComment } from '@codra/schema';
@@ -54,7 +54,7 @@ describe('finding marker', () => {
 
 describe('feedback webhooks', () => {
   const env = createTestEnv();
-  const app = createApp();
+  const app = createApiRouter();
 
   // Invariant: recording feedback must not call GitHub, since it runs inside the webhook delivery timeout.
   const githubRequests: string[] = [];

@@ -1,10 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { AppEnv } from '@server/env';
-import { getRepoConfigRecord, listRepoConfigs, upsertRepoConfig, syncRepoConfig, updateRepoConfigEnabled, deleteStaleRepoConfigs } from '@codra/db/repo-configs';
-import { jsonError } from '@server/core/http';
-import { GitHubClient, type GitHubRepository } from '@codra/provider-github';
-import { invalidateRepoConfigCache } from '@server/core/config';
+import type { ApiEnv } from '../../ports';
+import { jsonError } from '../../http';
 import { repoConfigSchema } from '@codra/schema';
 
 const repoConfigPatchSchema = z
@@ -39,47 +36,48 @@ async function mapWithConcurrency<T, R>(
 }
 
 export function createReposRouter() {
-  const app = new Hono<AppEnv>();
+  const app = new Hono<ApiEnv>();
 
   app.get('/', async (c) => {
-    const repos = await listRepoConfigs(c.env);
+    const repos = await c.env.deps.repositories.repoConfigs.listRepoConfigs(c.env as any);
     return c.json({ repos });
   });
 
   app.get('/install', async (c) => {
     try {
-      return c.redirect(await GitHubClient.getAppInstallationUrl(c.env), 302);
+      return c.redirect(await c.env.deps.gitProvider.getAppInstallationUrl(), 302);
     } catch (error) {
-      console.error('Failed to resolve GitHub App installation URL:', error);
+      c.env.deps.platform.logger.error('Failed to resolve GitHub App installation URL:', error);
       return jsonError(`Failed to resolve GitHub App installation URL: ${error instanceof Error ? error.message : String(error)}`, 500);
     }
   });
 
   app.post('/sync', async (c) => {
     try {
-      const installations = await GitHubClient.listInstallations(c.env);
+      const installations = await c.env.deps.gitProvider.listInstallations();
       const synced: string[] = [];
+      const repoConfigs = c.env.deps.repositories.repoConfigs;
 
       for (const inst of installations) {
-        const github = new GitHubClient(c.env, String(inst.id));
-        const repos: GitHubRepository[] = await github.listRepositories();
+        const github = c.env.deps.gitProvider.createService(String(inst.id));
+        const repos = await github.listRepositories();
 
         const results = await mapWithConcurrency(
           repos,
           5,
-          async (repo: GitHubRepository) => {
+          async (repo: any) => {
             const owner = repo.owner.login;
             const name = repo.name;
             const fullName = `${owner}/${name}`;
             try {
-              await syncRepoConfig(c.env, {
+              await repoConfigs.syncRepoConfig(c.env as any, {
                 installationId: String(inst.id),
                 owner,
                 repo: name,
               });
               return fullName;
             } catch (repoError) {
-              console.error('Failed to sync repo:', fullName, repoError);
+              c.env.deps.platform.logger.error(`Failed to sync repo: ${fullName}`, repoError);
               return null;
             }
           },
@@ -93,18 +91,18 @@ export function createReposRouter() {
           }
         }
         
-        await deleteStaleRepoConfigs(c.env, String(inst.id), installationSynced);
+        await repoConfigs.deleteStaleRepoConfigs(c.env as any, String(inst.id), installationSynced);
       }
 
       return c.json({ ok: true, synced });
     } catch (error) {
-      console.error('Manual sync failed:', error);
+      c.env.deps.platform.logger.error('Manual sync failed:', error);
       return jsonError(`Sync failed: ${error instanceof Error ? error.message : String(error)}`, 500);
     }
   });
 
   app.get('/:owner/:repo/config', async (c) => {
-    const repo = await getRepoConfigRecord(c.env, c.req.param('owner'), c.req.param('repo'));
+    const repo = await c.env.deps.repositories.repoConfigs.getRepoConfigRecord(c.env as any, c.req.param('owner'), c.req.param('repo'));
     if (!repo) {
       return jsonError('Repository config not found.', 404);
     }
@@ -120,7 +118,8 @@ export function createReposRouter() {
       return jsonError('Invalid repository config patch.', 400);
     }
 
-    const existing = await getRepoConfigRecord(c.env, owner, repo);
+    const repoConfigs = c.env.deps.repositories.repoConfigs;
+    const existing = await repoConfigs.getRepoConfigRecord(c.env as any, owner, repo);
     
     if (!existing) {
       return jsonError('Repository config not found.', 404);
@@ -130,12 +129,12 @@ export function createReposRouter() {
     const hasConfigPatch = patch.review !== undefined || patch.model !== undefined;
 
     if (!hasConfigPatch && patch.enabled !== undefined) {
-      await updateRepoConfigEnabled(c.env, {
+      await repoConfigs.updateRepoConfigEnabled(c.env as any, {
         owner,
         repo,
         enabled: patch.enabled,
       });
-      await invalidateRepoConfigCache(c.env, owner, repo);
+      await c.env.deps.config.invalidateRepoConfigCache(owner, repo);
       return c.json({ ok: true });
     }
 
@@ -157,14 +156,14 @@ export function createReposRouter() {
       return jsonError('Invalid repository config.', 400);
     }
     
-    await upsertRepoConfig(c.env, {
+    await repoConfigs.upsertRepoConfig(c.env as any, {
       installationId: existing.installationId,
       owner,
       repo,
       parsedJson: parsedConfig.data,
       enabled: patch.enabled,
     });
-    await invalidateRepoConfigCache(c.env, owner, repo);
+    await c.env.deps.config.invalidateRepoConfigCache(owner, repo);
     
     return c.json({ ok: true });
   });

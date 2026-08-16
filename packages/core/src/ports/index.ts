@@ -14,4 +14,5 @@ export type { KeyValueStore } from './kv';
 export type { QueueProducer } from './queue';
 export type { JobOrchestrator } from './orchestrator';
 export type { SessionStore, DashboardSessionUser } from './session-store';
+export type { IdentityProvider, AuthorizationResult } from './identity-provider';
 export { InMemoryKV, InMemoryQueue, InMemoryOrchestrator, InMemorySessionStore } from './in-memory';

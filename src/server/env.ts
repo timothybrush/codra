@@ -1,8 +1,9 @@
-import type { DashboardSessionUser, SessionStore } from '@codra/core';
+import type { DashboardSessionUser, SessionStore, IdentityProvider } from '@codra/core';
 export type { DashboardSessionUser };
 
 export interface AppBindings {
   SESSION_STORE: SessionStore;
+  IDENTITY_PROVIDER: IdentityProvider;
   APP_PRIVATE_KEY: string;
   GITHUB_APP_ID: string;
   GITHUB_APP_SLUG?: string;

@@ -1,0 +1,24 @@
+{
+  "name": "@codra/api",
+  "version": "0.9.4",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.25",
+    "zod": "^4.3.6",
+    "@codra/schema": "*",
+    "@codra/core": "*",
+    "@codra/db": "*",
+    "@codra/provider-github": "*",
+    "@codra/models": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

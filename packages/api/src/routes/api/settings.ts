@@ -1,8 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { AppEnv } from '@server/env';
-import { getReviewSettings, updateReviewSettings } from '@codra/db/app-settings';
-import { jsonError } from '@server/core/http';
+import type { ApiEnv } from '../../ports';
+import { jsonError } from '../../http';
 import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema } from '@codra/schema';
 
 const reviewSettingsPatchSchema = z.strictObject({
@@ -18,10 +17,10 @@ const reviewSettingsPatchSchema = z.strictObject({
 );
 
 export function createSettingsRouter() {
-  const app = new Hono<AppEnv>();
+  const app = new Hono<ApiEnv>();
 
   app.get('/', async (c) => {
-    const settings = await getReviewSettings(c.env);
+    const settings = await c.env.deps.repositories.appSettings.getReviewSettings(c.env as any);
     return c.json({ settings });
   });
 
@@ -32,9 +31,9 @@ export function createSettingsRouter() {
       return jsonError('Invalid review settings.', 400);
     }
 
-    const current = await getReviewSettings(c.env);
+    const current = await c.env.deps.repositories.appSettings.getReviewSettings(c.env as any);
     const next = reviewSettingsSchema.parse({ ...current, ...parsed.data });
-    await updateReviewSettings(c.env, next);
+    await c.env.deps.repositories.appSettings.updateReviewSettings(c.env as any, next);
     return c.json({ ok: true, settings: next });
   });
 

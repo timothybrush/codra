@@ -1,11 +1,11 @@
-import { createApp } from '@server/app';
+import { createApiRouter } from '@codra/api';
 import { createMockPRWebhook, createTestEnv, uniqueName } from '../helpers';
 
 import { signPayload } from '../mocks/fixtures';
 
 describe('Webhook Handling Suite', () => {
   const env = createTestEnv();
-  const app = createApp();
+  const app = createApiRouter();
 
   // Invariant: handling a webhook must never call GitHub -- that's what keeps it inside GitHub's
   // 10s delivery timeout (review work happens later, in the Workflow). Spy rather than stub so a

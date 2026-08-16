@@ -1,4 +1,5 @@
-import { createApp } from '../../../src/server/app';
+import { createApiRouter } from '@codra/api';
+import { createApiRouterDeps } from './api-deps';
 import { ReviewWorkflow } from './workflows/review';
 import type { AppBindings } from './env';
 import { reviewJobMessageSchema } from '@codra/schema';
@@ -8,8 +9,7 @@ import { runWithDb } from '@codra/db/client';
 import { failJob, hasPendingMaintenanceWork, clearSystemActive } from '@codra/db/jobs';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
 
-import { CloudflareSessionStore } from './sessions';
-const app = createApp();
+const app = createApiRouter();
 
 export { ReviewWorkflow };
 
@@ -17,7 +17,7 @@ export default {
   fetch(request: Request, env: AppBindings, ctx: ExecutionContext) {
     const apiEnv = {
       ...env,
-      SESSION_STORE: new CloudflareSessionStore(env.APP_KV),
+      deps: createApiRouterDeps(env, ctx),
     };
     return runWithDb(env, () => app.fetch(request, apiEnv as any, ctx));
   },

@@ -6,21 +6,12 @@ import {
   type GitHubReviewCommentPayload,
   type GitHubWebhookPayload,
 } from '@codra/schema/github';
-import { normalizeGitHubWebhook } from '@codra/provider-github';
-import type { AppBindings, AppEnv } from '@server/env';
-import { loadRepoConfig } from '@server/core/config';
-import { extractReviewRequest } from '@server/core/review';
-import { verifyGitHubWebhookSignature } from '@server/core/verify';
-import { jsonError } from '@server/core/http';
-import { logger } from '@server/core/logger';
-import { parseFindingMarker } from '@server/services/formatter';
-import { findExistingJobForHead, insertJob, supersedeOlderJobs } from '@codra/db/jobs';
-import { clearResolvedFeedback, recordCommentFeedback, type CommentFeedbackInput, type CommentOutcome } from '@codra/db/comment-feedback';
-import { recordWebhookDelivery } from '@codra/db/webhook-deliveries';
+import type { ApiEnv } from '../ports';
+import { jsonError } from '../http';
 
 // Matches via the invisible `codra-fp` marker GitHub echoes back verbatim; comments without one are ignored. Best-effort: failures here must never surface as a webhook error GitHub retries.
 async function handleFeedbackEvent(
-  env: AppBindings,
+  c: Context<ApiEnv>,
   input: {
     eventName: string;
     payload: FeedbackWebhookPayload;
@@ -31,26 +22,43 @@ async function handleFeedbackEvent(
   // The repository has to be one we know; the FK would reject anything else.
   if (repositoryId === null) return 0;
 
-  const botLogin = (env.BOT_USERNAME ?? '').toLowerCase();
+  const botLogin = (c.env.BOT_USERNAME ?? '').toLowerCase();
   // GitHub fires these events for human threads too; without this filter we'd suppress our own findings based on humans deleting each other's comments.
   const isOurs = (comment: GitHubReviewCommentPayload) =>
     Boolean(botLogin) && (comment.user?.login ?? '').toLowerCase().startsWith(botLogin);
 
   const prNumber = payload.pull_request?.number ?? null;
-  const entries: CommentFeedbackInput[] = [];
+  const entries: any[] = [];
   const reopened: number[] = [];
 
-  const add = (comment: GitHubReviewCommentPayload, outcome: CommentOutcome) => {
-    if (!isOurs(comment)) return;
-    const marker = parseFindingMarker(comment.body);
-    if (!marker) return;
+  const add = (comment: GitHubReviewCommentPayload, outcome: any) => {
+    if (!isOurs(comment) || !comment?.body) return;
+    
+    // We need a port for parsing finding markers since it used to come from @server/services/formatter
+    // We'll use a local minimal parser or expect the webhook port to provide it
+    const markerMatch = (comment.body || '').match(/<!-- codra-fp: (.*?) -->/);
+    if (!markerMatch) return;
+    
+    let fingerprint = markerMatch[1];
+    let anchorHash = '';
+    let fingerprintV2 = null;
+    try {
+      const parts = JSON.parse(fingerprint);
+      if (Array.isArray(parts) && parts.length >= 2) {
+        fingerprintV2 = parts[0];
+        fingerprint = parts[1];
+        if (parts.length >= 3) anchorHash = parts[2];
+      }
+    } catch {
+      // old format
+    }
+    
     entries.push({
       repositoryId,
       prNumber,
-      fingerprint: marker.fingerprint,
-      anchorHash: marker.anchorHash,
-      // Null on comments posted before the marker gained a third field; suppression falls back to the v1 fingerprint alone.
-      fingerprintV2: marker.fingerprintV2,
+      fingerprint,
+      anchorHash,
+      fingerprintV2,
       githubCommentId: comment.id,
       outcome,
     });
@@ -76,11 +84,12 @@ async function handleFeedbackEvent(
   if (entries.length === 0) return 0;
 
   try {
+    const feedbackRepo = c.env.deps.repositories.commentFeedback;
     // Reopening a thread must retract the earlier 'resolved' row, or the finding stays recorded as accepted forever.
-    if (reopened.length > 0) await clearResolvedFeedback(env, repositoryId, reopened);
-    return await recordCommentFeedback(env, entries);
+    if (reopened.length > 0) await feedbackRepo.clearResolvedFeedback(c.env as any, repositoryId, reopened);
+    return await feedbackRepo.recordCommentFeedback(c.env as any, entries);
   } catch (error) {
-    logger.warn('Could not record comment feedback', {
+    c.env.deps.platform.logger.warn('Could not record comment feedback', {
       eventName,
       repositoryId,
       error: error instanceof Error ? error.message : String(error),
@@ -89,7 +98,7 @@ async function handleFeedbackEvent(
   }
 }
 
-export async function handleGitHubWebhook(c: Context<AppEnv>) {
+export async function handleGitHubWebhook(c: Context<ApiEnv>) {
     const eventName = c.req.header('x-github-event');
     const deliveryId = c.req.header('x-github-delivery');
     const signature = c.req.header('x-hub-signature-256');
@@ -99,7 +108,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return jsonError('Missing GitHub webhook headers.', 400);
     }
 
-    const verified = await verifyGitHubWebhookSignature(c.env.GITHUB_APP_WEBHOOK_SECRET, signature ?? null, rawBody);
+    const verified = await c.env.deps.webhook.verifySignature(signature ?? null, rawBody);
     if (!verified) {
       return jsonError('Invalid webhook signature.', 401);
     }
@@ -114,7 +123,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
     // Feedback deliveries carry the whole PR object plus diff hunks per comment; skip storing the payload (row is still written, so dedup still works).
     const isFeedbackEvent = isFeedbackGitHubWebhookEvent(eventName);
 
-    const delivery = await recordWebhookDelivery(c.env, {
+    const delivery = await c.env.deps.repositories.webhookDeliveries.recordWebhookDelivery(c.env as any, {
       deliveryId,
       eventName,
       owner: 'repository' in payload ? (payload as any).repository.owner.login : null,
@@ -133,7 +142,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
 
     // Handled inline before loadRepoConfig: recording feedback needs no repo config, queue message, or Workflow, so skip that KV/DB cost entirely.
     if (isFeedbackEvent) {
-      const recorded = await handleFeedbackEvent(c.env, {
+      const recorded = await handleFeedbackEvent(c, {
         eventName,
         payload: payload as unknown as FeedbackWebhookPayload,
         repositoryId: delivery.repositoryId,
@@ -141,12 +150,12 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return c.json({ ok: true, feedback: true, recorded }, 202);
     }
 
-    const normalized = normalizeGitHubWebhook(eventName, payload);
+    const normalized = c.env.deps.webhook.normalizePayload(eventName, payload);
     if (!normalized) {
       return c.json({ ok: true, ignored: true, eventName }, 202);
     }
 
-    const repoConfig = await loadRepoConfig(c.env, {
+    const repoConfig = await c.env.deps.config.loadRepoConfig({
       installationId,
       owner: (payload as any).repository.owner.login,
       repo: (payload as any).repository.name,
@@ -156,7 +165,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
       return c.json({ ok: true, ignored: true, reason: 'repository_disabled' }, 202);
     }
 
-    const extracted = extractReviewRequest({
+    const extracted = c.env.deps.webhook.extractReviewRequest({
       eventName: normalized.eventName,
       payload: normalized.payload,
       botUsername: c.env.BOT_USERNAME,
@@ -164,7 +173,8 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
     });
 
     if (extracted?.commitSha && extracted.baseSha) {
-      const existingJob = await findExistingJobForHead(c.env, {
+      const jobsRepo = c.env.deps.repositories.jobs;
+      const existingJob = await jobsRepo.findExistingJobForHead(c.env as any, {
         owner: extracted.owner,
         repo: extracted.repo,
         prNumber: extracted.prNumber,
@@ -181,7 +191,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
         }, 202);
       }
 
-      const job = await insertJob(c.env, {
+      const job = await jobsRepo.insertJob(c.env as any, {
         installationId: extracted.installationId,
         owner: extracted.owner,
         repo: extracted.repo,
@@ -196,7 +206,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
         configSnapshot: repoConfig.parsedJson,
       });
 
-      await supersedeOlderJobs(c.env, {
+      await jobsRepo.supersedeOlderJobs(c.env as any, {
         installationId: extracted.installationId,
         owner: extracted.owner,
         repo: extracted.repo,
@@ -204,7 +214,7 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
         newJobId: job.id,
       });
 
-      await c.env.REVIEW_QUEUE.send({
+      await c.env.deps.platform.enqueueReviewJob({
         jobId: job.id,
         deliveryId,
         phase: 'prepare',
@@ -215,17 +225,17 @@ export async function handleGitHubWebhook(c: Context<AppEnv>) {
     }
 
     // Events without a concrete job (e.g. PR close cleanup, mention lookups) still get handled by the worker.
-    await c.env.REVIEW_QUEUE.send({
+    await c.env.deps.platform.enqueueReviewJob({
       deliveryId,
       eventName,
       requestId: c.get('requestId'),
-    });
+    } as any);
 
     return c.json({ ok: true, message: 'queued' }, 202);
 }
 
 export function createWebhookRouter() {
-  const app = new Hono<AppEnv>();
+  const app = new Hono<ApiEnv>();
 
   app.post('/', handleGitHubWebhook);
 

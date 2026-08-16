@@ -1,45 +1,33 @@
-import { createApp } from '@server/app';
+import { createApiRouter } from '@codra/api';
 import { getJobForProcessing, insertJob } from '@codra/db/jobs';
 
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';
 
-// `githubUserId` is parameterised so a test that mutates the persisted
-// account_settings row (display name, timezone) can use its own id and not leak
-// into tests asserting a pristine record; the tests share one database.
-function mockGitHubProfile(login = 'devarshishimpi', githubUserId = 42) {
-  return {
-    id: githubUserId,
-    login,
-    name: 'Devarshi Shimpi',
-    avatar_url: `https://avatars.githubusercontent.com/u/${githubUserId}`,
-    email: null,
-  };
-}
 
 describe('Dashboard API: jobs, stats and queue messages', () => {
-  const app = createApp();
+  const app = createApiRouter();
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   async function getAuthCookie(env = createTestEnv(), login = 'devarshishimpi', githubUserId = 42) {
-    const originalFetch = globalThis.fetch;
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input);
-
-      if (url === 'https://github.com/login/oauth/access_token') {
-        return Response.json({ access_token: 'oauth-access-token' });
-      }
-
-      if (url === 'https://api.github.com/user') {
-        return Response.json(mockGitHubProfile(login, githubUserId));
-      }
-
-      return originalFetch(input, init);
-    });
+    if (env.IDENTITY_PROVIDER && 'defaultUser' in env.IDENTITY_PROVIDER) {
+      (env.IDENTITY_PROVIDER as any).defaultUser = {
+        provider: 'github',
+        providerUserId: githubUserId.toString(),
+        login,
+        name: 'Devarshi Shimpi',
+        avatarUrl: `https://avatars.githubusercontent.com/u/${githubUserId}`,
+        email: null,
+        signedInAt: new Date().toISOString(),
+        metadata: {
+          githubUserId,
+          githubUsername: login,
+        },
+      };
+    }
 
     const authStart = await app.request('/auth/github', {}, env);
     const authLocation = authStart.headers.get('location');

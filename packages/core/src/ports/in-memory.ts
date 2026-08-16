@@ -62,4 +62,11 @@ export class InMemorySessionStore implements SessionStore {
   async destroySession(token: string): Promise<void> {
     await this.kv.delete(`session:${token}`);
   }
+
+  async renewSession(token: string): Promise<void> {
+    const session = await this.readSession(token);
+    if (session) {
+      await this.kv.put(`session:${token}`, JSON.stringify(session), { expirationTtl: 60 * 60 * 24 * 7 });
+    }
+  }
 }

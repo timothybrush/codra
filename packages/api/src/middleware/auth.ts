@@ -1,9 +1,9 @@
 import { createMiddleware } from 'hono/factory';
-import type { AppEnv } from '@server/env';
-import { wantsHtml } from '@server/core/http';
-import { readSession } from '@server/core/sessions';
+import type { ApiEnv } from '../ports';
+import { wantsHtml } from '../http';
+import { readSession } from '../sessions';
 
-export const requireSession = createMiddleware<AppEnv>(async (c, next) => {
+export const requireSession = createMiddleware<ApiEnv>(async (c, next) => {
   const session = await readSession(c);
   if (!session) {
     if (wantsHtml(c.req.raw)) {

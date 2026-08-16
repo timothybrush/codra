@@ -1,4 +1,4 @@
-import type { DashboardSessionUser } from '@codra/core';
+import type { DashboardSessionUser, IdentityProvider, AuthorizationResult } from '@codra/core';
 import type { AppBindingsConfig } from './service';
 
 export type GitHubOAuthProfile = {
@@ -66,11 +66,41 @@ export async function fetchGitHubOAuthProfile(token: string) {
 
 export function toDashboardSessionUser(profile: GitHubOAuthProfile): DashboardSessionUser {
   return {
-    githubUserId: profile.id,
+    provider: 'github',
+    providerUserId: profile.id.toString(),
     login: profile.login,
     name: profile.name,
     avatarUrl: profile.avatar_url,
     email: profile.email,
     signedInAt: new Date().toISOString(),
+    metadata: {
+      githubUserId: profile.id,
+      githubUsername: profile.login,
+    },
   };
+}
+
+export class GitHubIdentityProvider implements IdentityProvider {
+  async beginAuthorization(redirectUri: string, state: string, env: AppBindingsConfig): Promise<{ url: string }> {
+    const url = new URL('https://github.com/login/oauth/authorize');
+    url.searchParams.set('client_id', env.GITHUB_CLIENT_ID ?? '');
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('scope', 'read:user');
+    url.searchParams.set('state', state);
+
+    return { url: url.toString() };
+  }
+
+  async completeAuthorization(code: string, state: string, expectedState: string, env: AppBindingsConfig): Promise<AuthorizationResult> {
+    if (state !== expectedState) {
+      throw new Error('Invalid state');
+    }
+
+    const token = await exchangeGitHubOAuthCode(env, code);
+    const profile = await fetchGitHubOAuthProfile(token);
+
+    return {
+      identity: toDashboardSessionUser(profile),
+    };
+  }
 }

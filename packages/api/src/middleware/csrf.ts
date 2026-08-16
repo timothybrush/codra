@@ -1,10 +1,10 @@
 import { createMiddleware } from 'hono/factory';
-import type { AppEnv } from '@server/env';
+import type { ApiEnv } from '../ports';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const REQUESTED_WITH = 'XMLHttpRequest';
 
-export const requireCsrfHeader = createMiddleware<AppEnv>(async (c, next) => {
+export const requireCsrfHeader = createMiddleware<ApiEnv>(async (c, next) => {
   if (SAFE_METHODS.has(c.req.method.toUpperCase())) {
     await next();
     return;
