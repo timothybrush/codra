@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import type { RepoConfig } from '@codra/schema';
+import type { RepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '../diff';
 import { renderFileDiff, type RejectedExemplar } from '../prompts/file-review';
 import type { BulkFileReviewInput, PullRequestRecord, ReviewModel, ReviewRuntime } from '../ports';

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { jsonError } from '../../http';
-import { llmApiFormats } from '@codra/schema';
+import { llmApiFormats } from '@codraoss/schema';
 import type { ApiEnv } from '../../ports';
 
 const apiFormatSchema = z.enum(llmApiFormats);

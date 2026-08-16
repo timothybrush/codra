@@ -1,17 +1,17 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterAll, vi } from 'vitest';
-import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@codra/db/jobs';
-import { getFileReviewsForJobs, upsertFileReview } from '@codra/db/file-reviews';
-import { defaultRepoConfig } from '@codra/schema';
-import { runWithDb } from '@codra/db/client';
+import { getJobForProcessing, insertJob, updateJobFileCount, updateJobStep } from '@codraoss/db/jobs';
+import { getFileReviewsForJobs, upsertFileReview } from '@codraoss/db/file-reviews';
+import { defaultRepoConfig } from '@codraoss/schema';
+import { runWithDb } from '@codraoss/db/client';
 import { REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@codra/db/jobs', async (importOriginal) => {
+vi.mock('@codraoss/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
@@ -20,26 +20,26 @@ vi.mock('@codra/db/jobs', async (importOriginal) => {
 // parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@codra/db/app-settings', async (importOriginal) => {
+vi.mock('@codraoss/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@codra/schema');
+  const { reviewSettingsSchema } = await import('@codraoss/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@codra/provider-github', async (importOriginal) => {
+vi.mock('@codraoss/provider-github', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
   return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@codra/models', async () => {
+vi.mock('@codraoss/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
   return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
 dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
-  // Tripwire: if a refactor rewires runReviewJob past the @codra/db/jobs barrel, the mock stops
+  // Tripwire: if a refactor rewires runReviewJob past the @codraoss/db/jobs barrel, the mock stops
   // applying and every test here still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
@@ -55,8 +55,8 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   };
 
   it('reviews files in a chunk concurrently', async () => {
-    const { GitHubService } = await import('@codra/provider-github');
-    const { ModelRunner } = await import('@codra/models');
+    const { GitHubService } = await import('@codraoss/provider-github');
+    const { ModelRunner } = await import('@codraoss/models');
     const repo = uniqueRepo('concurrent');
     const headSha = sha('8');
     const baseSha = sha('9');
@@ -130,8 +130,8 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('marks completed jobs with skipped files as partial reviews', async () => {
-    const { GitHubService } = await import('@codra/provider-github');
-    const { ModelRunner } = await import('@codra/models');
+    const { GitHubService } = await import('@codraoss/provider-github');
+    const { ModelRunner } = await import('@codraoss/models');
     const repo = uniqueRepo('partial');
     const headSha = sha('e');
     const baseSha = sha('f');
@@ -216,7 +216,7 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('reuses an already-posted review instead of double-posting when finalize re-runs past the posting stage', async () => {
-    const { GitHubService } = await import('@codra/provider-github');
+    const { GitHubService } = await import('@codraoss/provider-github');
     const repo = uniqueRepo('doublepost');
     const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff').mockResolvedValue(
       generateMockDiff([{ path: 'src/app.ts', content: 'console.log(1);' }]),

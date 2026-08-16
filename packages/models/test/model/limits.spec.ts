@@ -11,7 +11,7 @@ import {
   resolveOutputTokenCeiling,
   reviewOutputBudgetTokens,
 } from '../../src/limits';
-import { generatorFindingCap } from '@codra/core/prompts/file-review';
+import { generatorFindingCap } from '@codraoss/core/prompts/file-review';
 
 // The whole point of these: a bin that overruns `maxOutputTokens` comes back as a repaired JSON prefix
 // with its tail files silently empty, which is indistinguishable from "those files are clean".

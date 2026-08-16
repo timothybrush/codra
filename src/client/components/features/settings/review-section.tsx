@@ -1,7 +1,7 @@
-import { ConfirmDialog, Input, SectionCard, Skeleton } from '@codra/ui';
-import { SteppedSlider } from '@codra/ui/motion';
-import type { ReviewSettings } from '@codra/schema';
-import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange } from '@codra/schema/review-limits';
+import { ConfirmDialog, Input, SectionCard, Skeleton } from '@codraoss/ui';
+import { SteppedSlider } from '@codraoss/ui/motion';
+import type { ReviewSettings } from '@codraoss/schema';
+import { REVIEW_CONCURRENCY_LIMITS, reviewMaxFilesRange } from '@codraoss/schema/review-limits';
 import { FieldLabel } from './field-label';
 import {
   CONCURRENCY_LEVEL_LABEL,

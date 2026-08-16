@@ -1,8 +1,8 @@
-// Both live in @codra/core/ports now: prompts/file-review.ts builds a ModelResponseSchema, and it is
+// Both live in @codraoss/core/ports now: prompts/file-review.ts builds a ModelResponseSchema, and it is
 // the only reason a pure prompt module ever imported from models/. Re-exported here so the ~20
-// existing `@codra/models/types` importers are unaffected, and so there is exactly one definition.
-import type { ModelResponseSchema } from '@codra/core/ports';
-export type { ModelResponse, ModelResponseSchema } from '@codra/core/ports';
+// existing `@codraoss/models/types` importers are unaffected, and so there is exactly one definition.
+import type { ModelResponseSchema } from '@codraoss/core/ports';
+export type { ModelResponse, ModelResponseSchema } from '@codraoss/core/ports';
 
 // `responseSchema` is per-call on purpose: file review, verification, and summary each need a different output shape.
 export type ModelInput = {

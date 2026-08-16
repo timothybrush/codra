@@ -1,5 +1,5 @@
 import type { DbEnv } from './env';
-import type { BulkFileReviewInput } from '@codra/core/ports';
+import type { BulkFileReviewInput } from '@codraoss/core/ports';
 import { queryRows, queryTransaction } from './client';
 import {
   REVIEW_COMMENT_INSERT_CASTS,
@@ -63,7 +63,7 @@ export async function bulkInheritFileReviews(
   });
 }
 
-export type { BulkFileReviewInput } from '@codra/core/ports';
+export type { BulkFileReviewInput } from '@codraoss/core/ports';
 
 // One transaction: per-file upserts would spend the saved model calls back on DB subrequests. `diff_input` is not written (migration 003 nulls it).
 export async function bulkUpsertFileReviews(

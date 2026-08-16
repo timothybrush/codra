@@ -1,6 +1,6 @@
-import { Skeleton } from '@codra/ui';
+import { Skeleton } from '@codraoss/ui';
 import { toast } from 'sonner';
-import type { LlmProvider } from '@codra/schema';
+import type { LlmProvider } from '@codraoss/schema';
 import { ProviderRow } from './provider-row';
 import type { ProviderDraft } from './settings-support';
 

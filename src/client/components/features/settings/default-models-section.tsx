@@ -1,6 +1,6 @@
-import { Skeleton } from '@codra/ui';
+import { Skeleton } from '@codraoss/ui';
 import { useMemo } from 'react';
-import type { ModelConfig } from '@codra/schema';
+import type { ModelConfig } from '@codraoss/schema';
 import { ModelRouteEditor } from '@client/components/features/models/model-chain';
 import type {
   ModelOption,

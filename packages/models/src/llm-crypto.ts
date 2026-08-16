@@ -1,4 +1,4 @@
-import type { SecretStore } from '@codra/core/ports';
+import type { SecretStore } from '@codraoss/core/ports';
 
 const KEY_VERSION = 'v1';
 const encoder = new TextEncoder();

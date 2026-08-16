@@ -1,11 +1,11 @@
-import { Button, EmptyState, Input, LoadError, Select } from '@codra/ui';
+import { Button, EmptyState, Input, LoadError, Select } from '@codraoss/ui';
 import { useState, useCallback } from 'react';
 import { api } from '@client/lib/api';
 import { JobsTable } from '@client/components/shared/jobs-table';
 import { PageHeader } from '@client/components/layout/page-header';
 import { usePolling } from '@client/hooks/use-polling';
 import { Activity, ChevronLeft, ChevronRight, ListFilter, RefreshCw, Search } from 'lucide-react';
-import type { JobSummary } from '@codra/schema';
+import type { JobSummary } from '@codraoss/schema';
 
 export function JobsPage() {
   const [jobs, setJobs]   = useState<JobSummary[]>([]);

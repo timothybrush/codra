@@ -1,7 +1,7 @@
-import { Button, EmptyState, LoadError } from '@codra/ui';
+import { Button, EmptyState, LoadError } from '@codraoss/ui';
 import { useState } from 'react';
 import { api } from '@client/lib/api';
-import type { StatsPayload, JobSummary } from '@codra/schema';
+import type { StatsPayload, JobSummary } from '@codraoss/schema';
 import { ArrowRight, GitPullRequest, Activity } from 'lucide-react';
 import { JobsTable } from '@client/components/shared/jobs-table';
 import { PageHeaderActions } from '@client/components/shared/page-header-actions';

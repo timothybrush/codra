@@ -1,5 +1,5 @@
 
-import { defaultRepoConfig, reviewSettingsSchema, type ParsedReviewComment, type RepoConfig, type ReviewSettings } from '@codra/schema';
+import { defaultRepoConfig, reviewSettingsSchema, type ParsedReviewComment, type RepoConfig, type ReviewSettings } from '@codraoss/schema';
 import type {
   BulkFileReviewInput,
   FileReviewRow,

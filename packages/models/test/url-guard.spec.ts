@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertPublicBaseUrl, isPrivateHost, isValidPublicUrl } from '../src/url-guard';
-import { ProviderRequestError } from '@codra/models/types';
+import { ProviderRequestError } from '../src/types';
 
 // A provider's base URL comes from the dashboard and is then fetched server-side, so an unguarded
 // adapter turns that form into an SSRF primitive.

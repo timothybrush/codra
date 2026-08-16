@@ -1,13 +1,13 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChevronRight } from 'lucide-react';
-import type { FileReviewRecord, ParsedReviewComment } from '@codra/schema';
+import type { FileReviewRecord, ParsedReviewComment } from '@codraoss/schema';
 import { CommentCard } from './comment-card';
-import { preventToggleOnTextSelection } from '@codra/ui/selection';
+import { preventToggleOnTextSelection } from '@codraoss/ui/selection';
 import { MonoPath, StatusDot, VerdictPill } from './job-chips';
 import { statusLabel } from './job-chip-utils';
 
-import { safeRehypePlugins } from '@codra/ui/markdown-plugins';
+import { safeRehypePlugins } from '@codraoss/ui/markdown-plugins';
 interface FileFindingProps {
   file: FileReviewRecord;
 }

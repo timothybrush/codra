@@ -1,7 +1,7 @@
 import type { AppBindings } from '@server/env';
-import type { LearningStore, ModelConfigReader, RepoConfigLoader, ReviewSettingsReader, WebhookDeliveryReader } from '@codra/core/ports';
-import { makeLearningStore as makeDbLearningStore, makeModelConfigReader as makeDbModelConfigReader, makeReviewSettingsReader as makeDbReviewSettingsReader, makeWebhookDeliveryReader as makeDbWebhookDeliveryReader } from '@codra/db/repositories';
-import type { DbEnv } from '@codra/db/env';
+import type { LearningStore, ModelConfigReader, RepoConfigLoader, ReviewSettingsReader, WebhookDeliveryReader } from '@codraoss/core/ports';
+import { makeLearningStore as makeDbLearningStore, makeModelConfigReader as makeDbModelConfigReader, makeReviewSettingsReader as makeDbReviewSettingsReader, makeWebhookDeliveryReader as makeDbWebhookDeliveryReader } from '@codraoss/db/repositories';
+import type { DbEnv } from '@codraoss/db/env';
 import { loadRepoConfig } from '@server/core/config';
 
 function toDbEnv(env: AppBindings): DbEnv {

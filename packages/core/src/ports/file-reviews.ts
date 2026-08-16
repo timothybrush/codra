@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 
 export type FileReviewRow = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ModelChainProgressStore } from '@codra/models';
+import { ModelChainProgressStore } from '@codraoss/models';
 
 // KV double tracks overlapping puts (KV lacks ordering; late puts with less state can revert progress).
 function makeKV() {

@@ -1,11 +1,11 @@
-import { Button, EmptyState, Input, LinkButton, LoadError, Select, Skeleton } from '@codra/ui';
+import { Button, EmptyState, Input, LinkButton, LoadError, Select, Skeleton } from '@codraoss/ui';
 import { useEffect, useMemo, useReducer, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import { PageHeader } from '@client/components/layout/page-header';
 import { GitBranch, RefreshCw, ArrowUpRight, Search } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
-import type { RepoConfigRecord } from '@codra/schema';
+import { cn } from '@codraoss/ui/utils';
+import type { RepoConfigRecord } from '@codraoss/schema';
 import {
   EMPTY_MODEL_ROUTE,
   normalizeModelRoute,

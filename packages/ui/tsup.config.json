@@ -1,0 +1,21 @@
+{
+  "entry": [
+    "src/index.ts",
+    "src/lib/theme.tsx",
+    "src/lib/utils.ts",
+    "src/lib/ease.ts",
+    "src/lib/highlight.tsx",
+    "src/lib/selection.ts",
+    "src/lib/file-tree.ts",
+    "src/lib/prompt-diff.ts",
+    "src/lib/markdown-plugins.ts",
+    "src/components/motion/index.ts",
+    "src/hooks/index.ts"
+  ],
+  "format": "esm",
+  "dts": true,
+  "splitting": true,
+  "sourcemap": true,
+  "clean": true,
+  "outDir": "dist"
+}

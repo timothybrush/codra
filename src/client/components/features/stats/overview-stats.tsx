@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { Activity, ArrowUpRight, Cpu, MessageSquare } from 'lucide-react';
 import { StatsGrid, type StatDelta } from './stats-grid';
-import { fmtStat } from '@codra/ui/utils';
-import { useIsDarkMode } from '@codra/ui/hooks';
-import type { StatsPayload } from '@codra/schema';
+import { fmtStat } from '@codraoss/ui/utils';
+import { useIsDarkMode } from '@codraoss/ui/hooks';
+import type { StatsPayload } from '@codraoss/schema';
 
 interface OverviewStatsProps {
   stats: StatsPayload | null;

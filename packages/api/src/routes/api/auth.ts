@@ -1,4 +1,4 @@
-import { isSupportedTimeZone } from '@codra/schema/timezone';
+import { isSupportedTimeZone } from '@codraoss/schema/timezone';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { jsonError } from '../../http';

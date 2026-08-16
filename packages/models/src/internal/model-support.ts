@@ -1,5 +1,5 @@
-import { normalizeModelId } from '@codra/schema';
-import { isTimeoutMessage, matchesAnyTransientSubstring } from '@codra/schema/transient-errors';
+import { normalizeModelId } from '@codraoss/schema';
+import { isTimeoutMessage, matchesAnyTransientSubstring } from '@codraoss/schema/transient-errors';
 import { UnparseableModelResponseError } from '../types';
 
 // Model service pure helpers: aliases, prompt sizes, rate limits, errors.

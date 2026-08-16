@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { reviewWithCloudflare } from '@codra/models/cloudflare';
-import { reviewWithGoogle } from '@codra/models/google';
+import { reviewWithCloudflare } from '@codraoss/models/cloudflare';
+import { reviewWithGoogle } from '@codraoss/models/google';
 
-import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codra/core/prompts/file-review';
-import { VERIFY_RESPONSE_SCHEMA } from '@codra/core/prompts/verify';
+import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codraoss/core/prompts/file-review';
+import { VERIFY_RESPONSE_SCHEMA } from '@codraoss/core/prompts/verify';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 
 

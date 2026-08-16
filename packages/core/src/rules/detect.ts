@@ -1,8 +1,8 @@
-import type { ClaimType, ParsedReviewComment } from '@codra/schema';
+import type { ClaimType, ParsedReviewComment } from '@codraoss/schema';
 import type { DiffLine, FileDiff } from '../diff';
 import { commentSyntaxFor, stripCommentsAndStrings } from '../claim-checks';
 import { buildAnchorHash, buildFindingFingerprint, buildFindingFingerprintV2, normalizeDiffText } from '../fingerprint';
-import { CLAIM_TYPE_CATEGORY } from '@codra/schema';
+import { CLAIM_TYPE_CATEGORY } from '@codraoss/schema';
 import { RULES, type Rule } from './table';
 
 import { MAX_RULE_SCAN_ADDED_LINES } from '../constants';

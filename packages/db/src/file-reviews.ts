@@ -1,5 +1,5 @@
 import type { DbEnv } from './env';
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 import { parseJsonColumn, queryRows, queryTransaction } from './client';
 import {

@@ -1,4 +1,4 @@
-import { reviewMaxFilesRange, type RepoConfig } from '@codra/schema';
+import { reviewMaxFilesRange, type RepoConfig } from '@codraoss/schema';
 import { filterReviewableFiles, parseUnifiedDiff, type FileDiff } from '../diff';
 import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { logger } from '../logger';

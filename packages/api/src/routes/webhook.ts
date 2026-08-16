@@ -5,7 +5,7 @@ import {
   type FeedbackWebhookPayload,
   type GitHubReviewCommentPayload,
   type GitHubWebhookPayload,
-} from '@codra/schema/github';
+} from '@codraoss/schema/github';
 import type { ApiEnv } from '../ports';
 import { jsonError } from '../http';
 

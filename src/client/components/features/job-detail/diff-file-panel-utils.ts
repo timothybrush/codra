@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import type { DiffRow } from '@codra/ui/prompt-diff';
-import type { ParsedReviewComment } from '@codra/schema';
+import type { DiffRow } from '@codraoss/ui/prompt-diff';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 export const LARGE_DIFF_ROWS = 300;
 

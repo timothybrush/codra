@@ -1,4 +1,4 @@
-import { isSupportedTimeZone } from '@codra/schema/timezone';
+import { isSupportedTimeZone } from '@codraoss/schema/timezone';
 
 /**
  * Display timezone for dashboard timestamps; storage is always TIMESTAMPTZ, so this is purely

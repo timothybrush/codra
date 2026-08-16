@@ -1,10 +1,10 @@
-import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '@codra/core/prompts/summary';
-import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '@codra/core/prompts/verify';
+import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '@codraoss/core/prompts/summary';
+import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '@codraoss/core/prompts/verify';
 import { adaptiveModelTimeoutMs, clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../limits';
 import { isCloudflareAllocationError, isTransientModelFailure, RetryableModelError } from './model-support';
-import { logger } from '@codra/core/logger';
-import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
-import type { TokenTracker } from '@codra/core/token-tracker';
+import { logger } from '@codraoss/core/logger';
+import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
+import type { TokenTracker } from '@codraoss/core/token-tracker';
 import type { ModelInput, ModelResponse } from '../types';
 
 // Import from services/model.ts, not here -- four specs vi.mock that specifier.

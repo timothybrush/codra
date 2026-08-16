@@ -1,0 +1,18 @@
+{
+  "entry": [
+    "src/index.ts",
+    "src/api.ts",
+    "src/github.ts",
+    "src/hex.ts",
+    "src/review-limits.ts",
+    "src/timezone.ts",
+    "src/transient-errors.ts",
+    "src/webhook.ts"
+  ],
+  "format": "esm",
+  "dts": true,
+  "splitting": true,
+  "sourcemap": true,
+  "clean": true,
+  "outDir": "dist"
+}

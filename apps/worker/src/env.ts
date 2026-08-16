@@ -1,5 +1,5 @@
-import type { ReviewJobMessage } from '@codra/schema';
-import type { DashboardSessionUser, SessionStore } from '@codra/core';
+import type { ReviewJobMessage } from '@codraoss/schema';
+import type { DashboardSessionUser, SessionStore } from '@codraoss/core';
 
 export interface WorkersAiBinding {
   run(model: string, input: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<any>;

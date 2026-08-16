@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, type RepoConfig } from '@codraoss/schema';
 import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { getDiffFiles } from './diff-cache';
 import type { RejectedExemplar } from '../prompts/file-review';

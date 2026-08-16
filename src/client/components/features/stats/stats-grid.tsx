@@ -1,6 +1,6 @@
-import { BarSparkline, Skeleton } from '@codra/ui';
+import { BarSparkline, Skeleton } from '@codraoss/ui';
 import * as React from 'react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import type { LucideIcon } from 'lucide-react';
 
 export interface StatDelta {

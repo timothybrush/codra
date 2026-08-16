@@ -1,12 +1,15 @@
 {
-  "name": "@codra/worker",
+  "name": "@codraoss/worker",
   "version": "0.9.4",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@codra/core": "*",
-    "@codra/db": "*",
-    "@codra/schema": "*",
+    "@codraoss/api": "*",
+    "@codraoss/core": "*",
+    "@codraoss/db": "*",
+    "@codraoss/models": "*",
+    "@codraoss/provider-github": "*",
+    "@codraoss/schema": "*",
     "hono": "^4.12.25"
   },
   "devDependencies": {

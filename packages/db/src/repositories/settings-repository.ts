@@ -1,4 +1,4 @@
-import type { LearningStore, ModelConfigReader, ReviewSettingsReader, WebhookDeliveryReader } from '@codra/core/ports';
+import type { LearningStore, ModelConfigReader, ReviewSettingsReader, WebhookDeliveryReader } from '@codraoss/core/ports';
 import type { DbEnv } from '../env';
 import { getReviewSettings } from '../app-settings';
 import { getResolvedModelConfig } from '../model-configs';

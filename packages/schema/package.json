@@ -1,12 +1,23 @@
 {
-  "name": "@codra/schema",
+  "name": "@codraoss/schema",
   "version": "0.9.4",
-  "private": true,
+  "description": "Shared types and Zod contracts for Codra, the open-source code review engine.",
+  "author": "Devarshi Shimpi",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://codra.run",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devarshishimpi/codra.git",
+    "directory": "packages/schema"
+  },
+  "bugs": {
+    "url": "https://github.com/devarshishimpi/codra/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
-    "./config": "./src/config.ts",
     "./github": "./src/github.ts",
     "./hex": "./src/hex.ts",
     "./review-limits": "./src/review-limits.ts",
@@ -14,7 +25,61 @@
     "./transient-errors": "./src/transient-errors.ts",
     "./webhook": "./src/webhook.ts"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./api": {
+        "types": "./dist/api.d.ts",
+        "import": "./dist/api.js"
+      },
+      "./github": {
+        "types": "./dist/github.d.ts",
+        "import": "./dist/github.js"
+      },
+      "./hex": {
+        "types": "./dist/hex.d.ts",
+        "import": "./dist/hex.js"
+      },
+      "./review-limits": {
+        "types": "./dist/review-limits.d.ts",
+        "import": "./dist/review-limits.js"
+      },
+      "./timezone": {
+        "types": "./dist/timezone.d.ts",
+        "import": "./dist/timezone.js"
+      },
+      "./transient-errors": {
+        "types": "./dist/transient-errors.d.ts",
+        "import": "./dist/transient-errors.js"
+      },
+      "./webhook": {
+        "types": "./dist/webhook.d.ts",
+        "import": "./dist/webhook.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
+    "postpack": "node ../../scripts/swap-publish-exports.mjs restore"
+  },
   "dependencies": {
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0"
   }
 }

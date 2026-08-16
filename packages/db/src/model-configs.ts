@@ -11,7 +11,7 @@ import {
   type ModelConfig,
   type ResolvedModelConfig,
   type LlmProviderSecret,
-} from '@codra/schema';
+} from '@codraoss/schema';
 
 export type { ResolvedModelConfig, LlmProviderSecret };
 

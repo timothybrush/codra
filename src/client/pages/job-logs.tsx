@@ -1,9 +1,9 @@
-import { Badge, CopyButton, LoadError } from '@codra/ui';
+import { Badge, CopyButton, LoadError } from '@codraoss/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 
 
-import { preventToggleOnTextSelection } from '@codra/ui/selection';
+import { preventToggleOnTextSelection } from '@codraoss/ui/selection';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
 import { groupBatches } from '@client/lib/batch-groups';
 import type { BatchGroup } from '@client/lib/batch-groups';
@@ -16,9 +16,9 @@ import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
 
 import { api } from '@client/lib/api';
-import type { FileReviewRecord } from '@codra/schema';
+import type { FileReviewRecord } from '@codraoss/schema';
 
-import { formatPreciseDuration } from '@codra/ui/utils';
+import { formatPreciseDuration } from '@codraoss/ui/utils';
 
 function fmtK(n: number | null) {
   if (n === null) return null;

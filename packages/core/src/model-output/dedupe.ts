@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 import { normalizeFindingTitle } from '../fingerprint';
 
 const SEVERITY_RANK: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit: 4 };

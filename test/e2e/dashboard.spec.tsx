@@ -7,7 +7,7 @@ import { LoginPage } from '@client/pages/login';
 import { DashboardPage } from '@client/pages/dashboard';
 import { MemoryRouter } from 'react-router-dom';
 import { api } from '@client/lib/api';
-import { ThemeProvider } from '@codra/ui/theme';
+import { ThemeProvider } from '@codraoss/ui/theme';
 
 vi.mock('@client/lib/api', () => ({
   api: {

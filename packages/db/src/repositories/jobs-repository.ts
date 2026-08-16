@@ -1,4 +1,4 @@
-import type { JobLeaseClaim as CoreJobLeaseClaim, JobRow as CoreJobRow, JobStore, PersistedReviewJob } from '@codra/core/ports';
+import type { JobLeaseClaim as CoreJobLeaseClaim, JobRow as CoreJobRow, JobStore, PersistedReviewJob } from '@codraoss/core/ports';
 import type { DbEnv } from '../env';
 import {
   claimJobLease,

@@ -4,7 +4,7 @@ import {
   CLAIM_TYPE_DECIDABILITY,
   DEFAULT_DENIED_CLAIM_TYPES,
   claimTypes,
-} from '@codra/schema';
+} from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
 import { reviewJson } from '../mocks/fixtures';

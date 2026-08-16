@@ -1,10 +1,10 @@
 import { describe } from 'vitest';
 import type { AppBindings } from '@server/env';
-import { InMemorySessionStore } from '@codra/core';
-import { encryptLlmApiKey, ModelRunner } from '@codra/models';
-import { queryRows } from '@codra/db/client';
-import { getResolvedModelConfig } from '@codra/db/model-configs';
-import type { TokenTracker } from '@codra/core/token-tracker';
+import { InMemorySessionStore } from '@codraoss/core';
+import { encryptLlmApiKey, ModelRunner } from '@codraoss/models';
+import { queryRows } from '@codraoss/db/client';
+import { getResolvedModelConfig } from '@codraoss/db/model-configs';
+import type { TokenTracker } from '@codraoss/core/token-tracker';
 import { createApiRouterDeps } from '../apps/worker/src/api-deps';
 
 export class MemoryKV {

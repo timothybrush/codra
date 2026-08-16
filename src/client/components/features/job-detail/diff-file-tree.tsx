@@ -1,8 +1,8 @@
 import { Check, FileText, Folder, FolderOpen } from 'lucide-react';
-import { type TreeNode } from '@codra/ui/file-tree';
-import { diffStats } from '@codra/ui/prompt-diff';
-import { cn } from '@codra/ui/utils';
-import type { FileReviewRecord } from '@codra/schema';
+import { type TreeNode } from '@codraoss/ui/file-tree';
+import { diffStats } from '@codraoss/ui/prompt-diff';
+import { cn } from '@codraoss/ui/utils';
+import type { FileReviewRecord } from '@codraoss/schema';
 
 export interface TreeProps {
   nodes: TreeNode[];

@@ -4,16 +4,16 @@ import {
   buildFileReviewPrompts,
   buildReviewResponseSchema,
   type RejectedExemplar,
-} from '@codra/core/prompts/file-review';
-import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '@codra/core/model-output';
+} from '@codraoss/core/prompts/file-review';
+import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '@codraoss/core/model-output';
 import { UnparseableModelResponseError } from '../types';
-import { chunkFileDiff, type FileDiff } from '@codra/core/diff';
+import { chunkFileDiff, type FileDiff } from '@codraoss/core/diff';
 import { adaptiveModelTimeoutMs, reviewOutputBudgetTokens } from '../limits';
-import { generatorFindingCap } from '@codra/core/prompts/file-review';
+import { generatorFindingCap } from '@codraoss/core/prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
-import { logger } from '@codra/core/logger';
-import type { RepoConfig } from '@codra/schema';
+import { logger } from '@codraoss/core/logger';
+import type { RepoConfig } from '@codraoss/schema';
 import type { ModelResponse } from '../types';
 
 // Import from the services/model barrel, not here (four specs vi.mock it).

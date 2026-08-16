@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { nextChainIndexOf, ModelRunner } from '@codra/models';
-import { defaultRepoConfig } from '@codra/schema';
-import { TokenTracker } from '@codra/core/token-tracker';
+import { nextChainIndexOf, ModelRunner } from '@codraoss/models';
+import { defaultRepoConfig } from '@codraoss/schema';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 
 // One invocation only affords ~55s of model calls, so a chain whose head is slow never reaches its

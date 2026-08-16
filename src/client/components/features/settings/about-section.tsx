@@ -1,4 +1,4 @@
-import { Badge, LayerCard, SectionCard, Text } from '@codra/ui';
+import { Badge, LayerCard, SectionCard, Text } from '@codraoss/ui';
 import pkg from '../../../../../package.json';
 import { ExternalLink } from 'lucide-react';
 

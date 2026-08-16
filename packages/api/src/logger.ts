@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { formatLogRecord, setLoggerSink } from '@codra/core/logger';
+import { formatLogRecord, setLoggerSink } from '@codraoss/core/logger';
 
-// The request-context half of the logger. Scrubbing and record shaping live in @codra/core/logger;
+// The request-context half of the logger. Scrubbing and record shaping live in @codraoss/core/logger;
 // this file owns everything platform-bound -- AsyncLocalStorage and the console sink -- so that
 // node:async_hooks never enters the engine package. Importing this module installs it as the sink
-// that @codra/core's `logger` facade delegates to (see the bottom of the file).
+// that @codraoss/core's `logger` facade delegates to (see the bottom of the file).
 const storage = new AsyncLocalStorage<Record<string, any>>();
 
 class Logger {
@@ -58,6 +58,6 @@ class Logger {
 
 export const logger = new Logger();
 
-// Wired at import scope so engine code logging through @codra/core's facade lands here, with request
+// Wired at import scope so engine code logging through @codraoss/core's facade lands here, with request
 // context attached, rather than in core's bare console fallback.
 setLoggerSink(logger);

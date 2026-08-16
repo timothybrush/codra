@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseBatchReviewResponse } from '@codra/core/model-output';
-import type { FileDiff } from '@codra/core/diff';
+import { parseBatchReviewResponse } from '@codraoss/core/model-output';
+import type { FileDiff } from '@codraoss/core/diff';
 
 function file(path: string, contents: string[], previousPath: string | null = null): FileDiff {
   return {

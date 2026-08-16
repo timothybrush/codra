@@ -1,4 +1,4 @@
-import { logger } from '@codra/core/logger';
+import { logger } from '@codraoss/core/logger';
 
 export class GitHubError extends Error {
   constructor(

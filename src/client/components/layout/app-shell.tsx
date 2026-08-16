@@ -1,13 +1,13 @@
 import { Outlet, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { SharedLayoutBg } from '@codra/ui/motion';
+import { SharedLayoutBg } from '@codraoss/ui/motion';
 import { api } from '@client/lib/api';
 import { LayoutDashboard, AlignLeft, GitBranch, BarChart2, Sun, Moon, Activity, Settings, Star, X, ArrowUpRight } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
-import { useTheme } from '@codra/ui/theme';
+import { cn } from '@codraoss/ui/utils';
+import { useTheme } from '@codraoss/ui/theme';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
 import codraLight from '@/assets/codra-fullicon-light.svg';
-import type { AuthSessionUser } from '@codra/schema/api';
+import type { AuthSessionUser } from '@codraoss/schema/api';
 
 import { SidebarNavItem } from '@client/components/layout/sidebar-nav-item';
 import { AccountMenu } from '@client/components/layout/account-menu';

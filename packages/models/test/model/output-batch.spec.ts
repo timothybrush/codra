@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRawBatchPayload } from '@codra/core/model-output';
+import { parseRawBatchPayload } from '@codraoss/core/model-output';
 
 function nested(paths: string[]) {
   return {

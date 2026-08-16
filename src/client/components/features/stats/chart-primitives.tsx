@@ -1,4 +1,4 @@
-import { Skeleton, GraphShell } from '@codra/ui';
+import { Skeleton, GraphShell } from '@codraoss/ui';
 import type { ReactNode } from 'react';
 import { Activity, Boxes, Coins, FolderGit2, ShieldCheck } from 'lucide-react';
 import { formatCompact, formatDayRange } from './chart-support';

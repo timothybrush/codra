@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isRetryableModelError } from '@codra/models';
+import { isRetryableModelError } from '@codraoss/models';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 import { makeModelFactory } from '@server/adapters/services';
 
 const file = {

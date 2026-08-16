@@ -1,7 +1,7 @@
 import type { DbEnv } from './env';
-import { hexToBytes } from '@codra/schema/hex';
+import { hexToBytes } from '@codraoss/schema/hex';
 import { parseJsonColumn, queryRows } from './client';
-import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@codraoss/schema';
 import { getOrCreateRepository } from './repositories';
 import { reviewCommentJsonObject } from './review-comment-sql';
 import { type JobRow, bytesToHex, mapJob } from './jobs-mapping';

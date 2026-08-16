@@ -1,5 +1,5 @@
 import type { AppBindingsConfig } from './service';
-import { withTimeout } from '@codra/core/timeout';
+import { withTimeout } from '@codraoss/core/timeout';
 import {
   GitHubError,
   assertResponseOk,

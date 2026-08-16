@@ -1,4 +1,4 @@
-import type { ClaimType } from '@codra/schema';
+import type { ClaimType } from '@codraoss/schema';
 import type { FileDiff } from '../diff';
 import { generatorFindingCap } from '../prompts/file-review';
 import { logger } from '../logger';

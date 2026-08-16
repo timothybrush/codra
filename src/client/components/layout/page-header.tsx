@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
 
 interface PageHeaderProps extends React.HTMLAttributes<HTMLElement> {

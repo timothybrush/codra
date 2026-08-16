@@ -1,4 +1,4 @@
-import type { FileReviewStore } from '@codra/core/ports';
+import type { FileReviewStore } from '@codraoss/core/ports';
 import type { DbEnv } from '../env';
 import {
   bulkInheritFileReviews,

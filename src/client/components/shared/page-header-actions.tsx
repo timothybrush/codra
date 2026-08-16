@@ -1,4 +1,4 @@
-import { Button } from '@codra/ui';
+import { Button } from '@codraoss/ui';
 import { RefreshCw } from 'lucide-react';
 import { TimeRangeSelect } from '@client/components/features/stats/time-range-select';
 

@@ -1,4 +1,4 @@
-import type { DashboardSessionUser, SessionStore } from '@codra/core';
+import type { DashboardSessionUser, SessionStore } from '@codraoss/core';
 export interface AppBindings {
     SESSION_STORE: SessionStore;
     APP_PRIVATE_KEY: string;

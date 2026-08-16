@@ -1,16 +1,16 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, sha, uniqueName, uniqueRepo } from '../helpers';
 import { afterAll, expect, vi } from 'vitest';
-import { findExistingJobForHead, getJobForProcessing } from '@codra/db/jobs';
-import { getFileReviewsForJobs } from '@codra/db/file-reviews';
-import { runWithDb, queryRows } from '@codra/db/client';
+import { findExistingJobForHead, getJobForProcessing } from '@codraoss/db/jobs';
+import { getFileReviewsForJobs } from '@codraoss/db/file-reviews';
+import { runWithDb, queryRows } from '@codraoss/db/client';
 
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@codra/db/jobs', async (importOriginal) => {
+vi.mock('@codraoss/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
@@ -19,14 +19,14 @@ vi.mock('@codra/db/jobs', async (importOriginal) => {
 // parallel. This suite only needs some fixed concurrency, so pin the schema default.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@codra/db/app-settings', async (importOriginal) => {
+vi.mock('@codraoss/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@codra/schema');
+  const { reviewSettingsSchema } = await import('@codraoss/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@codra/provider-github', async (importOriginal) => {
+vi.mock('@codraoss/provider-github', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
   return { ...mod, GitHubService: makeGitHubServiceMock() };
@@ -36,7 +36,7 @@ vi.mock('@codra/provider-github', async (importOriginal) => {
 // pending, the second completes. reviewFile must NOT be called on the async path.
 const pollCalls = { count: 0 };
 const reviewFileSpy = vi.fn();
-vi.mock('@codra/models', async () => {
+vi.mock('@codraoss/models', async () => {
   class MockModelService {
     async submitReviewBatch() {
       return { requestId: 'req-async-1', model: '@cf/moonshotai/kimi-k2.6' };
@@ -67,7 +67,7 @@ vi.mock('@codra/models', async () => {
 
 dbDescribe('Async batch review flow', () => {
   // Tripwire: if runReviewJob ever stops importing getOtherRunningJobsCount from the
-  // @codra/db/jobs barrel, this mock silently stops applying and every test here still passes.
+  // @codraoss/db/jobs barrel, this mock silently stops applying and every test here still passes.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();
@@ -95,7 +95,7 @@ dbDescribe('Async batch review flow', () => {
         repository: { owner: { login: 'test-owner' }, name: repo },
         pull_request: { number: 1, head: { sha: headSha, ref: 'feature' }, base: { sha: sha('d'), ref: 'main' }, title: 'Test PR', user: { login: 'author' }, draft: false },
       };
-      const { normalizeGitHubWebhook } = await import('@codra/provider-github');
+      const { normalizeGitHubWebhook } = await import('@codraoss/provider-github');
       const normalized = normalizeGitHubWebhook('pull_request', rawPayload);
       const prep = await runReviewJob(env, {
         deliveryId: uniqueName('delivery-async'),

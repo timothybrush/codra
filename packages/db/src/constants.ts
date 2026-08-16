@@ -1,4 +1,4 @@
-import { reviewConcurrencyLevels, reviewMaxCommentsOptions } from '@codra/schema';
+import { reviewConcurrencyLevels, reviewMaxCommentsOptions } from '@codraoss/schema';
 
 // accounts.ts
 export const ACCOUNT_COLUMNS = 'id, github_user_id, github_username, account_name, account_email, timezone';

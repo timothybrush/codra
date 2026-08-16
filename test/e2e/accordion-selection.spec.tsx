@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { preventToggleOnTextSelection } from '@codra/ui/selection';
+import { preventToggleOnTextSelection } from '@codraoss/ui/selection';
 
 /**
  * Accordion headers used to carry `select-none`, making the file path uncopyable. Removing it is

@@ -1,11 +1,11 @@
-import { createApiRouter } from '@codra/api';
-import { getJobForProcessing, insertJob } from '@codra/db/jobs';
+import { createApiRouter } from '@codraoss/api';
+import { getJobForProcessing, insertJob } from '@codraoss/db/jobs';
 
-import { getRepoConfigRecord } from '@codra/db/repo-configs';
+import { getRepoConfigRecord } from '@codraoss/db/repo-configs';
 import { loadRepoConfig, updateGlobalConfig } from '@server/core/config';
-import { GitHubClient } from '@codra/provider-github';
+import { GitHubClient } from '@codraoss/provider-github';
 
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';
 

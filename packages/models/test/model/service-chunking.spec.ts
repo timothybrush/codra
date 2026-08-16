@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ModelRunner } from '@codra/models';
+import { ModelRunner } from '@codraoss/models';
 
 
 
 
 
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
-import { defaultRepoConfig } from '@codra/schema';
-import { TokenTracker } from '@codra/core/token-tracker';
+import { defaultRepoConfig } from '@codraoss/schema';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 import { geminiThinkingBudgetTokens, reviewOutputBudgetTokens } from '../../src/limits';
-import { generatorFindingCap } from '@codra/core/prompts/file-review';
+import { generatorFindingCap } from '@codraoss/core/prompts/file-review';
 
 describe('ModelRunner: diff chunking', () => {
   afterEach(() => {

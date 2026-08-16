@@ -6,7 +6,7 @@ import {
   type ClaimType,
   type ParsedReviewComment,
   reviewSeverities,
-} from '@codra/schema';
+} from '@codraoss/schema';
 import { renderDiffSnippet } from '../prompts/verify';
 import { logger } from '../logger';
 import { z } from 'zod';

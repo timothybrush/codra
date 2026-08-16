@@ -1,4 +1,4 @@
-import { logger } from '@codra/core/logger';
+import { logger } from '@codraoss/core/logger';
 import { assertResponseOk, type GitHubRequestContext, repoApiPath, withRetry } from './http';
 import type { ReviewComment } from './types';
 

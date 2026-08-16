@@ -1,24 +1,57 @@
 {
-  "name": "@codra/api",
+  "name": "@codraoss/api",
   "version": "0.9.4",
-  "private": true,
+  "description": "Codra's HTTP surface as a mountable Hono router, wired through ports.",
+  "author": "Devarshi Shimpi",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://codra.run",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devarshishimpi/codra.git",
+    "directory": "packages/api"
+  },
+  "bugs": {
+    "url": "https://github.com/devarshishimpi/codra/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
+    "postpack": "node ../../scripts/swap-publish-exports.mjs restore"
   },
   "dependencies": {
     "hono": "^4.12.25",
     "zod": "^4.3.6",
-    "@codra/schema": "*",
-    "@codra/core": "*",
-    "@codra/db": "*",
-    "@codra/provider-github": "*",
-    "@codra/models": "*"
+    "@codraoss/schema": "^0.9.4",
+    "@codraoss/core": "^0.9.4",
+    "@codraoss/db": "^0.9.4",
+    "@codraoss/provider-github": "^0.9.4",
+    "@codraoss/models": "^0.9.4"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0"
   }
 }

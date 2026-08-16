@@ -5,9 +5,9 @@ import {
   bulkRecordRetryableFileReviewFailures,
   bulkUpsertFileReviews,
   getFileReviewsForJobs,
-} from '@codra/db/file-reviews';
-import { getJobDetail, insertJob } from '@codra/db/jobs';
-import type { ParsedReviewComment } from '@codra/schema';
+} from '@codraoss/db/file-reviews';
+import { getJobDetail, insertJob } from '@codraoss/db/jobs';
+import type { ParsedReviewComment } from '@codraoss/schema';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
 
 const env = createTestEnv();

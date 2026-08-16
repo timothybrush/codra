@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 // The third field is OPTIONAL so every comment already on GitHub still parses; requiring it would silently stop recording deletions of historical comments.
 const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)(?::([0-9a-f]*))?\s*-->/;

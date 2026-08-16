@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { GitHubClient } from '@codra/provider-github';
-import type { ReviewComment } from '@codra/core/ports';
+import { GitHubClient } from '@codraoss/provider-github';
+import type { ReviewComment } from '@codraoss/core/ports';
 
 // Regression: inline comments silently stopped reaching GitHub because `createReview` kept only
 // comments carrying a legacy diff `position` -- a value nothing in the pipeline computes anymore

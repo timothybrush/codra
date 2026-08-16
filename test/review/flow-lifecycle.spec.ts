@@ -1,18 +1,18 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, generateMockDiff, sha, uniqueRepo } from '../helpers';
 import { afterAll, vi } from 'vitest';
-import { findExistingJobForHead, getJobForProcessing, insertJob } from '@codra/db/jobs';
-import { getFileReviewsForJobs } from '@codra/db/file-reviews';
-import { defaultRepoConfig } from '@codra/schema';
-import { runWithDb, queryRows } from '@codra/db/client';
-import { normalizeGitHubWebhook } from '@codra/provider-github';
+import { findExistingJobForHead, getJobForProcessing, insertJob } from '@codraoss/db/jobs';
+import { getFileReviewsForJobs } from '@codraoss/db/file-reviews';
+import { defaultRepoConfig } from '@codraoss/schema';
+import { runWithDb, queryRows } from '@codraoss/db/client';
+import { normalizeGitHubWebhook } from '@codraoss/provider-github';
 import { makeRunAndDrain, REVIEW_FLOW_TIMEOUT_MS } from '../mocks/review-harness';
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@codra/db/jobs', async (importOriginal) => {
+vi.mock('@codraoss/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
@@ -22,20 +22,20 @@ vi.mock('@codra/db/jobs', async (importOriginal) => {
 // fixed concurrency, so pin the schema default; the suites that test the table take a lock.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@codra/db/app-settings', async (importOriginal) => {
+vi.mock('@codraoss/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@codra/schema');
+  const { reviewSettingsSchema } = await import('@codraoss/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@codra/provider-github', async (importOriginal) => {
+vi.mock('@codraoss/provider-github', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
   return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-vi.mock('@codra/models', async () => {
+vi.mock('@codraoss/models', async () => {
   const { makeModelServiceMock, isRetryableModelErrorMock, nextChainIndexOfMock } = await import('../mocks/services');
   return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
@@ -59,7 +59,7 @@ async function needsCheckRunCompletion(env: Parameters<typeof queryRows>[0], job
 
 dbDescribe('Review flow: lifecycle and finalize', () => {
   // Tripwire: if a refactor rewires runReviewJob to import getOtherRunningJobsCount from a
-  // sibling rather than the @codra/db/jobs barrel, the mock stops applying and every test here
+  // sibling rather than the @codraoss/db/jobs barrel, the mock stops applying and every test here
   // still passes while asserting nothing.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
@@ -102,7 +102,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('stops processing if the job is superseded mid-way', async () => {
-      const { GitHubService } = await import('@codra/provider-github');
+      const { GitHubService } = await import('@codraoss/provider-github');
       const repo = uniqueRepo('supersede');
       const headSha = sha('c');
       const baseSha = sha('d');
@@ -110,7 +110,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
       const getDiffSpy = vi.spyOn(GitHubService.prototype, 'getPullRequestDiff');
       
       getDiffSpy.mockImplementationOnce(async () => {
-          const { getDb } = await import('@codra/db/client');
+          const { getDb } = await import('@codraoss/db/client');
           const sql = getDb(env);
           await sql.query(
             `
@@ -156,7 +156,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('throttles a new (queued) job at the concurrency limit but never a running continuation', async () => {
-    const jobsMod = await import('@codra/db/jobs');
+    const jobsMod = await import('@codraoss/db/jobs');
     const repo = uniqueRepo('admission');
     const baseSha = sha('0');
     const base = {
@@ -189,7 +189,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   }, REVIEW_FLOW_TIMEOUT_MS);
 
   it('bulk-marks missing files failed in a single pass without clobbering existing rows', async () => {
-    const { bulkMarkFilesFailed } = await import('@codra/db/file-reviews');
+    const { bulkMarkFilesFailed } = await import('@codraoss/db/file-reviews');
     const job = await insertJob(env, {
       installationId: '123', owner: 'test-owner', repo: uniqueRepo('bulk-failed'),
       prNumber: 40, prTitle: 'Bulk failed', prAuthor: 'author', commitSha: sha('e'), baseSha: sha('0'),
@@ -218,7 +218,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
   it('completes the job with the review recorded even if post-review check-run/label updates fail', async () => {
     // Regression: the review is posted mid-finalize, so if the cosmetic check-run or label calls
     // throw, the job must still finish 'done' with review_id set rather than stranded 'failed'.
-    const { GitHubService } = await import('@codra/provider-github');
+    const { GitHubService } = await import('@codraoss/provider-github');
     const checkRunSpy = vi.spyOn(GitHubService.prototype, 'updateCheckRun' as any)
       .mockRejectedValue(new Error('Too many subrequests by single Worker invocation'));
 

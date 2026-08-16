@@ -17,11 +17,11 @@ vi.mock('@server/core/review', async (importOriginal) => ({
   runReviewJob: runReviewJobMock,
 }));
 vi.mock('@server/core/job-recovery', () => ({ runBestEffortJobMaintenance: maintenanceMock }));
-vi.mock('@codra/db/jobs', async (importOriginal) => ({
+vi.mock('@codraoss/db/jobs', async (importOriginal) => ({
   ...(await importOriginal<any>()),
   setJobWorkflowInstance: setInstanceMock,
 }));
-vi.mock('@codra/db/client', () => ({ runWithDb: (_env: any, fn: any) => fn() }));
+vi.mock('@codraoss/db/client', () => ({ runWithDb: (_env: any, fn: any) => fn() }));
 
 import { ReviewWorkflow } from '../../apps/worker/src/workflows/review';
 

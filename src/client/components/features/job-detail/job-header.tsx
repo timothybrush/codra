@@ -1,4 +1,4 @@
-import { Button, ConfirmDialog } from '@codra/ui';
+import { Button, ConfirmDialog } from '@codraoss/ui';
 import { useState } from 'react';
 import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
@@ -14,11 +14,11 @@ import {
   Terminal,
   Trash2,
 } from 'lucide-react';
-import type { ButtonProps } from '@codra/ui';
+import type { ButtonProps } from '@codraoss/ui';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
 import { AuthorChip, JobStatusLine, MetaChip, VerdictPill } from './job-chips';
 import { formatAbsoluteDate, formatRelativeDate } from './job-chip-utils';
-import type { JobDetail } from '@codra/schema';
+import type { JobDetail } from '@codraoss/schema';
 
 // Lucide's CircleStop strokes the inner square too, which reads as a blob at 14px; filling it
 // instead keeps the stop symbol legible.

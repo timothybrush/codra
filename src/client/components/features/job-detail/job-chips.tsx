@@ -4,10 +4,10 @@
  */
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import { STATUS_DOT, jobDuration, statusLabel } from '@client/lib/job-format';
 
-import type { JobDetail, JobSummary } from '@codra/schema';
+import type { JobDetail, JobSummary } from '@codraoss/schema';
 
 
 /** Status dot alone, for rows that render their own label. */

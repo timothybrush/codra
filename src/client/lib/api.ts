@@ -11,8 +11,8 @@ import type {
   StatsResponse,
   SyncReposResponse,
   UpdatesEmailResponse,
-} from '@codra/schema/api';
-import type { LlmApiFormat, LlmProvider, RepoConfig, ReviewSettings } from '@codra/schema';
+} from '@codraoss/schema/api';
+import type { LlmApiFormat, LlmProvider, RepoConfig, ReviewSettings } from '@codraoss/schema';
 import { resolvedTimeZone } from '@client/lib/timezone';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);

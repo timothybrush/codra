@@ -2,7 +2,7 @@ import type { KeyValueStore } from './kv';
 import type { QueueProducer } from './queue';
 import type { JobOrchestrator } from './orchestrator';
 import type { SessionStore, DashboardSessionUser } from './session-store';
-import type { ReviewJobMessage } from '@codra/schema';
+import type { ReviewJobMessage } from '@codraoss/schema';
 
 export class InMemoryKV implements KeyValueStore {
   private store = new Map<string, { value: string; expiresAt?: number }>();

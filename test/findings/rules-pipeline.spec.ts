@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dedupeFindings } from '@server/core/model-output';
 import { ruleHitsToComments, scanFileForRuleHits } from '@server/core/rules/detect';
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
 import { addedLinesFile } from '../mocks/fixtures';

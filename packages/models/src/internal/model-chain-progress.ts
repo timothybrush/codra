@@ -1,6 +1,6 @@
-import { logger } from '@codra/core/logger';
-import type { KvStore } from '@codra/core/ports';
-import type { TokenTracker } from '@codra/core/token-tracker';
+import { logger } from '@codraoss/core/logger';
+import type { KvStore } from '@codraoss/core/ports';
+import type { TokenTracker } from '@codraoss/core/token-tracker';
 import { isPlausibleTokenBucket } from './model-support';
 
 // Stores where each label got to in its model chain so deferred reviews resume properly.

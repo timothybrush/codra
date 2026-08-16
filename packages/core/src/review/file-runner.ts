@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { type ParsedReviewComment, type RepoConfig } from '@codra/schema';
+import { type ParsedReviewComment, type RepoConfig } from '@codraoss/schema';
 import { parseUnifiedDiff, type FileDiff } from '../diff';
 import { ruleHitsToComments, scanFileForRuleHits, type RuleScanStats } from '../rules/detect';
 import type { RejectedExemplar } from '../prompts/file-review';

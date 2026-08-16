@@ -1,4 +1,4 @@
-import type { RepoConfig } from '@codra/schema';
+import type { RepoConfig } from '@codraoss/schema';
 
 export interface RepoConfigStore {
   getRepoConfigRecord(owner: string, repo: string): Promise<{

@@ -1,0 +1,26 @@
+{
+  "entry": [
+    "src/index.ts",
+    "src/ports/index.ts",
+    "src/logger.ts",
+    "src/diff/index.ts",
+    "src/model-output/index.ts",
+    "src/rules/detect.ts",
+    "src/rules/table.ts",
+    "src/claim-checks.ts",
+    "src/verify.ts",
+    "src/fingerprint.ts",
+    "src/timeout.ts",
+    "src/token-tracker.ts",
+    "src/prompts/file-review.ts",
+    "src/prompts/languages.ts",
+    "src/prompts/summary.ts",
+    "src/prompts/verify.ts"
+  ],
+  "format": "esm",
+  "dts": true,
+  "splitting": true,
+  "sourcemap": true,
+  "clean": true,
+  "outDir": "dist"
+}

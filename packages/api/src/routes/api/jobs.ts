@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codra/schema';
+import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codraoss/schema';
 import { jsonError } from '../../http';
-import { parseUnifiedDiff } from '@codra/core/diff';
-import { buildFileReviewPrompts } from '@codra/core/prompts/file-review';
+import { parseUnifiedDiff } from '@codraoss/core/diff';
+import { buildFileReviewPrompts } from '@codraoss/core/prompts/file-review';
 import type { ApiEnv } from '../../ports';
 
 // Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.

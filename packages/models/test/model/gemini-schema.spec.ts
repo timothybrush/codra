@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toGeminiResponseJsonSchema } from '../../src/gemini-schema';
-import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codra/core/prompts/file-review';
-import { VERIFY_RESPONSE_SCHEMA } from '@codra/core/prompts/verify';
+import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codraoss/core/prompts/file-review';
+import { VERIFY_RESPONSE_SCHEMA } from '@codraoss/core/prompts/verify';
 
 // Transformations asserted on the pure function; the adapter specs only check a grammar reaches the
 // wire. Every failure mode here is silent -- a mangled grammar still returns 200.

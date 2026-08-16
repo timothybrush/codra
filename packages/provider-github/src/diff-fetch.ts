@@ -1,5 +1,5 @@
-import { logger } from '@codra/core/logger';
-import { buildUnifiedDiffFromFiles, type DiffFileEntry } from '@codra/core/diff';
+import { logger } from '@codraoss/core/logger';
+import { buildUnifiedDiffFromFiles, type DiffFileEntry } from '@codraoss/core/diff';
 import { type GitHubRequestContext, isDiffTooLargeError, repoApiPath, withRetry } from './http';
 import { DIFF_FILES_PER_PAGE, MAX_DIFF_FILE_PAGES } from './constants';
 

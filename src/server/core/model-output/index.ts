@@ -1,2 +1,2 @@
-// Moved to @codra/core/model-output; see the note in ../fingerprint.ts.
-export * from '@codra/core/model-output';
+// Moved to @codraoss/core/model-output; see the note in ../fingerprint.ts.
+export * from '@codraoss/core/model-output';

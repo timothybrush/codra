@@ -1,6 +1,6 @@
-import { logger } from '@codra/core/logger';
-import { isSubrequestBudgetMessage, isTimeoutMessage } from '@codra/schema/transient-errors';
-import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
+import { logger } from '@codraoss/core/logger';
+import { isSubrequestBudgetMessage, isTimeoutMessage } from '@codraoss/schema/transient-errors';
+import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
 import type { CloudflareAiBinding } from '../providers/cloudflare';
 import type { ModelResponseSchema } from '../types';
 import { clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS, SUBREQUEST_HEADROOM_FOR_MODEL_CALL } from '../limits';

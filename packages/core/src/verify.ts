@@ -1,4 +1,4 @@
-import { hexToBytes } from '@codra/schema/hex';
+import { hexToBytes } from '@codraoss/schema/hex';
 
 const encoder = new TextEncoder();
 

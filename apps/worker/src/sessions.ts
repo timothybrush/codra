@@ -1,4 +1,4 @@
-import type { DashboardSessionUser, SessionStore } from '@codra/core';
+import type { DashboardSessionUser, SessionStore } from '@codraoss/core';
 
 export class CloudflareSessionStore implements SessionStore {
   constructor(private readonly kv: KVNamespace) {}

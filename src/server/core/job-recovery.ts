@@ -1,7 +1,7 @@
 import type { AppBindings } from '@server/env';
-import { getTerminalJobsNeedingCheckRunCompletion, markJobCheckRunCompleted, recoverExpiredJobLeases } from '@codra/db/jobs';
+import { getTerminalJobsNeedingCheckRunCompletion, markJobCheckRunCompleted, recoverExpiredJobLeases } from '@codraoss/db/jobs';
 import { logger } from '@server/core/logger';
-import { GitHubService } from '@codra/provider-github';
+import { GitHubService } from '@codraoss/provider-github';
 
 const MAX_RECOVERY_COUNT = 3;
 

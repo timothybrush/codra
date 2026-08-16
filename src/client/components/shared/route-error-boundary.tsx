@@ -1,4 +1,4 @@
-import { Button } from '@codra/ui';
+import { Button } from '@codraoss/ui';
 import { isRouteErrorResponse, Link, useRouteError } from 'react-router-dom';
 import { AlertTriangle, Compass, LayoutDashboard, RefreshCw } from 'lucide-react';
 

@@ -1,5 +1,5 @@
 import picomatch from 'picomatch';
-import type { RepoConfig } from '@codra/schema';
+import type { RepoConfig } from '@codraoss/schema';
 import {
   type DiffLineKind,
   type DiffLine,

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isRetryableModelError } from '@codra/models';
+import { isRetryableModelError } from '@codraoss/models';
 
 
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
-import { defaultRepoConfig } from '@codra/schema';
-import { TokenTracker } from '@codra/core/token-tracker';
+import { defaultRepoConfig } from '@codraoss/schema';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 
 // Walking the model chain: fallback, the two subrequest-budget breakers, and marking a provider
 // unavailable. The inline retry ladder lives in service-retries.spec.ts.

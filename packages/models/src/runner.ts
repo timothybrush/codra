@@ -1,15 +1,15 @@
-import type { KvStore, SecretStore } from '@codra/core/ports';
+import type { KvStore, SecretStore } from '@codraoss/core/ports';
 import type { CloudflareAiBinding } from './providers/cloudflare';
 import { reviewWithGoogle } from './providers/google';
 import { reviewWithVertex } from './providers/vertex';
 import { reviewWithCloudflare } from './providers/cloudflare';
 import { reviewWithOpenAI } from './providers/openai';
 import { reviewWithAnthropic } from './providers/anthropic';
-import type { VerifyCandidate } from '@codra/core/prompts/verify';
-import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
-import type { TokenTracker } from '@codra/core/token-tracker';
+import type { VerifyCandidate } from '@codraoss/core/prompts/verify';
+import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
+import type { TokenTracker } from '@codraoss/core/token-tracker';
 import type { ModelInput, ModelResponse } from './types';
-import { logger } from '@codra/core/logger';
+import { logger } from '@codraoss/core/logger';
 import { decryptLlmApiKey } from './llm-crypto';
 import {
   isSchemaDroppedError,
@@ -24,7 +24,7 @@ import { type ModelReviewContext, reviewFile, reviewFiles } from './internal/mod
 export type { BatchReviewOutcome } from './internal/model-review-file';
 import { pollReviewBatch, submitReviewBatch } from './internal/model-review-batch';
 
-// Re-exported: core/review.ts and two specs import these from '@codra/models'.
+// Re-exported: core/review.ts and two specs import these from '@codraoss/models'.
 export { RetryableModelError, isRetryableModelError, nextChainIndexOf } from './internal/model-support';
 
 // Re-exported so the batch-prompt budget test asserts against these constants, not a copy.

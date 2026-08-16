@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@codraoss/schema';
 import { budgetAwareFileLimit } from './budget';
 import { narrowUnit, planReviewUnits } from './pack';
 import { reviewAndPersistBin } from './bin-runner';

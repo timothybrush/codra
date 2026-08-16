@@ -1,4 +1,4 @@
-import { randomHex } from '@codra/schema/hex';
+import { randomHex } from '@codraoss/schema/hex';
 import type { AppBindings } from '@server/env';
 
 const OAUTH_STATE_TTL_SECONDS = 60 * 10;

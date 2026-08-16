@@ -1,4 +1,4 @@
-import { createApiRouter } from '@codra/api';
+import { createApiRouter } from '@codraoss/api';
 import { createMockPRWebhook, createTestEnv, uniqueName } from '../helpers';
 
 import { signPayload } from '../mocks/fixtures';

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { reviewWithCloudflare, submitCloudflareBatch, pollCloudflareBatch } from '@codra/models/cloudflare';
+import { reviewWithCloudflare, submitCloudflareBatch, pollCloudflareBatch } from '@codraoss/models/cloudflare';
 
 // Regression: some Workers AI models (e.g. @cf/qwen/qwen2.5-coder-32b-instruct honoring
 // response_format) return `response` as an already-parsed JSON object/array rather than a string.

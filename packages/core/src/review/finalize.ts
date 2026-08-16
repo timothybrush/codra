@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, type ParsedReviewComment, type RepoConfig } from '@codraoss/schema';
 import { shadowEvaluate } from '../finding-gates';
 import { getDiffFiles } from './diff-cache';
 import type { ReviewFormatter, ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';

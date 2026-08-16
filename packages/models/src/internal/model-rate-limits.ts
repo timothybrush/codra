@@ -1,6 +1,6 @@
-import { logger } from '@codra/core/logger';
+import { logger } from '@codraoss/core/logger';
 import { ModelCallGate } from '../limits';
-import type { ResolvedModelConfig } from '@codra/schema';
+import type { ResolvedModelConfig } from '@codraoss/schema';
 import { MAX_METERED_QUEUE_DEPTH, PROMPT_FIT_SAFETY_FACTOR, parseRateLimitFromError } from './model-support';
 
 // Narrow port onto whatever survives an invocation (today: the job's chain-progress KV value), so

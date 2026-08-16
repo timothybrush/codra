@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFileReviewResponse } from '@server/core/model-output';
-import { DEFAULT_DENIED_CLAIM_TYPES } from '@codra/schema';
+import { DEFAULT_DENIED_CLAIM_TYPES } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
 // End-to-end regression over the parse-time chain: JSON extraction, evidence grounding, the

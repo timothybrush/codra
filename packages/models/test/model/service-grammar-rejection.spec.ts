@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { reviewWithGoogle } from '@codra/models/google';
-import { buildReviewResponseSchema } from '@codra/core/prompts/file-review';
+import { reviewWithGoogle } from '@codraoss/models/google';
+import { buildReviewResponseSchema } from '@codraoss/core/prompts/file-review';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 
 // Split out of service-retries.spec.ts: a 400 matches no transient pattern, so grammar rejection is
 // its own ladder rung -- drop responseJsonSchema, retry once, latch it off -- not part of the

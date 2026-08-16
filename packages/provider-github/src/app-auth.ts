@@ -1,5 +1,5 @@
 import type { AppBindingsConfig } from './service';
-import { withTimeout } from '@codra/core/timeout';
+import { withTimeout } from '@codraoss/core/timeout';
 import { assertResponseOk, installationCacheKey, withRetry } from './http';
 import type { GitHubAppRecord, GitHubInstallation, InstallationTokenCacheRecord } from './types';
 import { GITHUB_TIMEOUT_MS, GITHUB_APP_INSTALL_URL_CACHE_KEY } from './constants';

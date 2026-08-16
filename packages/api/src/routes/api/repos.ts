@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { ApiEnv } from '../../ports';
 import { jsonError } from '../../http';
-import { repoConfigSchema } from '@codra/schema';
+import { repoConfigSchema } from '@codraoss/schema';
 
 const repoConfigPatchSchema = z
   .strictObject({

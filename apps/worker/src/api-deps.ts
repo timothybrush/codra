@@ -1,17 +1,17 @@
-import type { ApiRouterDeps } from '@codra/api';
+import type { ApiRouterDeps } from '@codraoss/api';
 import type { AppBindings } from './env';
 
-import * as dbAccounts from '@codra/db/accounts';
-import * as dbJobs from '@codra/db/jobs';
-import * as dbFileReviews from '@codra/db/file-reviews';
-import * as dbCommentFeedback from '@codra/db/comment-feedback';
-import * as dbModelConfigs from '@codra/db/model-configs';
-import * as dbRepoConfigs from '@codra/db/repo-configs';
-import * as dbAppSettings from '@codra/db/app-settings';
-import * as dbStats from '@codra/db/stats';
-import * as dbWebhookDeliveries from '@codra/db/webhook-deliveries';
+import * as dbAccounts from '@codraoss/db/accounts';
+import * as dbJobs from '@codraoss/db/jobs';
+import * as dbFileReviews from '@codraoss/db/file-reviews';
+import * as dbCommentFeedback from '@codraoss/db/comment-feedback';
+import * as dbModelConfigs from '@codraoss/db/model-configs';
+import * as dbRepoConfigs from '@codraoss/db/repo-configs';
+import * as dbAppSettings from '@codraoss/db/app-settings';
+import * as dbStats from '@codraoss/db/stats';
+import * as dbWebhookDeliveries from '@codraoss/db/webhook-deliveries';
 
-import { GitHubClient, normalizeGitHubWebhook } from '@codra/provider-github';
+import { GitHubClient, normalizeGitHubWebhook } from '@codraoss/provider-github';
 import { getGlobalConfig, updateGlobalConfig, loadRepoConfig, invalidateRepoConfigCache } from '../../../src/server/core/config';
 
 import { getUpdatesEmailPreference, syncUpdatesEmail } from '../../../src/server/core/updates-email';
@@ -26,8 +26,8 @@ import { CloudflareSessionStore } from './sessions';
 import { logger } from '../../../src/server/core/logger';
 
 // model sync dependencies
-import { listLlmProviderSecrets, upsertDiscoveredModelConfigs, createLlmProvider, updateLlmProvider, getResolvedModelConfig, getLlmProvider } from '@codra/db/model-configs';
-import { encryptLlmApiKey, decryptLlmApiKey, listProviderModels, reviewWithCloudflare, reviewWithGoogle, reviewWithVertex, reviewWithOpenAI, reviewWithAnthropic, ProviderRequestError } from '@codra/models';
+import { listLlmProviderSecrets, upsertDiscoveredModelConfigs, createLlmProvider, updateLlmProvider, getResolvedModelConfig, getLlmProvider } from '@codraoss/db/model-configs';
+import { encryptLlmApiKey, decryptLlmApiKey, listProviderModels, reviewWithCloudflare, reviewWithGoogle, reviewWithVertex, reviewWithOpenAI, reviewWithAnthropic, ProviderRequestError } from '@codraoss/models';
 import { buildReviewResponseSchema } from '../../../src/server/prompts/file-review';
 
 function getSecretStore(env: AppBindings) {

@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type { AppBindings } from '../env';
-import { type ReviewJobMessage } from '@codra/schema';
-import { runWithDb } from '@codra/db/client';
+import { type ReviewJobMessage } from '@codraoss/schema';
+import { runWithDb } from '@codraoss/db/client';
 import { CloudflareOrchestrator } from '../ports/cloudflare-orchestrator';
 
 export class ReviewWorkflow extends WorkflowEntrypoint<AppBindings, ReviewJobMessage> {

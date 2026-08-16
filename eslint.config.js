@@ -80,7 +80,7 @@ export default tseslint.config(
           {
             target: 'src/client/**/*',
             from: ['packages/core/**/*', 'src/server/**/*'],
-            message: 'The review engine and the Worker tree are server-only. Importing either pulls zod/jsonrepair/picomatch into the browser bundle -- exactly what the `vite build` CI step exists to catch. (@codra/schema/review-limits is the sanctioned client-side import.)'
+            message: 'The review engine and the Worker tree are server-only. Importing either pulls zod/jsonrepair/picomatch into the browser bundle -- exactly what the `vite build` CI step exists to catch. (@codraoss/schema/review-limits is the sanctioned client-side import.)'
           }
         ]
       }],
@@ -106,14 +106,14 @@ export default tseslint.config(
         patterns: [
           { group: ['**/db/jobs-*', '@server/db/jobs-*'], message: 'Import from @server/db/jobs, not a sibling. Eight specs vi.mock that specifier; a direct sibling import silently bypasses the mock.' },
           { group: ['**/db/file-reviews-*', '@server/db/file-reviews-*'], message: 'Import from @server/db/file-reviews, not a sibling. (No spec mocks this one today; the rule keeps the barrel the single entry point.)' },
-          { group: ['**/services/model-review-*', '**/services/model-rate-limits', '**/services/model-chain-runner', '**/services/model-support', '@codra/models-*'], message: 'Import from @codra/models, not a sibling. Four specs vi.mock that specifier.' },
+          { group: ['**/services/model-review-*', '**/services/model-rate-limits', '**/services/model-chain-runner', '**/services/model-support', '@codraoss/models-*'], message: 'Import from @codraoss/models, not a sibling. Four specs vi.mock that specifier.' },
           { group: ['**/core/github/http', '**/core/github/app-auth', '**/core/github/types', '**/core/github/diff-fetch', '**/core/github/review-post', '**/core/github/labels', '@server/core/github/http', '@server/core/github/app-auth', '@server/core/github/types', '@server/core/github/diff-fetch', '@server/core/github/review-post', '@server/core/github/labels'], message: 'Import from @server/core/github, not a sibling. One spec vi.mocks that specifier. (core/github/oauth is deliberately NOT listed: it is the dashboard OAuth flow, not part of the GitHubClient barrel, and routes/auth.ts imports it directly.)' },
           // Covers every sibling in the family, including the three the barrel re-exports publicly
           // (budget, diff-cache, request) which were previously unprotected.
-          { group: ['**/core/review/*', '@server/core/review/*', '@codra/core/review/*'], message: 'Import from @server/core/review, not a sibling. One spec vi.mocks that specifier and workflows/review.ts imports only runReviewJob from it.' },
-          { group: ['**/core/model-output/*', '@server/core/model-output/*', '@codra/core/model-output/*'], message: 'Import from @codra/core/model-output, not a sibling. (The package exports map already refuses to resolve these; the lint rule gives the error at edit time.)' },
-          { group: ['**/core/diff/position', '@server/core/diff/position', '@codra/core/diff/position'], message: 'Import from @codra/core/diff, not a sibling.' },
-          { group: ['**/schema-claims', '**/schema-repo-config', '**/schema-enums', '@codra/schema/schema-claims', '@codra/schema/schema-repo-config', '@codra/schema/schema-enums'], message: 'Import from @codra/schema, not a sibling. (@codra/schema/review-limits is exempt: the client imports it directly to keep zod out of the browser bundle.)' },
+          { group: ['**/core/review/*', '@server/core/review/*', '@codraoss/core/review/*'], message: 'Import from @server/core/review, not a sibling. One spec vi.mocks that specifier and workflows/review.ts imports only runReviewJob from it.' },
+          { group: ['**/core/model-output/*', '@server/core/model-output/*', '@codraoss/core/model-output/*'], message: 'Import from @codraoss/core/model-output, not a sibling. (The package exports map already refuses to resolve these; the lint rule gives the error at edit time.)' },
+          { group: ['**/core/diff/position', '@server/core/diff/position', '@codraoss/core/diff/position'], message: 'Import from @codraoss/core/diff, not a sibling.' },
+          { group: ['**/schema-claims', '**/schema-repo-config', '**/schema-enums', '@codraoss/schema/schema-claims', '@codraoss/schema/schema-repo-config', '@codraoss/schema/schema-enums'], message: 'Import from @codraoss/schema, not a sibling. (@codraoss/schema/review-limits is exempt: the client imports it directly to keep zod out of the browser bundle.)' },
         ],
       }],
     },
@@ -138,7 +138,7 @@ export default tseslint.config(
       'src/server/db/file-reviews.ts',
       'src/server/services/model.ts',
       'src/server/core/github/index.ts',
-      // core/review, core/diff and core/model-output are gone from here: they moved to @codra/core and
+      // core/review, core/diff and core/model-output are gone from here: they moved to @codraoss/core and
       // what is left at those paths is a re-export shim with no sibling imports to exempt. ESLint does
       // not warn about `files` patterns that match nothing, so a stale entry would just rot quietly.
       'packages/schema/src/schema.ts',

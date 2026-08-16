@@ -1,8 +1,20 @@
 {
-  "name": "@codra/models",
+  "name": "@codraoss/models",
   "version": "0.9.4",
-  "private": true,
+  "description": "LLM provider adapters and model catalog for the Codra review engine.",
+  "author": "Devarshi Shimpi",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://codra.run",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devarshishimpi/codra.git",
+    "directory": "packages/models"
+  },
+  "bugs": {
+    "url": "https://github.com/devarshishimpi/codra/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
@@ -13,14 +25,63 @@
     "./anthropic": "./src/providers/anthropic.ts",
     "./openai": "./src/providers/openai.ts"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./types": {
+        "types": "./dist/types.d.ts",
+        "import": "./dist/types.js"
+      },
+      "./runner": {
+        "types": "./dist/runner.d.ts",
+        "import": "./dist/runner.js"
+      },
+      "./cloudflare": {
+        "types": "./dist/providers/cloudflare.d.ts",
+        "import": "./dist/providers/cloudflare.js"
+      },
+      "./google": {
+        "types": "./dist/providers/google.d.ts",
+        "import": "./dist/providers/google.js"
+      },
+      "./vertex": {
+        "types": "./dist/providers/vertex.d.ts",
+        "import": "./dist/providers/vertex.js"
+      },
+      "./anthropic": {
+        "types": "./dist/providers/anthropic.d.ts",
+        "import": "./dist/providers/anthropic.js"
+      },
+      "./openai": {
+        "types": "./dist/providers/openai.d.ts",
+        "import": "./dist/providers/openai.js"
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
+    "postpack": "node ../../scripts/swap-publish-exports.mjs restore"
   },
   "dependencies": {
-    "@codra/schema": "*",
-    "@codra/core": "*"
+    "@codraoss/schema": "^0.9.4",
+    "@codraoss/core": "^0.9.4"
   },
   "devDependencies": {
+    "tsup": "^8.0.0"
   }
 }
