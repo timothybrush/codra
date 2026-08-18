@@ -3,6 +3,7 @@ import type { FileDiff } from './diff';
 import type { ReviewModel } from './ports';
 import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from './prompts/verify';
 import { logger } from './logger';
+import { reviewBreadth } from './prompts/file-review';
 
 type VerifiableJob = { id: string };
 
@@ -24,8 +25,8 @@ export function shadowEvaluate(candidates: ParsedReviewComment[], posted: Parsed
   };
 }
 
-function verifyCandidateLimit(effectiveMaxComments: number) {
-  return Math.min(40, Math.max(10, effectiveMaxComments * 3));
+function verifyCandidateLimit(breadth: number) {
+  return Math.min(40, Math.max(10, breadth * 3));
 }
 
 import { VERIFY_MIN_ANSWER_RATIO } from './constants';
@@ -56,7 +57,7 @@ export async function verifyFindings(params: {
 
   if (comments.length === 0) return keepAll();
 
-  const limit = verifyCandidateLimit(params.maxCandidates ?? config.review.max_comments);
+  const limit = verifyCandidateLimit(params.maxCandidates ?? reviewBreadth(config.review));
   const toVerify = comments.slice(0, limit);
 
   const fileByPath = new Map(files.map((file) => [file.path, file]));

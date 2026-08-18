@@ -1,14 +1,24 @@
 import { claimTypes, type RepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '../diff';
 import type { ModelResponseSchema } from '../ports/model';
-import { getLanguageForFile } from './languages';
+import { getLanguageForFile, isChangelogPath } from './languages';
 import {
+  CHANGELOG_EXCERPT_CHARS,
+  FILE_CONTEXT_CHAR_BUDGET,
+  FILE_CONTEXT_WINDOW_LINES,
+  PACKABLE_MAX_DIFF_LINES,
   EXEMPLAR_BLOCK_CHARS,
   PR_DESCRIPTION_CHARS,
 } from '../constants';
 
+// Pre-review_breadth fallback: generator was allowed ~2x the posted cap.
 export function generatorFindingCap(maxComments: number): number {
   return Math.max(1, maxComments * 2);
+}
+
+/** Internal candidate cap upstream of posting; falls back for job snapshots queued before this field existed. */
+export function reviewBreadth(config: Pick<RepoConfig['review'], 'max_comments'> & { review_breadth?: number }): number {
+  return config.review_breadth ?? generatorFindingCap(config.max_comments);
 }
 
 function findingItemSchema() {
@@ -48,7 +58,7 @@ function findingItemSchema() {
   };
 }
 
-export function buildReviewResponseSchema(maxComments: number): ModelResponseSchema {
+export function buildReviewResponseSchema(findingCap: number): ModelResponseSchema {
   return {
     name: 'codra_file_review',
     schema: {
@@ -58,7 +68,7 @@ export function buildReviewResponseSchema(maxComments: number): ModelResponseSch
       properties: {
         findings: {
           type: 'array',
-          maxItems: generatorFindingCap(maxComments),
+          maxItems: Math.max(1, findingCap),
           items: findingItemSchema(),
         },
         overall_explanation: { type: 'string' },
@@ -69,7 +79,7 @@ export function buildReviewResponseSchema(maxComments: number): ModelResponseSch
   };
 }
 
-export function buildBatchReviewResponseSchema(maxComments: number, fileCount: number): ModelResponseSchema {
+export function buildBatchReviewResponseSchema(findingCap: number, fileCount: number): ModelResponseSchema {
   return {
     name: 'codra_batch_review',
     schema: {
@@ -144,13 +154,17 @@ const MULTI_FILE_SCHEMA_FORMAT = `{
   "overall_confidence_score": number (0 to 1)
 }`;
 
-export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean }): string {
+export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean; fileContext?: boolean }): string {
   const multi = opts?.multiFile === true;
+
+  const singleFileScope = opts?.fileContext === true
+    ? '- You can see the diff below and, after it, the full content of that one file. You cannot see the rest of the repository. Findings must still be about lines the diff CHANGED; the file content is there to tell you what the surrounding code does, not to be reviewed.'
+    : '- You can see ONLY the diff below, not the whole file or the rest of the repository.';
 
   const contextScope = multi
     ? `- You can see ONLY the diffs below, not the whole files or the rest of the repository.
 - Each file below is INDEPENDENT. A finding about one file must be grounded in a line from THAT file's diff, and must be reported inside that file's entry. Never carry a claim from one file to another, and never assume two files interact unless both diffs show it.`
-    : '- You can see ONLY the diff below, not the whole file or the rest of the repository.';
+    : singleFileScope;
 
   const evidenceSource = multi
     ? `the single line of code the finding is about, copied VERBATIM from that file's diff below.`
@@ -211,11 +225,11 @@ export const fileReviewSystemPromptBase = buildFileReviewSystemPromptBase();
 export function buildFileReviewSystemPrompt(
   config: RepoConfig['review'],
   languagePersona?: string,
-  opts?: { multiFile?: boolean },
+  opts?: { multiFile?: boolean; fileContext?: boolean },
 ) {
   const persona = languagePersona ? ` as ${languagePersona}` : '';
   const prompt = buildFileReviewSystemPromptBase(opts)
-    .replace('{{MAX_COMMENTS}}', generatorFindingCap(config.max_comments).toString());
+    .replace('{{MAX_COMMENTS}}', reviewBreadth(config).toString());
   return `You are a world-class professional senior code reviewer${persona}. ${prompt}`;
 }
 
@@ -242,11 +256,100 @@ function renderExemplars(exemplars: readonly RejectedExemplar[] | undefined): st
 
 
 
-function renderPrContext(prDescription: string | null): string | null {
-  const trimmed = prDescription?.trim();
-  if (!trimmed) return null;
-  return `PR description (author intent - use to judge whether a change is deliberate):\n${trimmed.slice(0, PR_DESCRIPTION_CHARS)}${trimmed.length > PR_DESCRIPTION_CHARS ? '…' : ''}`;
+function clip(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
+
+// Must avoid the `===== FILE ` delimiter and lines starting `Language: `: the batch prompt splits on those.
+function renderIntentBlock(input: {
+  prTitle: string | null;
+  prDescription: string | null;
+  changelogExcerpt?: string | null;
+}): string {
+  const description = input.prDescription?.trim();
+  const changelog = input.changelogExcerpt?.trim();
+
+  return [
+    '## PR INTENT (what the author set out to do)',
+    `Title: ${input.prTitle ?? 'Untitled PR'}`,
+    ...(description ? ['Description:', clip(description, PR_DESCRIPTION_CHARS)] : []),
+    ...(changelog ? ['Changelog lines added by this PR:', clip(changelog, CHANGELOG_EXCERPT_CHARS)] : []),
+    'Behaviour that serves this stated intent is deliberate. Do not report it as an accident, an oversight, or a regression.',
+  ].join('\n');
+}
+
+export function changelogExcerptFromDiff(files: readonly FileDiff[]): string | null {
+  const added: string[] = [];
+  let used = 0;
+
+  for (const file of files) {
+    if (!isChangelogPath(file.path)) continue;
+    for (const hunk of file.hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind !== 'add') continue;
+        const text = line.content.trim();
+        if (!text) continue;
+        if (used + text.length > CHANGELOG_EXCERPT_CHARS) {
+          return added.length > 0 ? added.join('\n') : null;
+        }
+        added.push(text);
+        used += text.length + 1;
+      }
+    }
+  }
+
+  return added.length > 0 ? added.join('\n') : null;
+}
+
+export function wantsFileContext(
+  file: Pick<FileDiff, 'lineCount' | 'isNew' | 'isDeleted' | 'isBinary'>,
+  fullFileContext: boolean,
+  gate: { compactPrompt?: boolean } = {},
+): boolean {
+  if (!fullFileContext) return false;
+  if (gate.compactPrompt) return false;
+  if (file.isNew || file.isDeleted || file.isBinary) return false;
+  return file.lineCount > PACKABLE_MAX_DIFF_LINES;
+}
+
+// Windowed per chunk's own hunks so a chunked file doesn't repeat the whole block MAX_CHUNKS times.
+function renderFileContext(file: FileDiff, content: string): string | null {
+  const lines = content.split('\n');
+
+  let lowest = Number.POSITIVE_INFINITY;
+  let highest = 0;
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (typeof line.newLineNumber !== 'number') continue;
+      lowest = Math.min(lowest, line.newLineNumber);
+      highest = Math.max(highest, line.newLineNumber);
+    }
+  }
+  if (!Number.isFinite(lowest)) return null;
+
+  const start = Math.max(1, lowest - FILE_CONTEXT_WINDOW_LINES);
+  const end = Math.min(lines.length, highest + FILE_CONTEXT_WINDOW_LINES);
+
+  const numbered: string[] = [];
+  let used = 0;
+  for (let n = start; n <= end; n++) {
+    const rendered = `${n}\t${lines[n - 1] ?? ''}`;
+    if (used + rendered.length > FILE_CONTEXT_CHAR_BUDGET) break;
+    numbered.push(rendered);
+    used += rendered.length + 1;
+  }
+  if (numbered.length === 0) return null;
+
+  const last = start + numbered.length - 1;
+  const partial = start > 1 || last < lines.length;
+  return [
+    `Full file after the change, lines ${start}-${last}${partial ? ` of ${lines.length}` : ''} (CONTEXT ONLY, not reviewable):`,
+    ...numbered,
+  ].join('\n');
+}
+
+const INTENT_CHECK_INSTRUCTION =
+  'Intent check: every finding must survive a comparison with the PR INTENT above. If what you are about to flag IS the stated intent, it is not a finding - drop it. Otherwise open the `body` with one line saying how the problem differs from what the author set out to do.';
 
 function renderCustomRules(config: RepoConfig['review']): string {
   const rules = config.custom_rules.length > 0 ? config.custom_rules.map((rule) => `- ${rule}`).join('\n') : '- None';
@@ -263,30 +366,35 @@ function renderLanguageGuidelines(path: string): string {
 
 export function buildFileReviewPrompts(input: {
   file: FileDiff;
+  fileContext?: string | null;
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig['review'];
   rejectedExemplars?: readonly RejectedExemplar[];
 }) {
   const languageInfo = getLanguageForFile(input.file.path);
   const rules = input.config.custom_rules.length > 0 ? input.config.custom_rules.map((rule) => `- ${rule}`).join('\n') : '- None';
-  const systemPrompt = buildFileReviewSystemPrompt(input.config, languageInfo?.persona);
-  const languageGuidelines = renderLanguageGuidelines(input.file.path);
+  const intentBlock = renderIntentBlock(input);
+  const fileContext = input.fileContext ? renderFileContext(input.file, input.fileContext) : null;
 
-  const prContext = renderPrContext(input.prDescription);
+  const systemPrompt = buildFileReviewSystemPrompt(input.config, languageInfo?.persona, {
+    fileContext: fileContext !== null,
+  });
+  const languageGuidelines = renderLanguageGuidelines(input.file.path);
 
   const exemplars = renderExemplars(input.rejectedExemplars);
 
   const userPrompt = [
-    `PR title: ${input.prTitle ?? 'Untitled PR'}`,
-    ...(prContext ? [prContext] : []),
+    intentBlock,
     ...(exemplars ? [exemplars] : []),
     `File path: ${input.file.path}`,
     languageGuidelines,
     `Custom rules:\n${rules}`,
     'Review ONLY the diff shown below. You cannot see the rest of the file or repository - do not report something as undefined, unimported, unused, or missing just because it is not in the diff. If the diff note says it was truncated, do not infer issues from omitted lines.',
     'Line numbers: every diff line below is prefixed with two columns - the OLD file line number, then the NEW file line number. Always report `line` (and `line_range`) using the NEW (second, right-hand) number, and only ever cite a line that appears in the diff. For a removed line, cite the nearest NEW line number shown next to it.',
-    'Evidence: every finding must carry an `evidence` string containing the exact code of the line it is about, copied character-for-character from the diff below. Strip the two leading line-number columns and the +/-/space marker - quote only the code itself. A finding whose evidence does not appear in the diff will be discarded.',
+    `Evidence: every finding must carry an \`evidence\` string containing the exact code of the line it is about, copied character-for-character from the UNIFIED DIFF below. Strip the two leading line-number columns and the +/-/space marker - quote only the code itself. A finding whose evidence does not appear in the diff will be discarded${fileContext ? ', and the full-file context below is NOT the diff -- a line quoted from it counts as no evidence at all' : ''}.`,
+    INTENT_CHECK_INSTRUCTION,
     'Prioritize correctness, security, and production-impacting bugs. Raise anything you can ground in a quoted line; avoid subjective style feedback.',
     '',
     `## Output JSON Schema (STRICTLY REQUIRED)`,
@@ -313,6 +421,7 @@ export function buildFileReviewPrompts(input: {
     '',
     'Unified diff:',
     renderFileDiff(input.file),
+    ...(fileContext ? ['', fileContext] : []),
   ].join('\n');
 
   return { systemPrompt, userPrompt };
@@ -326,6 +435,7 @@ export function buildBatchReviewPrompts(input: {
   files: readonly FileDiff[];
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig['review'];
   rejectedExemplars?: readonly RejectedExemplar[];
 }) {
@@ -336,7 +446,7 @@ export function buildBatchReviewPrompts(input: {
 
   const systemPrompt = buildFileReviewSystemPrompt(input.config, uniformLanguage?.persona, { multiFile: true });
 
-  const prContext = renderPrContext(input.prDescription);
+  const intentBlock = renderIntentBlock(input);
   const exemplars = renderExemplars(input.rejectedExemplars);
   const pathList = files.map((file) => `- ${file.path}`).join('\n');
 
@@ -349,8 +459,7 @@ export function buildBatchReviewPrompts(input: {
   ]);
 
   const userPrompt = [
-    `PR title: ${input.prTitle ?? 'Untitled PR'}`,
-    ...(prContext ? [prContext] : []),
+    intentBlock,
     ...(exemplars ? [exemplars] : []),
     `You are reviewing ${files.length} files in ONE response. Return exactly ${files.length} entries in "files", one per path, in this order:\n${pathList}`,
     ...(uniformLanguage ? [renderLanguageGuidelines(files[0].path)] : []),
@@ -359,6 +468,7 @@ export function buildBatchReviewPrompts(input: {
     'File scoping: each finding belongs to exactly ONE file. Put it inside that file\'s entry, set that file\'s path in `absolute_file_path`, and quote evidence from that file\'s diff only. Never report a finding about one file inside another file\'s entry, and never quote a line from a different file.',
     'Line numbers: every diff line below is prefixed with two columns - the OLD file line number, then the NEW file line number. Always report `line` (and `line_range`) using the NEW (second, right-hand) number, and only ever cite a line that appears in that file\'s diff. For a removed line, cite the nearest NEW line number shown next to it.',
     'Evidence: every finding must carry an `evidence` string containing the exact code of the line it is about, copied character-for-character from its own file\'s diff below. Strip the two leading line-number columns and the +/-/space marker - quote only the code itself. A finding whose evidence does not appear in that file\'s diff will be discarded.',
+    INTENT_CHECK_INSTRUCTION,
     'Prioritize correctness, security, and production-impacting bugs. Raise anything you can ground in a quoted line; avoid subjective style feedback.',
     '',
     `## Output JSON Schema (STRICTLY REQUIRED)`,

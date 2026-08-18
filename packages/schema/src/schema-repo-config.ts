@@ -32,7 +32,15 @@ export const reviewConfigSchema = z.object({
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
   batch_small_files: z.boolean().default(true),
   max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
+  // Presentation cap: comments actually posted to the PR. Findings past this are still recorded
+  // (disposition 'cap') and shown on the dashboard; nothing upstream of posting should read it.
   max_comments: z.number().int().min(1).max(150).default(10),
+  // How many findings the pipeline works with (generator, verifier, dashboard); independent of
+  // max_comments so tightening the posted cap no longer quietly shrinks the review itself.
+  review_breadth: z.number().int().min(1).max(150).default(25),
+  // Off by default: adds a large single file's post-change content as read-only context, costing
+  // one extra GitHub subrequest per qualifying file (see FILE_CONTEXT_CHAR_BUDGET).
+  full_file_context: z.boolean().default(false),
   min_severity: z.enum(reviewSeverities).default('P3'),
   min_confidence: z.number().min(0).max(1).default(0),
   focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),

@@ -36,6 +36,7 @@ export async function reviewAndPersistBin(
   model: ReviewModel,
   resolveFailureModelProvider: () => Promise<string | null>,
   rejectedExemplars: readonly RejectedExemplar[] = [],
+  changelogExcerpt: string | null = null,
 ): Promise<number> {
   const startedAt = env.clock.now();
 
@@ -66,6 +67,7 @@ export async function reviewAndPersistBin(
       files,
       prTitle: pr.title ?? null,
       prDescription: pr.body ?? null,
+      changelogExcerpt,
       config,
       totalLineCount,
       rejectedExemplars,

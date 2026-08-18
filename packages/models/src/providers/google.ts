@@ -1,10 +1,11 @@
 import { logger } from '@codraoss/core/logger';
 import { withTimeout } from '@codraoss/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelInput, type ModelResponse } from '../types';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, isThinkingRejection, attachPartialResponse, type ModelInput, type ModelResponse } from '../types';
 import { toGeminiResponseJsonSchema } from '../gemini-schema';
 import { assertPublicBaseUrl } from '../url-guard';
 import {
   MODEL_TIMEOUT_MAX_MS,
+  MODEL_TIMEOUT_PER_1K_OUTPUT_MS,
   OUTPUT_TOKENS_FLOOR,
   geminiThinkingBudgetTokens,
   resolveOutputTokenCeiling,
@@ -71,13 +72,6 @@ function isSchemaRejection(status: number, message: string) {
   );
 }
 
-// Narrow matcher probed BEFORE isSchemaRejection to prevent misidentifying thinking-config refusals as schema drops.
-function isThinkingRejection(status: number, message: string) {
-  if (status !== 400) return false;
-  const lower = message.toLowerCase();
-  return lower.includes('thinking') || lower.includes('thought');
-}
-
 function isRetryableTransportError(error: unknown) {
   if (!(error instanceof Error)) return false;
   // Don't retry timeouts (caller grants up to 2m); defer to fallback chains.
@@ -111,7 +105,8 @@ export async function reviewWithGoogle(
     GEMINI_DEFAULT_OUTPUT_TOKENS,
   );
   const thinkingBudget = geminiThinkingBudgetTokens(answerBudget);
-  const outputCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
+  let currentCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
+  let ceilingRaised = false;
   // Mark error so caller latches schema-dropped state even on subsequent failure.
   const fail = (error: unknown): never => {
     if (schemaRejected && typeof error === 'object' && error !== null) {
@@ -160,7 +155,7 @@ export async function reviewWithGoogle(
               responseMimeType: 'application/json',
               // See gemini-schema.ts.
               ...(responseJsonSchema && !schemaRejected ? { responseJsonSchema } : {}),
-              maxOutputTokens: outputCeiling,
+              maxOutputTokens: currentCeiling,
               // Bounded thinking budget so it doesn't consume the output ceiling.
               ...(thinkingRejected ? {} : { thinkingConfig: { thinkingBudget } }),
               // 0.9 on Gemini's 0-2 scale.
@@ -257,8 +252,39 @@ export async function reviewWithGoogle(
 
     const candidate = data.candidates?.[0];
     const rawText = candidate?.content?.parts?.map((part) => part.text ?? '').join('')?.trim();
+    const finishReason = candidate?.finishReason;
+    const truncated = finishReason === 'MAX_TOKENS';
+
+    if (finishReason && finishReason !== 'STOP') {
+      logger.warn(`Gemini response for ${model} ended with finishReason=${finishReason}; output is likely incomplete`, {
+        // Avoid `Tokens` key name to bypass logger redaction. Sum thinking + output spend.
+        outputSpend: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+        thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+        outputCeiling: currentCeiling,
+        thinkingBudget: thinkingRejected ? undefined : thinkingBudget,
+        schemaDropped: schemaRejected,
+      });
+    }
+
+    if (truncated && input.truncationIntolerant && !ceilingRaised) {
+      const elapsed = Date.now() - startTime;
+      const raisedCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, 2 * answerBudget + thinkingBudget);
+      const extraMs = ((raisedCeiling - currentCeiling) / 1_000) * MODEL_TIMEOUT_PER_1K_OUTPUT_MS;
+
+      if (elapsed + extraMs < timeoutMs) {
+        ceilingRaised = true;
+        currentCeiling = raisedCeiling;
+        logger.warn(`Gemini ran out of output room on ${model}; resending once with a larger ceiling`, {
+          outputCeiling: raisedCeiling,
+          thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+          hadPartialText: Boolean(rawText),
+        });
+        attempt--;
+        continue;
+      }
+    }
+
     if (!rawText) {
-      const finishReason = candidate?.finishReason;
       // Deterministic non-STOP (budget burn, safety) fails permanently; empty STOP is transient.
       if (finishReason && finishReason !== 'STOP') {
         return fail(new UnparseableModelResponseError(model, `finishReason=${finishReason}`));
@@ -266,16 +292,17 @@ export async function reviewWithGoogle(
       return fail(new Error('Gemini returned an empty response.'));
     }
 
-    // Log non-STOP prefix truncations.
-    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-      logger.warn(`Gemini response for ${model} ended with finishReason=${candidate.finishReason}; output is likely incomplete`, {
-        // Avoid `Tokens` key name to bypass logger redaction. Sum thinking + output spend.
-        outputSpend: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
-        thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
-        outputCeiling,
-        thinkingBudget: thinkingRejected ? undefined : thinkingBudget,
-        schemaDropped: schemaRejected,
+    // Still truncated after retry; fail but attach the partial text so the chain's last model can salvage it.
+    if (truncated && input.truncationIntolerant) {
+      const error = new UnparseableModelResponseError(model, 'finishReason=MAX_TOKENS');
+      attachPartialResponse(error, {
+        rawText,
+        inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+        outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+        modelUsed: model,
+        provider: config.providerName ?? 'Google',
       });
+      return fail(error);
     }
 
     return {

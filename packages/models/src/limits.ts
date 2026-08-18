@@ -12,7 +12,7 @@ export const MODEL_TIMEOUT_MAX_MS = 50_000;
 export const MODEL_FALLBACK_CHAIN_BUDGET_MS = 55_000;
 
 // Scaled timeout buffer based on requested output tokens (1200ms per 1k tokens) to accommodate model generation time.
-const MODEL_TIMEOUT_PER_1K_OUTPUT_MS = 1_200;
+export const MODEL_TIMEOUT_PER_1K_OUTPUT_MS = 1_200;
 
 // Per-call timeout, scaled by diff size and expected output budget.
 export function adaptiveModelTimeoutMs(
@@ -34,6 +34,24 @@ export function adaptiveModelTimeoutMs(
 // Clamps timeout so single calls never exceed the chain budget and loop endlessly without running.
 export function clampTimeoutToChainBudget(timeoutMs: number): number {
   return Math.min(timeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS);
+}
+
+export const MODEL_MIN_VIABLE_ATTEMPT_MS = 8_000;
+
+export const MODEL_FALLBACK_RESERVE_MS = 20_000;
+
+// Time to grant one rung of a fallback chain; 0 means defer to a fresh invocation.
+export function chainAttemptTimeoutMs(input: {
+  requestedMs: number;
+  remainingChainMs: number;
+  hasAnotherModel: boolean;
+}): number {
+  const { requestedMs, remainingChainMs, hasAnotherModel } = input;
+  if (remainingChainMs < MODEL_MIN_VIABLE_ATTEMPT_MS) return 0;
+  if (!hasAnotherModel) return Math.min(requestedMs, remainingChainMs);
+
+  const withReserve = remainingChainMs - MODEL_FALLBACK_RESERVE_MS;
+  return Math.min(requestedMs, withReserve >= MODEL_MIN_VIABLE_ATTEMPT_MS ? withReserve : remainingChainMs);
 }
 
 // Max 3 calls limits connection pool (out of 6 max) to leave slots for KV/GitHub.

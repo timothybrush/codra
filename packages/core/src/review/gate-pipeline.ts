@@ -5,6 +5,7 @@ import type { FileDiff } from '../diff';
 import type { PersistedReviewJob } from './phase-control';
 import type { ReviewModel, ReviewRuntime } from '../ports';
 import { loadSuppressedFingerprints } from './telemetry';
+import { reviewBreadth } from '../prompts/file-review';
 
 export async function applyFindingGates(params: {
   env: Pick<ReviewRuntime, 'fileReviews'>;
@@ -79,7 +80,7 @@ export async function applyFindingGates(params: {
   });
 
   const beforeVerifyList = finalComments;
-  const verify = await verifyFindings({ job, config, files, comments: finalComments, model, maxCandidates: effectiveMaxComments });
+  const verify = await verifyFindings({ job, config, files, comments: finalComments, model, maxCandidates: reviewBreadth(config.review) });
   finalComments = verify.comments;
   const droppedByVerification = verify.dropped.length;
   for (const drop of verify.dropped) recordDisposition([drop.comment], drop.disposition);

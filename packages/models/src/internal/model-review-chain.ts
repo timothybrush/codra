@@ -2,8 +2,8 @@ import { logger } from '@codraoss/core/logger';
 import { isSubrequestBudgetMessage, isTimeoutMessage } from '@codraoss/schema/transient-errors';
 import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
 import type { CloudflareAiBinding } from '../providers/cloudflare';
-import type { ModelResponseSchema } from '../types';
-import { clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS, SUBREQUEST_HEADROOM_FOR_MODEL_CALL } from '../limits';
+import { partialResponseOf, type ModelResponseSchema } from '../types';
+import { chainAttemptTimeoutMs, clampTimeoutToChainBudget, MODEL_MIN_VIABLE_ATTEMPT_MS, MODEL_FALLBACK_CHAIN_BUDGET_MS, SUBREQUEST_HEADROOM_FOR_MODEL_CALL } from '../limits';
 import {
   estimatePromptTokens,
   isCloudflareAllocationError,
@@ -42,12 +42,13 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
   config: RepoConfig;
   // Needed output tokens; adapters clamp it, omission defaults to provider ceiling.
   outputBudgetTokens?: number;
+  truncationIntolerant?: boolean;
   // `isLastModel` allows parsers to reject weak answers and try better models, accepting them only as a last resort.
   parse: (rawText: string, ctx: { isLastModel: boolean }) => T;
   // Keys for resume memo. Bins pass member paths so progress survives mid-batch success/de-escalation.
   progressLabels?: readonly string[];
 }) {
-  const { systemPrompt, userPrompt, responseSchema, label, outputBudgetTokens } = params;
+  const { systemPrompt, userPrompt, responseSchema, label, outputBudgetTokens, truncationIntolerant } = params;
   const progressLabels = params.progressLabels?.length ? params.progressLabels : [label];
 
   const { primary, fallbacks } = ctx.selectModel({
@@ -101,8 +102,13 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       break;
     }
 
-    // Prospective ~120s limit check to avoid doomed calls and CPU faults. Defers gracefully to fresh invocations.
-    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs + timeoutMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
+    const attemptTimeoutMs = chainAttemptTimeoutMs({
+      requestedMs: timeoutMs,
+      remainingChainMs: MODEL_FALLBACK_CHAIN_BUDGET_MS - (Date.now() - chainStartedAt - gateWaitMs),
+      hasAnotherModel: modelIndex < modelsToTry.length - 1,
+    });
+
+    if (modelIndex > 0 && attemptTimeoutMs === 0) {
       logger.warn(`Deferring ${label}: no room in the per-invocation time budget for another model`, {
         elapsedMs: Date.now() - chainStartedAt,
         gateWaitMs,
@@ -171,8 +177,8 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       attemptedAnyModel = true;
       const response = await ctx.callResolvedModel(
         resolved,
-        { systemPrompt, userPrompt, responseSchema, outputBudgetTokens },
-        timeoutMs,
+        { systemPrompt, userPrompt, responseSchema, outputBudgetTokens, truncationIntolerant },
+        Math.max(attemptTimeoutMs, MODEL_MIN_VIABLE_ATTEMPT_MS),
         recordGateWait,
       );
 
@@ -192,6 +198,27 @@ export async function runModelChain<T>(ctx: ModelReviewContext, params: {
       await ctx.chainProgress.flushPending();
       return { ...response, userPrompt, parsed };
     } catch (error) {
+      const isLastModel = startIndex + modelIndex >= wholeChain.length - 1;
+      // Salvage the last rung's partial answer rather than lose the file outright.
+      const partial = isLastModel ? partialResponseOf(error) : null;
+      if (partial) {
+        try {
+          const parsed = params.parse(partial.rawText, { isLastModel: true });
+          logger.warn(`Salvaged a truncated response from the last model in the chain for ${label}`, {
+            model: partial.modelUsed,
+            responseChars: partial.rawText.length,
+          });
+          if (ctx.tracker) {
+            ctx.tracker.record(partial.modelUsed, partial.inputTokens, partial.outputTokens);
+          }
+          await Promise.all(progressLabels.map((key) => ctx.chainProgress.clear(key)));
+          await ctx.chainProgress.flushPending();
+          return { ...partial, userPrompt, parsed, degraded: 'truncated' as const };
+        } catch {
+          // no-op
+        }
+      }
+
       lastError = error;
       // Record failed wire transmission.
       ctx.tracker?.recordFailedAttempt(

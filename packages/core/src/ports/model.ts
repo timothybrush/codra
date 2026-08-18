@@ -12,7 +12,8 @@ export type ModelResponse = {
   outputTokens: number;
   modelUsed: string;
   provider: string;
-  degraded?: 'schema-dropped';
+  // schema-dropped: model refused the grammar. truncated: parsed prefix of a cut-off answer, may be incomplete.
+  degraded?: 'schema-dropped' | 'truncated';
 };
 
 export type ModelResponseSchema = {
@@ -30,8 +31,10 @@ export type FileReviewOutcome = ModelResponse & {
 export interface ReviewModel {
   reviewFile(params: {
     file: FileDiff;
+    fileContext?: string | null;
     prTitle: string | null;
     prDescription: string | null;
+    changelogExcerpt?: string | null;
     config: RepoConfig;
     totalLineCount: number;
     compactPrompt?: boolean;
@@ -42,6 +45,7 @@ export interface ReviewModel {
     files: readonly FileDiff[];
     prTitle: string | null;
     prDescription: string | null;
+    changelogExcerpt?: string | null;
     config: RepoConfig;
     totalLineCount: number;
     rejectedExemplars?: readonly RejectedExemplar[];
@@ -49,8 +53,10 @@ export interface ReviewModel {
 
   submitReviewBatch(params: {
     file: FileDiff;
+    fileContext?: string | null;
     prTitle: string | null;
     prDescription: string | null;
+    changelogExcerpt?: string | null;
     config: RepoConfig;
     totalLineCount: number;
     compactPrompt?: boolean;

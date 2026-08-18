@@ -116,6 +116,8 @@ export async function reviewAndPersistFile(
   resolveFailureModelProvider: () => Promise<string | null>,
   previousReview?: { transient_error_count: number },
   rejectedExemplars: readonly RejectedExemplar[] = [],
+  changelogExcerpt: string | null = null,
+  fileContext: string | null = null,
 ) {
   const startedAt = env.clock.now();
   const compactPrompt = (previousReview?.transient_error_count ?? 0) > 0;
@@ -125,8 +127,10 @@ export async function reviewAndPersistFile(
   try {
     const response = await model.reviewFile({
       file,
+      fileContext,
       prTitle: pr.title ?? null,
       prDescription: pr.body ?? null,
+      changelogExcerpt,
       config,
       totalLineCount,
       compactPrompt,

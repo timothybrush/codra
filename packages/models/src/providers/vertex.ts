@@ -1,14 +1,20 @@
 import { logger } from '@codraoss/core/logger';
 import { withTimeout } from '@codraoss/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelResponse } from '../types';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, isThinkingRejection, attachPartialResponse, type ModelResponse } from '../types';
 import { assertPublicBaseUrl } from '../url-guard';
-import { MODEL_TIMEOUT_MAX_MS, OUTPUT_TOKENS_FLOOR, resolveOutputTokenCeiling } from '../limits';
+import {
+  MODEL_TIMEOUT_MAX_MS,
+  MODEL_TIMEOUT_PER_1K_OUTPUT_MS,
+  OUTPUT_TOKENS_FLOOR,
+  geminiThinkingBudgetTokens,
+  resolveOutputTokenCeiling,
+} from '../limits';
 
 // Vertex's REST API rejects plain API keys and requires an OAuth2 token via RFC 7523 JWT-bearer grant, so `apiKey` here holds the full service-account JSON key, not a short API key string.
 const VERTEX_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
 const VERTEX_DEFAULT_OUTPUT_TOKENS = OUTPUT_TOKENS_FLOOR;
-// Same Gemini models as the Google adapter, so the same ceiling. No `thinkingConfig` here though: this
-// adapter makes ONE attempt and has no latch, so a model that refused the field would fail the file.
+// Same Gemini models as the Google adapter, so the same ceiling and thinkingConfig (unbounded reasoning
+// would otherwise consume the whole ceiling and leave a truncated answer).
 const VERTEX_MAX_OUTPUT_TOKENS = 65_536;
 // Retries for a 429 only, and only while the caller's own timeout still has room. See the loop below
 // for why resending an unchanged request is the correct response to this particular refusal.
@@ -21,6 +27,15 @@ const OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 const ACCESS_TOKEN_LIFETIME_S = 3600;
 // Refresh before real expiry so an in-flight review never starts a call with a token that expires mid-request.
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+interface VertexGenerateResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    thoughtsTokenCount?: number; // billed against maxOutputTokens
+  };
+}
 
 interface ServiceAccountKey {
   client_email: string;
@@ -127,16 +142,19 @@ async function getAccessToken(
 export async function reviewWithVertex(
   config: { apiKey: string; baseUrl?: string | null; providerName?: string; timeoutMs?: number },
   model: string,
-  input: { systemPrompt: string; userPrompt: string; outputBudgetTokens?: number },
+  input: { systemPrompt: string; userPrompt: string; outputBudgetTokens?: number; truncationIntolerant?: boolean },
   tracker?: { incrementSubrequests(count?: number): void },
 ): Promise<ModelResponse> {
   const providerName = config.providerName ?? 'Google Vertex AI';
   const timeoutMs = config.timeoutMs ?? VERTEX_TIMEOUT_MS;
-  const outputCeiling = resolveOutputTokenCeiling(
+  const answerBudget = resolveOutputTokenCeiling(
     input.outputBudgetTokens,
     VERTEX_MAX_OUTPUT_TOKENS,
     VERTEX_DEFAULT_OUTPUT_TOKENS,
   );
+  const thinkingBudget = geminiThinkingBudgetTokens(answerBudget);
+  let currentCeiling = Math.min(VERTEX_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
+  let ceilingRaised = false;
   logger.info(`Calling Vertex AI model: ${model}`);
 
   assertPublicBaseUrl(config.baseUrl, providerName);
@@ -159,7 +177,7 @@ export async function reviewWithVertex(
   }
   const url = `${baseUrl}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
 
-  const body = JSON.stringify({
+  const buildBody = (includeThinking: boolean, ceiling: number) => JSON.stringify({
     systemInstruction: {
       role: 'system',
       parts: [{ text: prompts.system }],
@@ -170,13 +188,14 @@ export async function reviewWithVertex(
     generationConfig: {
       responseMimeType: 'application/json',
       // No `responseJsonSchema`: this adapter cannot drop a schema mid-flight, so a rejection would fail the file outright.
-      maxOutputTokens: outputCeiling,
+      maxOutputTokens: ceiling,
+      ...(includeThinking ? { thinkingConfig: { thinkingBudget } } : {}),
       // Same models as the Google adapter, so the same value keeps the two paths comparable.
       temperature: 0.9,
     },
   });
 
-  const attempt = () =>
+  const attempt = (body: string) =>
     withTimeout('Vertex AI', timeoutMs, (signal) =>
       fetch(url, {
         method: 'POST',
@@ -189,52 +208,99 @@ export async function reviewWithVertex(
       }),
     );
 
-  if (tracker) tracker.incrementSubrequests(1);
-  let response = await attempt();
+  let thinkingRejected = false;
+  let response: Response;
+  let data: VertexGenerateResponse;
+  let rawText: string | undefined;
+  let finishReason: string | undefined;
 
-  // A Vertex 429 here is queueing, not a bucket the caller can pace around. Measured over ~900 calls on
-  // one project: roughly three in four refused, and the refusal was uncorrelated with the requested
-  // output ceiling, with the endpoint, and with whether the previous call succeeded -- resending the
-  // IDENTICAL request works. The adapter used to make one attempt and turn every one of those into a
-  // failed file, which is the one case where the single-attempt rule above does not apply: there is no
-  // schema to re-probe and nothing about the request to change.
-  //
-  // Bounded by the caller's own timeout, not by a retry count alone: `timeoutMs` is already clamped to
-  // the fallback-chain budget, so a slow rung must not spend the whole invocation sitting in backoff.
-  for (let retry = 0; retry < VERTEX_QUOTA_RETRIES && response.status === 429; retry++) {
-    const waitMs = VERTEX_QUOTA_BACKOFF_MS * (retry + 1);
-    if (Date.now() - startTime + waitMs + VERTEX_MIN_ATTEMPT_MS > timeoutMs) break;
+  for (;;) {
+    const body = buildBody(!thinkingRejected, currentCeiling);
 
-    logger.warn(`Vertex AI refused with 429; resending unchanged in ${waitMs}ms`, { model, retry: retry + 1 });
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
     if (tracker) tracker.incrementSubrequests(1);
-    response = await attempt();
-  }
+    response = await attempt(body);
 
-  if (!response.ok) {
+    // A Vertex 429 here is queueing, not a rate bucket: resending the identical request works (~3/4 of
+    // ~900 sampled calls). Bounded by the caller's timeout, already clamped to the fallback-chain budget.
+    for (let retry = 0; retry < VERTEX_QUOTA_RETRIES && response.status === 429; retry++) {
+      const waitMs = VERTEX_QUOTA_BACKOFF_MS * (retry + 1);
+      if (Date.now() - startTime + waitMs + VERTEX_MIN_ATTEMPT_MS > timeoutMs) break;
+
+      logger.warn(`Vertex AI refused with 429; resending unchanged in ${waitMs}ms`, { model, retry: retry + 1 });
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      if (tracker) tracker.incrementSubrequests(1);
+      response = await attempt(body);
+    }
+
+    if (response.ok) {
+      data = (await response.json()) as VertexGenerateResponse;
+      const candidate = data.candidates?.[0];
+      rawText = candidate?.content?.parts?.map((part) => part.text ?? '').join('')?.trim();
+      finishReason = candidate?.finishReason;
+
+      if (finishReason && finishReason !== 'STOP') {
+        logger.warn(`Vertex AI response for ${model} ended with finishReason=${finishReason}; output is likely incomplete`, {
+          outputSpend: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+          thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+          outputCeiling: currentCeiling,
+          thinkingBudget: thinkingRejected ? undefined : thinkingBudget,
+        });
+      }
+
+      // thinkingConfig stays on here: dropping it switches to unbounded dynamic thinking, the opposite of the fix.
+      if (finishReason === 'MAX_TOKENS' && input.truncationIntolerant && !ceilingRaised) {
+        const raisedCeiling = Math.min(VERTEX_MAX_OUTPUT_TOKENS, 2 * answerBudget + thinkingBudget);
+        const extraMs = ((raisedCeiling - currentCeiling) / 1_000) * MODEL_TIMEOUT_PER_1K_OUTPUT_MS;
+        if (Date.now() - startTime + extraMs < timeoutMs) {
+          ceilingRaised = true;
+          currentCeiling = raisedCeiling;
+          logger.warn(`Vertex AI ran out of output room on ${model}; resending once with a larger ceiling`, {
+            outputCeiling: raisedCeiling,
+            thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+            hadPartialText: Boolean(rawText),
+          });
+          continue;
+        }
+      }
+
+      break;
+    }
+
     const message = providerErrorMessage(await response.text());
+
+    if (!thinkingRejected && isThinkingRejection(response.status, message)) {
+      thinkingRejected = true;
+      logger.warn('Vertex AI rejected thinkingConfig; resending without an explicit thinking budget', {
+        model,
+        error: message,
+      });
+      continue;
+    }
+
     throw new ProviderRequestError(providerName, response.status, message);
   }
 
   const durationMs = Date.now() - startTime;
   logger.info(`AI model ${model} responded in ${durationMs}ms`);
 
-  const data = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
-    usageMetadata?: {
-      promptTokenCount?: number;
-      candidatesTokenCount?: number;
-    };
-  };
-
-  const candidate = data.candidates?.[0];
-  const rawText = candidate?.content?.parts?.map((part) => part.text ?? '').join('')?.trim();
   if (!rawText) {
-    const finishReason = candidate?.finishReason;
     if (finishReason && finishReason !== 'STOP') {
       throw new UnparseableModelResponseError(model, `finishReason=${finishReason}`);
     }
     throw new Error('Vertex AI returned an empty response.');
+  }
+
+  // Still truncated after the re-probe; fail but attach the partial text so the chain's last model can salvage it.
+  if (finishReason === 'MAX_TOKENS' && input.truncationIntolerant) {
+    const error = new UnparseableModelResponseError(model, 'finishReason=MAX_TOKENS');
+    attachPartialResponse(error, {
+      rawText,
+      inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+      modelUsed: model,
+      provider: providerName,
+    });
+    throw error;
   }
 
   return {

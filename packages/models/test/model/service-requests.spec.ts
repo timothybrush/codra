@@ -115,7 +115,7 @@ describe('ModelRunner: request shape and response handling', () => {
     it('sends the caller\'s grammar as responseJsonSchema, or none at all', async () => {
       const review = await captureGeminiBody({ systemPrompt: 'system', userPrompt: 'user', responseSchema: buildReviewResponseSchema(10) });
       expect(schemaKeys(review)).toEqual(['responseJsonSchema']);
-      expect(review.generationConfig.responseJsonSchema.properties.findings.maxItems).toBe(20);
+      expect(review.generationConfig.responseJsonSchema.properties.findings.maxItems).toBe(10);
       expect(review.generationConfig.responseMimeType).toBe('application/json');
       // No `outputBudgetTokens` on this input, so the adapter's own default answer budget applies -- and
       // the bounded thinking budget is added ON TOP of it, never carved out of it.

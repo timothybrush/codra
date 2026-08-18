@@ -99,6 +99,8 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
     userPrompt: buildVerifyPrompt(params.candidates),
     // Must be the verify grammar, not the file-review one -- that schema makes strict decoding unsatisfiable and the pass a silent no-op.
     responseSchema: VERIFY_RESPONSE_SCHEMA as unknown as ModelInput['responseSchema'],
+    // A missing verdict is not a pass; a truncated list would silently withhold findings.
+    truncationIntolerant: true,
   };
   // Scale the timeout with the number of findings under review (capped inside adaptiveModelTimeoutMs).
   const timeoutMs = clampTimeoutToChainBudget(adaptiveModelTimeoutMs(params.candidates.length * 8));

@@ -23,6 +23,8 @@ export interface ReviewGitProvider {
   getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequestRecord>;
   getPullRequestDiff(owner: string, repo: string, prNumber: number): Promise<string>;
   getCompareDiff(owner: string, repo: string, base: string, head: string): Promise<string>;
+  /** File content at `ref`, or null if unavailable. Optional: backs opt-in file-context enrichment. */
+  getRepoFile?(owner: string, repo: string, path: string, ref?: string): Promise<string | null>;
   createCheckRun(owner: string, repo: string, params: { headSha: string; title: string; summary: string }): Promise<{ id: number }>;
   updateCheckRun(owner: string, repo: string, checkRunId: number, params: {
     title: string;

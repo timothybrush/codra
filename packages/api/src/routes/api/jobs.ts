@@ -3,7 +3,7 @@ import type { Context } from 'hono';
 import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codraoss/schema';
 import { jsonError } from '../../http';
 import { parseUnifiedDiff } from '@codraoss/core/diff';
-import { buildFileReviewPrompts } from '@codraoss/core/prompts/file-review';
+import { buildFileReviewPrompts, changelogExcerptFromDiff, wantsFileContext } from '@codraoss/core/prompts/file-review';
 import type { ApiEnv } from '../../ports';
 
 // Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.
@@ -102,14 +102,21 @@ export function createJobsRouter() {
 
     // The ENTIRE PR diff, not just files with a review row, so Files-changed matches GitHub mid-review.
     const diffs: Record<string, string> = {};
-    for (const file of parseUnifiedDiff(rawDiff, config.review)) {
+    const parsedFiles = parseUnifiedDiff(rawDiff, config.review);
+    const changelogExcerpt = changelogExcerptFromDiff(parsedFiles);
+    for (const file of parsedFiles) {
       if (file.isDeleted || file.isBinary || !file.path) continue;
-      diffs[file.path] = buildFileReviewPrompts({
+      const { userPrompt } = buildFileReviewPrompts({
         file,
         prTitle: job.prTitle,
         prDescription,
+        changelogExcerpt,
         config: config.review,
-      }).userPrompt;
+      });
+      const hadContext = wantsFileContext(file, config.review.full_file_context);
+      diffs[file.path] = hadContext
+        ? `${userPrompt}\n\n[The full file at the reviewed commit was included here at review time; it is omitted from this preview.]`
+        : userPrompt;
     }
 
     const response = c.json({ diffs });

@@ -54,4 +54,12 @@ describe('budgetAwareFileLimit', () => {
   it('shrinks the chunk sooner on a long chain than a short one at a degraded budget', () => {
     expect(budgetAwareFileLimit(12, maxLevel, 9)).toBeLessThan(budgetAwareFileLimit(12, maxLevel, 1));
   });
+
+  it('prices the extra content fetch without ever driving the limit to zero', () => {
+    expect(estimatedSubrequestsPerFile(3, true)).toBe(estimatedSubrequestsPerFile(3) + 1);
+    expect(estimatedSubrequestsPerFile(3, false)).toBe(estimatedSubrequestsPerFile(3));
+
+    const fresh = new TokenTracker().remainingSafeBudget();
+    expect(budgetAwareFileLimit(fresh, maxLevel, 3, true)).toBeGreaterThanOrEqual(1);
+  });
 });

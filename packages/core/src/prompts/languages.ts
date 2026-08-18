@@ -86,3 +86,11 @@ export function getLanguageForFile(path: string): LanguageGuideline | undefined 
 
   return matches[0];
 }
+
+// Matched by filename convention, not extension; kept narrow to avoid false positives.
+export function isChangelogPath(path: string): boolean {
+  const name = path.split('/').pop()?.toLowerCase() ?? '';
+  const stem = name.replace(/\.(md|mdx|markdown|rst|txt)$/, '');
+  return stem === 'changelog' || stem === 'changes' || stem === 'history' || stem === 'news'
+    || stem === 'release-notes' || stem === 'release_notes' || stem === 'releasenotes';
+}

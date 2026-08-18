@@ -9,7 +9,7 @@ import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, t
 import { UnparseableModelResponseError } from '../types';
 import { chunkFileDiff, type FileDiff } from '@codraoss/core/diff';
 import { adaptiveModelTimeoutMs, reviewOutputBudgetTokens } from '../limits';
-import { generatorFindingCap } from '@codraoss/core/prompts/file-review';
+import { reviewBreadth } from '@codraoss/core/prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
 import { logger } from '@codraoss/core/logger';
@@ -25,8 +25,10 @@ export type { ModelReviewContext };
 
 export async function reviewFile(ctx: ModelReviewContext, params: {
   file: any;
+  fileContext?: string | null;
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   compactPrompt?: boolean;
@@ -124,8 +126,10 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
 // Internal to this module: reviewFile fans out to it per chunk.
 async function reviewFileChunk(ctx: ModelReviewContext, params: {
   file: any;
+  fileContext?: string | null;
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   compactPrompt?: boolean;
@@ -140,17 +144,19 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
 
   // One figure drives three things: the room the answer gets, and now the time it gets to write it.
   const outputBudgetTokens = reviewOutputBudgetTokens({
-    findingCap: generatorFindingCap(params.config.review.max_comments),
+    findingCap: reviewBreadth(params.config.review),
     fileCount: 1,
   });
 
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
-    responseSchema: buildReviewResponseSchema(params.config.review.max_comments),
+    responseSchema: buildReviewResponseSchema(reviewBreadth(params.config.review)),
     // Scales with the diff the model sees AND the answer it was asked for: small files fail over fast.
     timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount, outputBudgetTokens),
     outputBudgetTokens,
+    // A partial review reads as "no more findings", not "ran out of room" - treat as untrusted.
+    truncationIntolerant: true,
     label: params.file.path,
     totalLineCount: params.totalLineCount,
     config: params.config,
@@ -200,6 +206,7 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
   files: readonly FileDiff[];
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   rejectedExemplars?: readonly RejectedExemplar[];
@@ -208,6 +215,7 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
     files: params.files,
     prTitle: params.prTitle,
     prDescription: params.prDescription,
+    changelogExcerpt: params.changelogExcerpt,
     config: params.config.review,
     rejectedExemplars: params.rejectedExemplars,
   });
@@ -220,16 +228,18 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
   // the slowest call the system makes, and its diff line count badly under-predicts that, so the same
   // figure sizes the timeout.
   const outputBudgetTokens = reviewOutputBudgetTokens({
-    findingCap: generatorFindingCap(params.config.review.max_comments),
+    findingCap: reviewBreadth(params.config.review),
     fileCount: params.files.length,
   });
 
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
-    responseSchema: buildBatchReviewResponseSchema(params.config.review.max_comments, params.files.length),
+    responseSchema: buildBatchReviewResponseSchema(reviewBreadth(params.config.review), params.files.length),
     timeoutMs: adaptiveModelTimeoutMs(binLineCount, outputBudgetTokens),
     outputBudgetTokens,
+    // Worse in a bin: a cut lands in tail entries, which then look reviewed and clean.
+    truncationIntolerant: true,
     label: `${params.files.length} files (${params.files[0]?.path ?? 'unknown'} …)`,
     // Per file, so progress survives the bin narrowing or exploding into singles.
     progressLabels: params.files.map((file) => file.path),
@@ -237,7 +247,7 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
     config: params.config,
     parse: (rawText) => parseBatchReviewResponse(rawText, params.files, {
       deniedClaimTypes: params.config.review.deny_claim_types,
-      maxCommentsPerFile: params.config.review.max_comments,
+      maxCommentsPerFile: reviewBreadth(params.config.review),
     }),
   });
 

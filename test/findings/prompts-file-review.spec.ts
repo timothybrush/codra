@@ -5,6 +5,7 @@ import {
   buildFileReviewSystemPromptBase,
   buildReviewResponseSchema,
   generatorFindingCap,
+  reviewBreadth,
 } from '@server/prompts/file-review';
 import { defaultRepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
@@ -106,16 +107,21 @@ describe('the generator', () => {
   const _systemBase = buildFileReviewSystemPromptBase();
 
 
-  // Not the posted cap: `max_comments` applies per job in finalize, this per chunk upstream of
-  // four remove-only filters.
-  it('lets the generator produce more candidates than can be posted', () => {
-    const maxItems = (buildReviewResponseSchema(10) as unknown as {
+  it('bounds the grammar by the review breadth it is handed', () => {
+    const maxItems = (cap: number) => (buildReviewResponseSchema(cap) as unknown as {
       schema: { properties: { findings: { maxItems: number } } };
     }).schema.properties.findings.maxItems;
 
-    expect(maxItems).toBe(20);
+    expect(maxItems(reviewBreadth(defaultRepoConfig.review))).toBe(25);
+    expect(reviewBreadth(defaultRepoConfig.review)).toBeGreaterThan(defaultRepoConfig.review.max_comments);
+    expect(maxItems(0)).toBe(1);
+  });
+
+  it('falls back to the old derivation for a config snapshot with no review_breadth', () => {
+    const legacy = { ...defaultRepoConfig.review, review_breadth: undefined } as unknown as typeof defaultRepoConfig.review;
+
+    expect(reviewBreadth(legacy)).toBe(generatorFindingCap(defaultRepoConfig.review.max_comments));
     expect(generatorFindingCap(10)).toBe(20);
-    // Never zero, whatever an operator sets.
     expect(generatorFindingCap(1)).toBe(2);
   });
 });
