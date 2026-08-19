@@ -208,6 +208,16 @@ dbDescribe('Review flow: chunking, partial reviews and re-posting', () => {
     expect(finalJob?.error_msg).toContain('Partial review: 1 of 2 files');
     const steps = typeof finalJob?.steps === 'string' ? JSON.parse(finalJob.steps) : finalJob?.steps;
     expect(steps?.find((step: { name: string }) => step.name === 'Completing')?.status).toBe('done');
+
+    // The dashboard renders a step's duration from startedAt->finishedAt and shows a dash without
+    // both. `Verifying Findings` was written once, with only a terminal status, so the slowest part of
+    // finalize reported no duration at all.
+    const verifyStep = steps?.find((step: { name: string }) => step.name === 'Verifying Findings');
+    expect(verifyStep).toBeDefined();
+    expect(verifyStep.startedAt).toBeTruthy();
+    expect(verifyStep.finishedAt).toBeTruthy();
+    expect(new Date(verifyStep.finishedAt).getTime())
+      .toBeGreaterThanOrEqual(new Date(verifyStep.startedAt).getTime());
     expect(finalJob?.summary_markdown).toMatch(/^### Codra Review/);
     expect(finalJob?.summary_model).toBeNull();
     expect(summarySpy).not.toHaveBeenCalled();

@@ -13,7 +13,7 @@ export type ModelResponse = {
   modelUsed: string;
   provider: string;
   // schema-dropped: model refused the grammar. truncated: parsed prefix of a cut-off answer, may be incomplete.
-  degraded?: 'schema-dropped' | 'truncated';
+  degraded?: 'schema-dropped' | 'schema-dropped-catchall' | 'truncated';
 };
 
 export type ModelResponseSchema = {

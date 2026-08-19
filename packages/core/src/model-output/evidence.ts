@@ -3,14 +3,17 @@ import type { DiffLine, FileDiff } from '../diff';
 
 import { MIN_DISCRIMINATING_EVIDENCE_CHARS } from '../constants';
 
+/** `anchor` is where a quoting finding gets posted; `sourceKind` is the text's kind pre-re-anchoring. */
+export type IndexedLine = { anchor: DiffLine; sourceKind: DiffLine['kind'] };
+
 export type EvidenceIndex = {
-  byContent: Map<string, DiffLine[]>;
-  lines: { normalized: string; line: DiffLine }[];
+  byContent: Map<string, IndexedLine[]>;
+  lines: { normalized: string; line: IndexedLine }[];
 };
 
 export function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
-  const byContent = new Map<string, DiffLine[]>();
-  const lines: { normalized: string; line: DiffLine }[] = [];
+  const byContent = new Map<string, IndexedLine[]>();
+  const lines: { normalized: string; line: IndexedLine }[] = [];
 
   for (const hunk of file.hunks) {
     const postable = hunk.lines.filter((line) => line.kind !== 'del' && line.newLineNumber !== undefined);
@@ -27,10 +30,11 @@ export function buildEvidenceIndex(file: FileDiff): EvidenceIndex {
           ?? postable[0];
       }
 
-      lines.push({ normalized, line: anchor });
+      const entry: IndexedLine = { anchor, sourceKind: line.kind };
+      lines.push({ normalized, line: entry });
       const existing = byContent.get(normalized);
-      if (existing) existing.push(anchor);
-      else byContent.set(normalized, [anchor]);
+      if (existing) existing.push(entry);
+      else byContent.set(normalized, [entry]);
     });
   }
 
@@ -69,7 +73,8 @@ export function buildBinAmbiguityIndex(files: readonly FileDiff[]): BinAmbiguity
 export type EvidenceResolution =
   | { status: 'absent' }
   | { status: 'weak' }
-  | { status: 'matched'; line: DiffLine }
+  // `touched` is false only when every occurrence of the quoted text is an untouched context line.
+  | { status: 'matched'; line: DiffLine; touched: boolean }
   | { status: 'unmatched' };
 
 export function resolveEvidence(
@@ -83,24 +88,35 @@ export function resolveEvidence(
   if (!firstLine) return { status: 'absent' };
   if (firstLine.length < MIN_DISCRIMINATING_EVIDENCE_CHARS) return { status: 'weak' };
 
-  const nearest = (candidates: DiffLine[]) => {
-    if (reportedLine === undefined) return candidates[0];
-    return candidates.reduce((best, candidate) =>
-      Math.abs((candidate.newLineNumber ?? 0) - reportedLine) < Math.abs((best.newLineNumber ?? 0) - reportedLine)
+  // Judged over the whole candidate set, so one context occurrence cannot refuse a changed one.
+  const anyTouched = (candidates: IndexedLine[]) => candidates.some((c) => c.sourceKind !== 'context');
+
+  const nearest = (candidates: IndexedLine[]) => {
+    const preferred = candidates.some((c) => c.sourceKind !== 'context')
+      ? candidates.filter((c) => c.sourceKind !== 'context')
+      : candidates;
+    if (reportedLine === undefined) return preferred[0].anchor;
+    return preferred.reduce((best, candidate) =>
+      Math.abs((candidate.anchor.newLineNumber ?? 0) - reportedLine)
+        < Math.abs((best.anchor.newLineNumber ?? 0) - reportedLine)
         ? candidate
         : best,
-    );
+    ).anchor;
   };
 
   const exact = index.byContent.get(firstLine);
-  if (exact && exact.length > 0) return { status: 'matched', line: nearest(exact) };
+  if (exact && exact.length > 0) {
+    return { status: 'matched', line: nearest(exact), touched: anyTouched(exact) };
+  }
 
   const contained = index.lines.flatMap(({ normalized, line }) =>
     normalized.length >= MIN_DISCRIMINATING_EVIDENCE_CHARS
     && (normalized.includes(firstLine) || firstLine.includes(normalized))
       ? [line]
       : []);
-  if (contained.length > 0) return { status: 'matched', line: nearest(contained) };
+  if (contained.length > 0) {
+    return { status: 'matched', line: nearest(contained), touched: anyTouched(contained) };
+  }
 
   return { status: 'unmatched' };
 }

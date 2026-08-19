@@ -42,6 +42,15 @@ export const reviewConfigSchema = z.object({
   // one extra GitHub subrequest per qualifying file (see FILE_CONTEXT_CHAR_BUDGET).
   full_file_context: z.boolean().default(false),
   min_severity: z.enum(reviewSeverities).default('P3'),
+  language_gates: z
+    .record(
+      z.string(),
+      z.object({
+        min_severity: z.enum(reviewSeverities).optional(),
+        min_confidence: z.number().min(0).max(1).optional(),
+      }),
+    )
+    .default({}),
   min_confidence: z.number().min(0).max(1).default(0),
   focus: z.array(z.enum(reviewCategories)).default([...reviewCategories]),
   deny_claim_types: z.array(z.enum(claimTypes)).default([...DEFAULT_DENIED_CLAIM_TYPES]),
@@ -72,7 +81,7 @@ export const reviewConfigSchema = z.object({
 });
 
 export const DEFAULT_REVIEW_CONFIG = reviewConfigSchema.parse({});
-export const DEFAULT_MODEL_CONFIG = { main: null, fallbacks: [], size_overrides: [] };
+export const DEFAULT_MODEL_CONFIG = { main: null, fallbacks: [], size_overrides: [], secondary: null };
 
 export const repoConfigSchema = z.object({
   review: reviewConfigSchema.default(DEFAULT_REVIEW_CONFIG),
@@ -88,6 +97,14 @@ export const repoConfigSchema = z.object({
             fallbacks: z.array(z.string()).optional(),
           }),
         )
+        .nullable()
+        .optional(),
+      // Findings are UNIONED with the primary's, never voted on (F1 0.200 vs 0.149 best-single; agreement is not evidence). Never pair across a capability gap: strong + much weaker measured BELOW strong alone.
+      secondary: z
+        .object({
+          model: z.string(),
+          fallbacks: z.array(z.string()).default([]),
+        })
         .nullable()
         .optional(),
     })
@@ -116,6 +133,14 @@ export function normalizeRepoModelConfig(model: RepoConfig['model']): RepoConfig
           model: normalizeModelId(tier.model),
           fallbacks: tier.fallbacks?.map(normalizeModelId),
         })),
+    ...(model.secondary
+      ? {
+          secondary: {
+            model: normalizeModelId(model.secondary.model),
+            fallbacks: (model.secondary.fallbacks ?? []).map(normalizeModelId),
+          },
+        }
+      : {}),
   };
 }
 

@@ -1,15 +1,17 @@
 import { claimTypes, type RepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '../diff';
 import type { ModelResponseSchema } from '../ports/model';
-import { getLanguageForFile, isChangelogPath } from './languages';
+import { getLanguageForFile } from './languages';
 import {
-  CHANGELOG_EXCERPT_CHARS,
-  FILE_CONTEXT_CHAR_BUDGET,
-  FILE_CONTEXT_WINDOW_LINES,
-  PACKABLE_MAX_DIFF_LINES,
+  INTENT_CHECK_INSTRUCTION,
+  renderFileContext,
+  renderIntentBlock,
+} from './review-context';
+import {
   EXEMPLAR_BLOCK_CHARS,
-  PR_DESCRIPTION_CHARS,
 } from '../constants';
+
+export { changelogExcerptFromDiff, wantsFileContext } from './review-context';
 
 // Pre-review_breadth fallback: generator was allowed ~2x the posted cap.
 export function generatorFindingCap(maxComments: number): number {
@@ -174,7 +176,6 @@ export function buildFileReviewSystemPromptBase(opts?: { multiFile?: boolean; fi
     ? '4. Return at most {{MAX_COMMENTS}} findings PER FILE, most severe first. Keep each body under 160 words.'
     : '4. Return at most {{MAX_COMMENTS}} findings, most severe first. Keep each body under 160 words.';
 
-  // presupposed clean files in every bin and reintroduced exactly the restraint language the note above
   const emptyRule = multi
     ? `5. Return exactly one entry per file listed below, in the same order, and never omit a file. Review each file's diff with the same care you would give it if it were the only file in front of you. An empty findings array is a positive claim that this diff introduces no defect, so return one only when that is true. Do not pad, and do not withhold.`
     : '5. If the diff genuinely introduces no defect, return an empty findings array and a short explanation. Do not pad, and do not withhold.';
@@ -253,104 +254,6 @@ function renderExemplars(exemplars: readonly RejectedExemplar[] | undefined): st
   const heading = 'Findings a reviewer on THIS repository has already rejected. Do not report things like these:';
   return [heading, ...lines].join('\n');
 }
-
-
-
-function clip(text: string, limit: number): string {
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
-}
-
-// Must avoid the `===== FILE ` delimiter and lines starting `Language: `: the batch prompt splits on those.
-function renderIntentBlock(input: {
-  prTitle: string | null;
-  prDescription: string | null;
-  changelogExcerpt?: string | null;
-}): string {
-  const description = input.prDescription?.trim();
-  const changelog = input.changelogExcerpt?.trim();
-
-  return [
-    '## PR INTENT (what the author set out to do)',
-    `Title: ${input.prTitle ?? 'Untitled PR'}`,
-    ...(description ? ['Description:', clip(description, PR_DESCRIPTION_CHARS)] : []),
-    ...(changelog ? ['Changelog lines added by this PR:', clip(changelog, CHANGELOG_EXCERPT_CHARS)] : []),
-    'Behaviour that serves this stated intent is deliberate. Do not report it as an accident, an oversight, or a regression.',
-  ].join('\n');
-}
-
-export function changelogExcerptFromDiff(files: readonly FileDiff[]): string | null {
-  const added: string[] = [];
-  let used = 0;
-
-  for (const file of files) {
-    if (!isChangelogPath(file.path)) continue;
-    for (const hunk of file.hunks) {
-      for (const line of hunk.lines) {
-        if (line.kind !== 'add') continue;
-        const text = line.content.trim();
-        if (!text) continue;
-        if (used + text.length > CHANGELOG_EXCERPT_CHARS) {
-          return added.length > 0 ? added.join('\n') : null;
-        }
-        added.push(text);
-        used += text.length + 1;
-      }
-    }
-  }
-
-  return added.length > 0 ? added.join('\n') : null;
-}
-
-export function wantsFileContext(
-  file: Pick<FileDiff, 'lineCount' | 'isNew' | 'isDeleted' | 'isBinary'>,
-  fullFileContext: boolean,
-  gate: { compactPrompt?: boolean } = {},
-): boolean {
-  if (!fullFileContext) return false;
-  if (gate.compactPrompt) return false;
-  if (file.isNew || file.isDeleted || file.isBinary) return false;
-  return file.lineCount > PACKABLE_MAX_DIFF_LINES;
-}
-
-// Windowed per chunk's own hunks so a chunked file doesn't repeat the whole block MAX_CHUNKS times.
-function renderFileContext(file: FileDiff, content: string): string | null {
-  const lines = content.split('\n');
-
-  let lowest = Number.POSITIVE_INFINITY;
-  let highest = 0;
-  for (const hunk of file.hunks) {
-    for (const line of hunk.lines) {
-      if (typeof line.newLineNumber !== 'number') continue;
-      lowest = Math.min(lowest, line.newLineNumber);
-      highest = Math.max(highest, line.newLineNumber);
-    }
-  }
-  if (!Number.isFinite(lowest)) return null;
-
-  const start = Math.max(1, lowest - FILE_CONTEXT_WINDOW_LINES);
-  const end = Math.min(lines.length, highest + FILE_CONTEXT_WINDOW_LINES);
-
-  const numbered: string[] = [];
-  let used = 0;
-  for (let n = start; n <= end; n++) {
-    const rendered = `${n}\t${lines[n - 1] ?? ''}`;
-    if (used + rendered.length > FILE_CONTEXT_CHAR_BUDGET) break;
-    numbered.push(rendered);
-    used += rendered.length + 1;
-  }
-  if (numbered.length === 0) return null;
-
-  const last = start + numbered.length - 1;
-  const partial = start > 1 || last < lines.length;
-  return [
-    `Full file after the change, lines ${start}-${last}${partial ? ` of ${lines.length}` : ''} (CONTEXT ONLY, not reviewable):`,
-    ...numbered,
-  ].join('\n');
-}
-
-const INTENT_CHECK_INSTRUCTION =
-  'Intent check: every finding must survive a comparison with the PR INTENT above. If what you are about to flag IS the stated intent, it is not a finding - drop it. Otherwise open the `body` with one line saying how the problem differs from what the author set out to do.';
-
 function renderCustomRules(config: RepoConfig['review']): string {
   const rules = config.custom_rules.length > 0 ? config.custom_rules.map((rule) => `- ${rule}`).join('\n') : '- None';
   return `Custom rules:\n${rules}`;

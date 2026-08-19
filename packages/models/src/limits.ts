@@ -24,6 +24,16 @@ export function adaptiveModelTimeoutMs(
   return Math.min(MODEL_TIMEOUT_MAX_MS, scaled + answerAllowance);
 }
 
+// Per-candidate, not the old `candidates * 8` diff-line proxy: 12 findings fell under the 100-line free allowance and collapsed to the 20s base, so verification timed out and later chain rungs were skipped.
+export const VERIFY_TIMEOUT_FLOOR_MS = 30_000;
+const VERIFY_TIMEOUT_FREE_CANDIDATES = 10;
+const VERIFY_TIMEOUT_PER_CANDIDATE_MS = 1_200;
+
+export function verifyTimeoutMs(candidateCount: number): number {
+  const extra = Math.max(0, candidateCount - VERIFY_TIMEOUT_FREE_CANDIDATES);
+  return Math.min(MODEL_TIMEOUT_MAX_MS, VERIFY_TIMEOUT_FLOOR_MS + extra * VERIFY_TIMEOUT_PER_CANDIDATE_MS);
+}
+
 export function clampTimeoutToChainBudget(timeoutMs: number): number {
   return Math.min(timeoutMs, MODEL_FALLBACK_CHAIN_BUDGET_MS);
 }

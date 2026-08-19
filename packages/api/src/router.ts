@@ -15,11 +15,12 @@ import { createSettingsRouter } from './routes/api/settings';
 
 async function serveIndex(c: Context<ApiEnv>) {
   // If the host platform passes an ASSETS binding via `c.env`, use it (e.g., Cloudflare Workers).
-  const assetsFetch = (c.env as any).ASSETS?.fetch;
-  if (typeof assetsFetch === 'function') {
-    return assetsFetch(new URL('/index.html', c.req.url));
+  const assets = (c.env as any).ASSETS;
+  if (assets && typeof assets.fetch === 'function') {
+    // Method call, and `/` not `/index.html`: detaching throws, and `/index.html` 307s into a loop.
+    return assets.fetch(new Request(new URL('/', c.req.url), c.req.raw));
   }
-  
+
   return c.text('Not Found: Please mount UI static assets handler here.', 404);
 }
 

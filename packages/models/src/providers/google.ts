@@ -50,21 +50,29 @@ function requestedRetryDelayFromBody(message: string): number | null {
   return Number.isFinite(seconds) ? seconds * 1000 : null;
 }
 
-// Broad on purpose: false positive costs 1 subrequest, false negative breaks the chain.
-function isSchemaRejection(status: number, message: string) {
-  if (status !== 400) return false;
+export function classifySchemaRejection(status: number, message: string): 'confident' | 'catchall' | null {
+  if (status !== 400) return null;
   const lower = message.toLowerCase();
-  return (
+
+  const namesTheGrammar =
     lower.includes('responsejsonschema') ||
     lower.includes('response_json_schema') ||
     lower.includes('responseschema') ||
     lower.includes('response_schema') ||
     lower.includes('invalid json payload') ||
     lower.includes('unknown name') ||
-    lower.includes('schema') ||
-    // Bare 400 catch-all avoids permanent schema failures.
-    lower.includes('invalid argument')
-  );
+    lower.includes('schema');
+  if (namesTheGrammar) return 'confident';
+
+  const grammarAdjacent =
+    lower.includes('generation_config') ||
+    lower.includes('generationconfig') ||
+    lower.includes('json') ||
+    lower.includes('constrained') ||
+    lower.includes('too many states');
+  if (lower.includes('invalid argument') && grammarAdjacent) return 'catchall';
+
+  return null;
 }
 
 function isRetryableTransportError(error: unknown) {
@@ -90,6 +98,7 @@ export async function reviewWithGoogle(
     ? toGeminiResponseJsonSchema(input.responseSchema.schema)
     : null;
   let schemaRejected = false;
+  let schemaRejectionBranch: 'confident' | 'catchall' = 'confident';
   let thinkingRejected = false;
 
   const answerBudget = resolveOutputTokenCeiling(
@@ -101,7 +110,8 @@ export async function reviewWithGoogle(
   let currentCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
   let ceilingRaised = false;
   const fail = (error: unknown): never => {
-    if (schemaRejected && typeof error === 'object' && error !== null) {
+    // Confident rejections only: a probe that failed anyway proves nothing, and latching would strip the schema from every later call in the job. A successful probe latches via `degraded` instead.
+    if (schemaRejected && schemaRejectionBranch === 'confident' && typeof error === 'object' && error !== null) {
       Object.defineProperty(error, 'schemaDropped', { value: true, configurable: true });
     }
     throw error;
@@ -178,16 +188,46 @@ export async function reviewWithGoogle(
         continue;
       }
 
-      if (responseJsonSchema && !schemaRejected && isSchemaRejection(response.status, message)) {
+      const schemaRejection = responseJsonSchema && !schemaRejected
+        ? classifySchemaRejection(response.status, message)
+        : null;
+      if (schemaRejection) {
         schemaRejected = true;
+        schemaRejectionBranch = schemaRejection;
         // Inferred from message; real cause surfaces below if 400 recurs.
         logger.warn('Gemini returned a 400 that looks like a response-grammar rejection; retrying without constrained decoding', {
           model,
+          branch: schemaRejection,
           error: message,
         });
         lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
         attempt--;
         continue;
+      }
+
+      // Unexplained invalid-argument 400: strip optional features one at a time -- grammar, then thinking budget -- refunding the attempt each time. The latches bound this ladder to two extra probes.
+      if (response.status === 400 && /invalid argument/i.test(message)) {
+        if (responseJsonSchema && !schemaRejected) {
+          schemaRejected = true;
+          schemaRejectionBranch = 'catchall';
+          logger.warn('Gemini returned an unexplained 400; probing without constrained decoding', {
+            model,
+            error: message,
+          });
+          lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+          attempt--;
+          continue;
+        }
+        if (!thinkingRejected) {
+          thinkingRejected = true;
+          logger.warn('Gemini returned an unexplained 400 with the grammar already off; probing without an explicit thinking budget', {
+            model,
+            error: message,
+          });
+          lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+          attempt--;
+          continue;
+        }
       }
 
       const requestedDelayMs = response.status === 429
@@ -297,7 +337,11 @@ export async function reviewWithGoogle(
       outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
       modelUsed: model,
       provider: config.providerName ?? 'Google',
-      ...(schemaRejected ? { degraded: 'schema-dropped' as const } : {}),
+      ...(schemaRejected
+        ? { degraded: schemaRejectionBranch === 'catchall'
+            ? ('schema-dropped-catchall' as const)
+            : ('schema-dropped' as const) }
+        : {}),
     };
   }
 

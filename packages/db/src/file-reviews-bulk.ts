@@ -24,12 +24,14 @@ export async function bulkInheritFileReviews(
           -- Carried, not defaulted: an inheriting job reading 0 here approves the PR silently.
           withheld_counts,
           -- Carried too, or every inherited row looks pre-batching.
-          batch_size
+          batch_size,
+          -- An inherited row is the SAME review; hiding that it ran degraded would be a fresh lie.
+          degraded
         )
         SELECT $1::uuid, file_path, file_status, model_used, diff_line_count, diff_input,
           raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
           file_summary, overall_correctness, confidence_score, error_msg, model_provider,
-          withheld_counts, batch_size
+          withheld_counts, batch_size, degraded
         FROM file_reviews
         WHERE job_id = $2::uuid AND file_status = 'done' AND file_path = ANY($3::text[])
         ON CONFLICT (job_id, file_path) DO NOTHING
@@ -45,12 +47,12 @@ export async function bulkInheritFileReviews(
           INSERT INTO review_comments (
             file_review_id, path, line, position, severity, category, title, body, code_suggestion, confidence_score,
             evidence, fingerprint, anchor_hash, posted, claim_type, context_snippet, disposition, fingerprint_v2,
-            source, rule_id
+            source, rule_id, reviewer_model
           )
           SELECT nw.new_id, rc.path, rc.line, rc.position, rc.severity, rc.category, rc.title, rc.body, rc.code_suggestion, rc.confidence_score,
                  rc.evidence, rc.fingerprint, rc.anchor_hash, FALSE, rc.claim_type, rc.context_snippet, NULL, rc.fingerprint_v2,
                  -- Carried, or a retried job's rule findings become LLM findings.
-                 rc.source, rc.rule_id
+                 rc.source, rc.rule_id, rc.reviewer_model
           FROM UNNEST($1::uuid[], $2::text[]) AS nw(new_id, file_path)
           JOIN file_reviews pf ON pf.job_id = $3::uuid AND pf.file_path = nw.file_path
           JOIN review_comments rc ON rc.file_review_id = pf.id
@@ -80,20 +82,20 @@ export async function bulkUpsertFileReviews(
           job_id, file_path, file_status, model_used, diff_line_count, diff_input,
           raw_ai_output, input_tokens, output_tokens, duration_ms, verdict,
           file_summary, overall_correctness, confidence_score, error_msg, model_provider,
-          withheld_counts, batch_size
+          withheld_counts, degraded, batch_size
         )
         SELECT $1::uuid, u.file_path, u.file_status, u.model_used, u.diff_line_count, NULL,
           u.raw_ai_output, u.input_tokens, u.output_tokens, u.duration_ms, u.verdict,
           u.file_summary, u.overall_correctness, u.confidence_score, u.error_msg, u.model_provider,
           -- Matches upsertFileReview's '::text::jsonb' idiom; mixing idioms is how the string-scalar bug spread across five columns.
-          u.withheld_counts::jsonb, u.batch_size
+          u.withheld_counts::jsonb, u.degraded, u.batch_size
         FROM UNNEST(
           $2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::int[], $8::int[], $9::int[],
-          $10::text[], $11::text[], $12::text[], $13::real[], $14::text[], $15::text[], $16::text[], $17::int[]
+          $10::text[], $11::text[], $12::text[], $13::real[], $14::text[], $15::text[], $16::text[], $17::text[], $18::int[]
         ) AS u(
           file_path, file_status, model_used, diff_line_count, raw_ai_output, input_tokens,
           output_tokens, duration_ms, verdict, file_summary, overall_correctness, confidence_score,
-          error_msg, model_provider, withheld_counts, batch_size
+          error_msg, model_provider, withheld_counts, degraded, batch_size
         )
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = EXCLUDED.file_status,
@@ -111,6 +113,7 @@ export async function bulkUpsertFileReviews(
           error_msg = EXCLUDED.error_msg,
           model_provider = EXCLUDED.model_provider,
           withheld_counts = EXCLUDED.withheld_counts,
+          degraded = EXCLUDED.degraded,
           batch_size = EXCLUDED.batch_size,
           -- A terminal review supersedes any in-flight async submission, matching upsertFileReview.
           async_request_id = NULL,
@@ -119,12 +122,12 @@ export async function bulkUpsertFileReviews(
         RETURNING id, file_path
       `,
       (() => {
-        const res: any[] = [jobId, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
+        const res: any[] = [jobId, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
         for (const i of inputs) {
           res[1].push(i.filePath); res[2].push(i.fileStatus); res[3].push(i.modelUsed); res[4].push(i.diffLineCount);
           res[5].push(i.rawAiOutput); res[6].push(i.inputTokens); res[7].push(i.outputTokens); res[8].push(i.durationMs);
           res[9].push(i.verdict); res[10].push(i.fileSummary); res[11].push(i.overallCorrectness ?? null); res[12].push(i.confidenceScore ?? null);
-          res[13].push(i.errorMessage); res[14].push(i.modelProvider ?? null); res[15].push(i.withheldCounts ? JSON.stringify(i.withheldCounts) : null); res[16].push(i.batchSize);
+          res[13].push(i.errorMessage); res[14].push(i.modelProvider ?? null); res[15].push(i.withheldCounts ? JSON.stringify(i.withheldCounts) : null); res[16].push(i.degraded ?? null); res[17].push(i.batchSize);
         }
         return res;
       })(),
@@ -186,6 +189,7 @@ export async function bulkRecordRetryableFileReviewFailures(
           confidence_score = NULL,
           -- Also cleared, unlike the single-file version: gate-pipeline sums this unfiltered.
           withheld_counts = NULL,
+          degraded = NULL,
           error_msg = EXCLUDED.error_msg,
           transient_error_count = file_reviews.transient_error_count + $6::int
         RETURNING id, file_path, transient_error_count

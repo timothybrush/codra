@@ -87,7 +87,7 @@ function formatWithheld(w: Withheld): string {
 function groundFindingInEvidence(
   finding: RawFinding,
   evidenceIndex: EvidenceIndex,
-  evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number },
+  evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number; contextOnly: number },
   ambiguity?: BinAmbiguity,
 ): { diffLine: DiffLine } | { withheld: Withheld } {
   const reportedLine = finding.code_location.line || finding.code_location.line_range?.start;
@@ -101,6 +101,15 @@ function groundFindingInEvidence(
 
   if (evidence.status !== 'matched') {
     return { withheld: { title: finding.title, body: finding.body, tag: `unverified:${evidence.status}` } };
+  }
+
+  // The evidence exists, but only on lines this pull request did not touch. That is a review of the
+  // repository, not of the change -- and it is the enforcement half of whole-file context: the prompt
+  // says the context block is not evidence, and this is what makes that true. Deletions count as
+  // touched: a finding about removed code is a finding about the change.
+  if (!evidence.touched) {
+    evidenceStats.contextOnly += 1;
+    return { withheld: { title: finding.title, body: finding.body, tag: 'unverified:context-only' } };
   }
 
   if (ambiguity) {
@@ -219,22 +228,8 @@ function buildParsedComment(params: {
   claimType: ClaimType;
   anchorContent: string;
   finding: RawFinding;
-  presenceIndex: ReturnType<typeof buildPresenceIndex>;
-  absenceCheckStats: { absenceShaped: number; identifierExtracted: number; refuted: number };
 }): ParsedReviewComment {
-  const { file, line, position, severity, title, body, claimType, anchorContent, finding, presenceIndex, absenceCheckStats } = params;
-
-  const absence = checkAbsenceClaim({ title, body, anchorLine: line, index: presenceIndex });
-  if (absence.status === 'refuted') {
-    absenceCheckStats.absenceShaped += 1;
-    absenceCheckStats.identifierExtracted += 1;
-    absenceCheckStats.refuted += 1;
-  } else if (absence.reason !== 'not_absence_shaped') {
-    absenceCheckStats.absenceShaped += 1;
-    if (absence.reason !== 'no_identifier' && absence.reason !== 'ambiguous_identifier') {
-      absenceCheckStats.identifierExtracted += 1;
-    }
-  }
+  const { file, line, position, severity, title, body, claimType, anchorContent, finding } = params;
 
   const confidenceScore = typeof finding.confidence_score === 'number'
     ? finding.confidence_score
@@ -272,6 +267,10 @@ export type FileReviewPayload = z.infer<typeof fileReviewModelOutputSchema>;
 export type GroundingOptions = {
   deniedClaimTypes?: readonly ClaimType[];
   ambiguity?: BinAmbiguity;
+  // The file's validated post-change content, when `full_file_context` fetched one. Only widens the
+  // absence check: an identifier the diff never showed is still present in the file, and a claim that
+  // it is missing is refutable by looking. Evidence stays diff-anchored regardless.
+  fileContent?: string | null;
 };
 
 export type GroundedFileReview = {
@@ -280,7 +279,7 @@ export type GroundedFileReview = {
   fileSummary: string;
   overallCorrectness?: string;
   confidenceScore?: number;
-  evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number };
+  evidenceStats: { total: number; matched: number; unmatched: number; weak: number; absent: number; contextOnly: number };
   claimTypeCounts: Record<string, number>;
   deniedClaimCounts: Record<string, number>;
   absenceCheckStats: { absenceShaped: number; identifierExtracted: number; refuted: number };
@@ -293,11 +292,11 @@ export function groundParsedFindings(
 ): GroundedFileReview {
   const validPositions = getValidPositions(file);
   const evidenceIndex = buildEvidenceIndex(file);
-  const evidenceStats = { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 };
+  const evidenceStats = { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 };
   const claimTypeCounts: Record<string, number> = {};
   const deniedClaimCounts: Record<string, number> = {};
   const deniedClaimTypes = new Set<ClaimType>(options?.deniedClaimTypes ?? []);
-  const presenceIndex = buildPresenceIndex(file);
+  const presenceIndex = buildPresenceIndex(file, options?.fileContent);
   const absenceCheckStats = { absenceShaped: 0, identifierExtracted: 0, refuted: 0 };
   const orphanedComments: string[] = [];
 
@@ -327,6 +326,39 @@ export function groundParsedFindings(
         return null;
       }
 
+      // "X is missing / was removed / is never awaited", answered by looking. This verdict was computed
+      // and then thrown away for a long time -- the finding was posted regardless -- so the machinery
+      // was there and simply had no teeth.
+      const absence = checkAbsenceClaim({ title, body, anchorLine: anchored.line, index: presenceIndex });
+      if (absence.status === 'refuted') {
+        absenceCheckStats.absenceShaped += 1;
+        absenceCheckStats.identifierExtracted += 1;
+        absenceCheckStats.refuted += 1;
+
+        // Not at P0. The matcher is a literal search over stripped source: it cannot tell a call from a
+        // definition, or a live path from a dead one. Silencing a wrong nit is cheap; silencing a
+        // correct P0 is not, and `claim-checks.ts` is written to be sound in exactly this direction.
+        if (severity !== 'P0') {
+          logger.info(`Refuted an absence claim in ${file.path}`, {
+            identifier: absence.identifier,
+            foundAtLine: absence.line,
+            title,
+          });
+          orphanedComments.push(formatWithheld({
+            title,
+            body,
+            tag: `refuted:absence:${absence.identifier}`,
+          }));
+          return null;
+        }
+      } else if (absence.reason !== 'not_absence_shaped') {
+        absenceCheckStats.absenceShaped += 1;
+        if (absence.reason !== 'no_identifier' && absence.reason !== 'ambiguous_identifier') {
+          absenceCheckStats.identifierExtracted += 1;
+        }
+      }
+
+
       try {
         return buildParsedComment({
           file,
@@ -338,8 +370,6 @@ export function groundParsedFindings(
           claimType: gated.claimType,
           anchorContent,
           finding,
-          presenceIndex,
-          absenceCheckStats,
         });
       } catch (error) {
         if (!(error instanceof z.ZodError)) throw error;

@@ -12,6 +12,7 @@ import * as dbStats from '@codraoss/db/stats';
 import * as dbWebhookDeliveries from '@codraoss/db/webhook-deliveries';
 
 import { GitHubClient, normalizeGitHubWebhook } from '@codraoss/provider-github';
+import { GitHubIdentityProvider } from '@codraoss/provider-github/oauth';
 import { getGlobalConfig, updateGlobalConfig, loadRepoConfig, invalidateRepoConfigCache } from '../../../src/server/core/config';
 
 import { getUpdatesEmailPreference, syncUpdatesEmail } from '../../../src/server/core/updates-email';
@@ -23,6 +24,7 @@ import { createOAuthState, consumeOAuthState } from '../../../src/server/core/oa
 import { verifyGitHubWebhookSignature } from '../../../src/server/core/verify';
 
 import { CloudflareSessionStore } from './sessions';
+import { makeKvStore } from '../../../src/server/adapters/platform';
 import { logger } from '../../../src/server/core/logger';
 
 // model sync dependencies
@@ -41,6 +43,12 @@ function optionalEnv(value: () => string) {
   } catch {
     return undefined;
   }
+}
+
+// `IDENTITY_PROVIDER` is a test-only seam; production has no such binding.
+const githubIdentity = new GitHubIdentityProvider();
+function identityProvider(env: AppBindings) {
+  return ((env as any).IDENTITY_PROVIDER as any) ?? githubIdentity;
 }
 
 export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): ApiRouterDeps {
@@ -232,9 +240,7 @@ export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): A
             );
         } catch (e) { /* ignore */ }
       },
-      createReviewRuntime: () => {
-        throw new Error('Not implemented for this context');
-      },
+      createReviewRuntime: () => ({ kv: makeKvStore(env) } as any),
       getUpdatesEmailPreference: async (githubUserId: number) => await getUpdatesEmailPreference(env as any, githubUserId),
       syncUpdatesEmail: async (githubUserId: number, email: string | null | undefined) => await syncUpdatesEmail(env as any, githubUserId, email),
       terminateJobWorkflow: async (job: { id: string; workflowInstanceId?: string | null }) => {
@@ -256,8 +262,10 @@ export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): A
     authProvider: {
       createOAuthState: async () => await createOAuthState(env as any),
       consumeOAuthState: async (state: string) => await consumeOAuthState(env as any, state),
-      beginAuthorization: async (callbackUrl: string, state: string) => await ((env as any).IDENTITY_PROVIDER as any).beginAuthorization(callbackUrl, state, env),
-      completeAuthorization: async (code: string, state: string, expectedState: string) => await ((env as any).IDENTITY_PROVIDER as any).completeAuthorization(code, state, expectedState, env),
+      beginAuthorization: async (callbackUrl: string, state: string) =>
+        await identityProvider(env).beginAuthorization(callbackUrl, state, env),
+      completeAuthorization: async (code: string, state: string, expectedState: string) =>
+        await identityProvider(env).completeAuthorization(code, state, expectedState, env),
     },
     webhook: {
       verifySignature: async (signature: string | null, body: string) => await verifyGitHubWebhookSignature(env.GITHUB_APP_WEBHOOK_SECRET, signature, body),

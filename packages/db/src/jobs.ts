@@ -248,6 +248,7 @@ export async function getJobDetail(env: DbEnv, jobId: string) {
                 -- What the gates dropped. Without it the logs cannot tell "found nothing" apart
                 -- from "found things and withheld every one of them".
                 'withheldCounts', fr.withheld_counts,
+                'degraded', fr.degraded,
                 'parsedComments', COALESCE(
                   (
                     SELECT JSON_AGG(

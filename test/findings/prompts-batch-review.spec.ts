@@ -3,7 +3,6 @@ import {
   buildBatchReviewPrompts,
   buildBatchReviewResponseSchema,
   buildReviewResponseSchema,
-  generatorFindingCap,
   reviewBreadth,
 } from '@server/prompts/file-review';
 import { BIN_DIFF_CHAR_BUDGET, BIN_MAX_FILES } from '@server/core/review';

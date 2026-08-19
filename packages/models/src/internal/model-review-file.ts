@@ -105,7 +105,8 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
         unmatched: acc.unmatched + (r.parsed.evidenceStats?.unmatched ?? 0),
         weak: acc.weak + (r.parsed.evidenceStats?.weak ?? 0),
         absent: acc.absent + (r.parsed.evidenceStats?.absent ?? 0),
-      }), { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 }),
+        contextOnly: acc.contextOnly + (r.parsed.evidenceStats?.contextOnly ?? 0),
+      }), { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 }),
       claimTypeCounts: mergeCounts(results.map((r) => r.parsed.claimTypeCounts)),
       deniedClaimCounts: mergeCounts(results.map((r) => r.parsed.deniedClaimCounts)),
       absenceCheckStats: results.reduce((acc, r) => ({
@@ -116,6 +117,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     },
     reviewedLineCount: results.reduce((sum, r) => sum + r.reviewedLineCount, 0),
     wasPromptTruncated: chunks.length < totalChunkCount || results.length < chunks.length,
+    degraded: results.find((r) => r.degraded)?.degraded,
   };
 }
 
@@ -157,6 +159,7 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
     parse: (rawText, { isLastModel }) => {
       const parsed = parseFileReviewResponse(rawText, params.file, {
         deniedClaimTypes: params.config.review.deny_claim_types,
+        fileContent: params.fileContext,
       });
 
       // A one-sentence reply to a substantive diff means the model declined; escalate except on the last model, where failing beats an unearned clean.

@@ -1,6 +1,13 @@
 import { buildSummaryPrompt, SUMMARY_SYSTEM_PROMPT } from '@codraoss/core/prompts/summary';
 import { buildVerifyPrompt, VERIFY_RESPONSE_SCHEMA, VERIFY_SYSTEM_PROMPT, type VerifyCandidate } from '@codraoss/core/prompts/verify';
-import { adaptiveModelTimeoutMs, clampTimeoutToChainBudget, MODEL_FALLBACK_CHAIN_BUDGET_MS } from '../limits';
+import {
+  adaptiveModelTimeoutMs,
+  chainAttemptTimeoutMs,
+  clampTimeoutToChainBudget,
+  MODEL_FALLBACK_CHAIN_BUDGET_MS,
+  MODEL_MIN_VIABLE_ATTEMPT_MS,
+  verifyTimeoutMs,
+} from '../limits';
 import { isCloudflareAllocationError, isTransientModelFailure, RetryableModelError } from './model-support';
 import { logger } from '@codraoss/core/logger';
 import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
@@ -102,8 +109,7 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
     // A missing verdict is not a pass; a truncated list would silently withhold findings.
     truncationIntolerant: true,
   };
-  // Scale the timeout with the number of findings under review (capped inside adaptiveModelTimeoutMs).
-  const timeoutMs = clampTimeoutToChainBudget(adaptiveModelTimeoutMs(params.candidates.length * 8));
+  const requestedTimeoutMs = clampTimeoutToChainBudget(verifyTimeoutMs(params.candidates.length));
 
   let lastError: unknown;
   const chainStartedAt = Date.now();
@@ -118,12 +124,17 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
       });
       break;
     }
-    // Prospective: see the matching check in runModelChain.
-    if (modelIndex > 0 && Date.now() - chainStartedAt - gateWaitMs + timeoutMs > MODEL_FALLBACK_CHAIN_BUDGET_MS) {
+    const attemptTimeoutMs = chainAttemptTimeoutMs({
+      requestedMs: requestedTimeoutMs,
+      remainingChainMs: MODEL_FALLBACK_CHAIN_BUDGET_MS - (Date.now() - chainStartedAt - gateWaitMs),
+      hasAnotherModel: modelIndex < modelsToTry.length - 1,
+    });
+
+    if (modelIndex > 0 && attemptTimeoutMs === 0) {
       logger.warn('Stopping the verification chain; no room in the per-invocation time budget for another model', {
         elapsedMs: Date.now() - chainStartedAt,
         gateWaitMs,
-        timeoutMs,
+        requestedTimeoutMs,
         skippedModels: modelsToTry.slice(modelIndex),
       });
       break;
@@ -142,7 +153,12 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
     }
 
     try {
-      const response = await ctx.callResolvedModel(resolved, input, timeoutMs, recordGateWait);
+      const response = await ctx.callResolvedModel(
+        resolved,
+        input,
+        Math.max(attemptTimeoutMs, MODEL_MIN_VIABLE_ATTEMPT_MS),
+        recordGateWait,
+      );
       if (ctx.tracker) {
         ctx.tracker.record(response.modelUsed, response.inputTokens, response.outputTokens);
       }
@@ -152,7 +168,11 @@ export async function verifyFindings(ctx: ModelChainContext, params: { candidate
       if (resolved.apiFormat === 'cloudflare-workers-ai' && isCloudflareAllocationError(error)) {
         await ctx.markProviderUnavailable(resolved.providerId, error instanceof Error ? error.message : String(error));
       }
-      logger.warn(`Verification model ${currentModel} failed`, { error: error instanceof Error ? error.message : String(error) });
+      logger.warn(`Verification model ${currentModel} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+        attemptTimeoutMs,
+        candidates: params.candidates.length,
+      });
     }
   }
 

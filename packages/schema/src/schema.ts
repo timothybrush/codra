@@ -125,6 +125,10 @@ export const parsedReviewCommentSchema = z.object({
   fingerprintV2: z.string().min(1).nullable().optional(),
   // Absent means 'llm'. Always test `=== 'rule'` positively.
   source: z.enum(['llm', 'rule']).nullable().optional(),
+  // Which reviewer produced this, when a secondary reviewer is configured. Attribution for a human
+  // reading the dashboard -- never an input to any gate, and never a weight: agreement between models
+  // is anti-correlated with correctness in the measured corpus.
+  reviewerModel: z.string().nullable().optional(),
   // Retirement signal when source is 'rule'.
   ruleId: z.string().min(1).nullable().optional(),
 });
@@ -268,10 +272,18 @@ const fileReviewRecordSchema = z.object({
   confidenceScore: z.number().nullable().optional(),
   batchSize: z.number().int().nullable().optional(),
   withheldCounts: z
-    .object({ evidence: z.number().int(), claimDenied: z.number().int() })
+    .object({
+      evidence: z.number().int(),
+      claimDenied: z.number().int(),
+      contextOnly: z.number().int(),
+      absenceRefuted: z.number().int(),
+    })
     .partial()
     .nullable()
     .optional(),
+  // The review answered, but not cleanly. Free-form rather than an enum so a database written by a
+  // newer worker never fails to parse in an older dashboard.
+  degraded: z.string().nullable().optional(),
   errorMessage: z.string().nullable(),
   createdAt: dateStringSchema,
 });

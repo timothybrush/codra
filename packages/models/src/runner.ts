@@ -213,7 +213,7 @@ export class ModelRunner {
         if (isSchemaDroppedError(error)) this.schemaUnsupportedModels.add(schemaKey);
         throw error;
       }
-      if (response.degraded === 'schema-dropped') {
+      if (response.degraded === 'schema-dropped' || response.degraded === 'schema-dropped-catchall') {
         this.schemaUnsupportedModels.add(schemaKey);
       }
       return response;

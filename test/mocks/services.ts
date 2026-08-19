@@ -53,7 +53,7 @@ function reviewFileResponse(overrides: Record<string, unknown> = {}) {
       overallCorrectness: 'issues found',
       confidenceScore: 0.9,
       // Must stay in step with parseFileReviewResponse; finalize sums these.
-      evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
+      evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 },
       claimTypeCounts: { other: 1 },
       deniedClaimCounts: {},
       absenceCheckStats: { absenceShaped: 0, identifierExtracted: 0, refuted: 0 },
@@ -82,7 +82,7 @@ export function reviewBatchResponse(paths: readonly string[], overrides: Record<
         fileSummary: `Looks ok: ${path}`,
         overallCorrectness: 'issues found',
         confidenceScore: 0.9,
-        evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
+        evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 },
         claimTypeCounts: { other: 1 },
         deniedClaimCounts: {},
         absenceCheckStats: { absenceShaped: 0, identifierExtracted: 0, refuted: 0 },

@@ -279,8 +279,23 @@ export function filterReviewableFiles(
   }
   reviewable.sort((left, right) => Number(left.isNew) - Number(right.isNew) || left.path.localeCompare(right.path));
 
+  const withinFileLimit = reviewable.slice(0, maxFiles);
+
+  // Job-level input ceiling. Files are kept or dropped whole; half a file's hunks would lie.
+  const kept: FileDiff[] = [];
+  let totalChars = 0;
+  for (const file of withinFileLimit) {
+    const fileChars = file.hunks.reduce(
+      (sum, hunk) => sum + hunk.lines.reduce((lineSum, line) => lineSum + line.content.length + 1, 0),
+      0,
+    );
+    if (kept.length > 0 && totalChars + fileChars > config.max_total_diff_chars) break;
+    kept.push(file);
+    totalChars += fileChars;
+  }
+
   return {
-    files: reviewable.slice(0, maxFiles),
-    skipped: Math.max(0, reviewable.length - maxFiles),
+    files: kept,
+    skipped: Math.max(0, reviewable.length - kept.length),
   };
 }

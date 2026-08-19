@@ -3,6 +3,9 @@ export const PACKABLE_MAX_DIFF_LINES = 150;
 export const BIN_TARGET_DIFF_LINES = 300;
 export const BIN_MAX_FILES = 4;
 export const BIN_DIFF_CHAR_BUDGET = 24_000;
+// Files with many scattered hunks get whole-file context; the line floor excludes trivial files.
+export const FRAGMENTED_HUNK_THRESHOLD = 5;
+export const FRAGMENTED_MIN_LINES = 60;
 export const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
 
 // Phase Control & Timers

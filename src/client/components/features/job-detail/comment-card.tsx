@@ -103,6 +103,16 @@ export function CommentCard({ comment, filePath, jobId }: CommentCardProps) {
             {comment.claimType.replace(/_/g, ' ')}
           </span>
         )}
+        {/* Only when a secondary reviewer is configured, and only as attribution: which reviewer found
+            this says nothing about whether it is right, and must never be read as a confidence signal. */}
+        {comment.reviewerModel && (
+          <span
+            className="ui-font-mono rounded bg-card/60 px-1.5 py-0.5 text-[11px] text-ui-subtle"
+            title={`Found by ${comment.reviewerModel}`}
+          >
+            {comment.reviewerModel.split('/').pop()}
+          </span>
+        )}
         {/* Say which stage stopped it rather than leaving a filtered finding looking identical to a posted one. */}
         {comment.posted === false && comment.disposition && comment.disposition !== 'posted' && (
           <span

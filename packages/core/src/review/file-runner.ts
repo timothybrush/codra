@@ -105,6 +105,44 @@ export function scanRuleChannel(
   }
 }
 
+/**
+ * Marks who found what, for display only.
+ *
+ * Explicitly NOT for scoring. In the measured corpus, claims found by seven configurations were right
+ * 7% of the time against 20% for claims found by one -- so the fact that both reviewers found
+ * something is not a reason to trust it more, and this field must never become a weight.
+ */
+function tagReviewer(comments: ParsedReviewComment[], reviewerModel: string): ParsedReviewComment[] {
+  return comments.map((comment) => ({ ...comment, reviewerModel }));
+}
+
+/** Never throws: the primary review already succeeded, and a second opinion is not worth losing it. */
+async function runSecondaryReview(
+  model: ReviewModel,
+  params: Parameters<ReviewModel['reviewFile']>[0],
+  secondary: { model: string; fallbacks: string[] },
+  path: string,
+) {
+  try {
+    // `selectModel` reads `config.model`, so swapping it is the whole mechanism -- no second runner,
+    // no second chain type. `size_overrides` are deliberately not carried: the secondary is one
+    // deliberate choice, not a size ladder.
+    return await model.reviewFile({
+      ...params,
+      config: {
+        ...params.config,
+        model: { ...params.config.model, main: secondary.model, fallbacks: secondary.fallbacks },
+      },
+    });
+  } catch (error) {
+    logger.warn(`Secondary reviewer failed for ${path}; keeping the primary review`, {
+      model: secondary.model,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 export async function reviewAndPersistFile(
   env: ReviewRuntime,
   job: PersistedReviewJob,
@@ -125,7 +163,7 @@ export async function reviewAndPersistFile(
   const ruleScan = scanRuleChannel(file, config);
 
   try {
-    const response = await model.reviewFile({
+    const reviewParams = {
       file,
       fileContext,
       prTitle: pr.title ?? null,
@@ -135,7 +173,25 @@ export async function reviewAndPersistFile(
       totalLineCount,
       compactPrompt,
       rejectedExemplars,
-    });
+    };
+
+    const response = await model.reviewFile(reviewParams);
+
+    // A second, independent reviewer over the same file. Its findings are UNIONED with the primary's:
+    // the measured gain from two reviewers is entirely coverage, and nothing here counts agreement.
+    //
+    // Best-effort by construction. The primary's result already exists, so a failing secondary must
+    // never cost the file -- it logs and the review stands on the primary alone. Skipped when
+    // `compactPrompt` is set, because that flag means the last attempt was already too much.
+    const secondary = config.model?.secondary ?? null;
+    const secondaryReview = secondary && !compactPrompt
+      ? await runSecondaryReview(model, reviewParams, secondary, file.path)
+      : null;
+
+    const llmComments = [
+      ...tagReviewer(response.parsed.comments, response.modelUsed),
+      ...(secondaryReview ? tagReviewer(secondaryReview.parsed.comments, secondaryReview.modelUsed) : []),
+    ];
 
     await env.fileReviews.upsertFileReview(job.id, {
       filePath: file.path,
@@ -145,9 +201,11 @@ export async function reviewAndPersistFile(
       diffLineCount: file.lineCount,
       diffInput: null,
       rawAiOutput: response.rawText,
-      parsedComments: [...response.parsed.comments, ...ruleScan.comments],
-      inputTokens: response.inputTokens,
-      outputTokens: response.outputTokens,
+      // One row per file, always: `file_reviews` is unique on (job_id, file_path), and review
+      // inheritance, resume and finalize all assume that. The two reviewers merge into it.
+      parsedComments: [...llmComments, ...ruleScan.comments],
+      inputTokens: response.inputTokens + (secondaryReview?.inputTokens ?? 0),
+      outputTokens: response.outputTokens + (secondaryReview?.outputTokens ?? 0),
       durationMs: env.clock.now() - startedAt,
       verdict: response.parsed.verdict,
       fileSummary: response.parsed.fileSummary,
@@ -159,7 +217,16 @@ export async function reviewAndPersistFile(
           + (response.parsed.evidenceStats?.absent ?? 0)
           + (response.parsed.evidenceStats?.weak ?? 0),
         claimDenied: Object.values(response.parsed.deniedClaimCounts ?? {}).reduce((sum, n) => sum + n, 0),
+        // Findings about code the diff never touched. Counted apart from the evidence gate: those are
+        // findings whose quote could not be found at all, these are ones that were found in the wrong
+        // place, and only the second number says anything about how the reviewer is misreading a PR.
+        contextOnly: response.parsed.evidenceStats?.contextOnly ?? 0,
+        // "X is missing", answered by finding X. Counted so the gate's real hit rate is visible.
+        absenceRefuted: response.parsed.absenceCheckStats?.refuted ?? 0,
       },
+      // Only logged until now, which made "how often did a review run unconstrained or truncated?"
+      // unanswerable without reading the logs of every job one at a time.
+      degraded: response.degraded ?? null,
     });
 
     logger.info(`File review parsed: ${file.path}`, {

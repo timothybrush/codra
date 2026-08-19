@@ -103,7 +103,11 @@ export async function reviewAndPersistBin(
             + (parsed.evidenceStats?.absent ?? 0)
             + (parsed.evidenceStats?.weak ?? 0),
           claimDenied: Object.values(parsed.deniedClaimCounts ?? {}).reduce((sum, n) => sum + n, 0),
+          contextOnly: parsed.evidenceStats?.contextOnly ?? 0,
+          absenceRefuted: parsed.absenceCheckStats?.refuted ?? 0,
         },
+        // The whole bin shared one call, so every member inherits its degradation.
+        degraded: response.degraded ?? null,
         batchSize: files.length,
       };
     });

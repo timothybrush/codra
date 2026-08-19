@@ -30,42 +30,101 @@ describe('ModelRunner: response-grammar rejection', () => {
 
   const withGrammar = { systemPrompt: 'system', userPrompt: 'user', responseSchema: buildReviewResponseSchema(10) };
 
-  // Bare 400, no error.details: used to fail the file permanently with no probe or fallback.
-  it('drops the response grammar and retries on a 400 that explains nothing', async () => {
-    const bareInvalidArgument = () =>
-      new Response(
-        JSON.stringify({ error: { code: 400, message: 'Request contains an invalid argument.' } }),
-        { status: 400, headers: { 'content-type': 'application/json' } },
-      );
+  // A bare "invalid argument" with no details is Google's ACTUAL wording for some feature rejections
+  // -- observed in production on gemini-3.x-lite, where the identical prompt succeeds once the grammar
+  // is stripped. So an unexplained 400 gets a bounded probe ladder: retry without the grammar, then
+  // without the thinking budget, then fail for real. Refusing to probe (one earlier iteration of this
+  // code) burnt both lite models on every such file; probing on ANY 400 (the iteration before that)
+  // let one unrelated 400 latch the model into unconstrained mode for the whole job.
+  it('probes an unexplained 400 by stripping the grammar, then the thinking budget', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(bareInvalidArgument())
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            candidates: [{ content: { parts: [{ text: '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.9}' }] } }],
-            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        ),
-      );
+      .mockResolvedValueOnce(gemini400('Request contains an invalid argument.'))
+      .mockResolvedValueOnce(gemini400('Request contains an invalid argument.'))
+      .mockResolvedValueOnce(geminiOk());
 
-    const response = await reviewWithGoogle(
-      { apiKey: 'test-key' },
-      'gemini-3.1-flash-lite',
-      {
-        systemPrompt: 'system',
-        userPrompt: 'user',
-        responseSchema: buildReviewResponseSchema(5),
-      },
+    const response = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-flash-lite', withGrammar);
+
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+    expect(bodies).toHaveLength(3);
+    expect(bodies[0].generationConfig.responseJsonSchema).toBeDefined();
+    expect(bodies[0].generationConfig.thinkingConfig).toBeDefined();
+    // First probe: grammar off, thinking still on.
+    expect(bodies[1].generationConfig.responseJsonSchema).toBeUndefined();
+    expect(bodies[1].generationConfig.thinkingConfig).toBeDefined();
+    // Second probe: both off.
+    expect(bodies[2].generationConfig.responseJsonSchema).toBeUndefined();
+    expect(bodies[2].generationConfig.thinkingConfig).toBeUndefined();
+    // Heuristic, so marked apart from a confident rejection.
+    expect(response.degraded).toBe('schema-dropped-catchall');
+  });
+
+  it('fails without latching when the probes do not help', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => gemini400('Request contains an invalid argument.'));
+
+    const error = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-flash-lite', withGrammar)
+      .catch((e: unknown) => e);
+
+    expect((error as Error).message).toMatch(/400/);
+    // Full attempt + two probes, then done -- the ladder is bounded by its own latches.
+    expect(fetchMock.mock.calls.length).toBe(3);
+    // NOT marked schema-dropped: the probe failed too, so it proved nothing about the grammar, and
+    // this flag is what latches the model into unconstrained mode for the rest of the job.
+    expect((error as { schemaDropped?: boolean }).schemaDropped).toBeUndefined();
+  });
+
+  it('leaves a 400 that is not invalid-argument-shaped alone', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(gemini400('API key not valid. Please pass a valid API key.'));
+
+    await expect(
+      reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-flash-lite', withGrammar),
+    ).rejects.toThrow(/400/);
+    expect(fetchMock.mock.calls.length).toBe(1);
+  });
+
+  // The realistic shape of a grammar rejection: the message is the useless generic one, and the
+  // actionable text arrives via error.details.
+  it('drops the grammar when the flattened detail names the response format', async () => {
+    const withDetails = () => new Response(
+      JSON.stringify({
+        error: {
+          code: 400,
+          status: 'INVALID_ARGUMENT',
+          message: 'Request contains an invalid argument.',
+          details: [{ description: 'Invalid value at generation_config.response_json_schema' }],
+        },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } },
     );
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(withDetails())
+      .mockResolvedValueOnce(geminiOk());
+
+    const response = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-flash-lite', withGrammar);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const firstBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
     const retryBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
-    expect(firstBody.generationConfig.responseJsonSchema).toBeDefined();
     expect(retryBody.generationConfig.responseJsonSchema).toBeUndefined();
     expect(retryBody.generationConfig.responseMimeType).toBe('application/json');
     expect(response.rawText).toContain('"findings"');
+    // Named confidently, so the marker is the plain one.
+    expect(response.degraded).toBe('schema-dropped');
+  });
+
+  // Kept for the ambiguous middle: enough to act on, not enough to be sure. The distinct marker is what
+  // makes the heuristic's real hit rate answerable from `file_reviews.degraded` instead of guessed at.
+  it('marks a heuristic grammar drop apart from a confident one', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(gemini400('Request contains an invalid argument. too many states for serving'))
+      .mockResolvedValueOnce(geminiOk());
+
+    const response = await reviewWithGoogle({ apiKey: 'test-key' }, 'gemini-3.1-flash-lite', withGrammar);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(retryBody.generationConfig.responseJsonSchema).toBeUndefined();
+    expect(response.degraded).toBe('schema-dropped-catchall');
   });
 
   it('drops the grammar and retries once when Gemini rejects responseJsonSchema', async () => {

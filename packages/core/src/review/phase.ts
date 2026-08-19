@@ -68,6 +68,8 @@ export async function runReviewPhase(
     configuredChunkFileLimit,
     modelChainLength,
     config.review.full_file_context,
+    // A second reviewer walks its own chain per file, so fewer files fit in one invocation.
+    Boolean(config.model?.secondary),
   );
   if (reviewChunkFileLimit <= 0) {
     throw new Error('Subrequest budget for this invocation was exhausted before starting the next review chunk.');
@@ -125,7 +127,7 @@ export async function runReviewPhase(
       }];
     }));
 
-    const units = planReviewUnits(files, { enabled: true }).flatMap((unit) => narrowUnit(unit, ledger));
+    const units = planReviewUnits(files, { enabled: true, fullFileContext: config.review.full_file_context }).flatMap((unit) => narrowUnit(unit, ledger));
     const plannedBins = units.filter((unit) => unit.kind === 'bin');
     let binsDispatched = 0;
     let filesDispatchedInBins = 0;

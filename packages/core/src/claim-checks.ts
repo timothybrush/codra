@@ -1,5 +1,5 @@
 // SOUNDNESS, binding on every change: `refuted` asserts only that "X does not appear" is FALSE. There is no `confirmed` verdict, since a check that can confirm findings manufactures them. Losing a refutation is free; a wrong one silences a real defect.
-import type { DiffLine, FileDiff } from './diff';
+import type { FileDiff } from './diff';
 import { normalizeDiffText } from './fingerprint';
 
 const PROXIMITY_WINDOW_LINES = 25;
@@ -35,7 +35,7 @@ const VERSION_CLAIM_PATTERNS: readonly RegExp[] = [
   /\bis not (?:exposed|exported|available) (?:by|from|in)\b/i,
 ];
 
-// Same soundness rule as the absence checker above: a refutation asserts only that the claim cannot be
+// Same soundness rule as the absence checker above.
 
 const CROSS_FILE_SUBJECT = /\b(?:other|another|external|downstream|consuming|importing|dependent|calling)\s+(?:module|file|component|caller|package|consumer|import)s?\b/i;
 const CROSS_FILE_CONSEQUENCE = /\b(?:break|breaks|breaking|broken|fail|fails|failing|error|errors|cannot import|can't import|unable to|compilation|compile|prevent|prevents|preventing|block|blocks|blocking)\b/i;
@@ -49,14 +49,7 @@ const CALLEE_UNHANDLED_OUTCOME = /\bunhandled\b|\bunhandled promise\b|\bnot (?:c
 
 export type UndecidableClaimReason = 'cross-file' | 'environment' | 'callee-errors';
 
-/**
- * Refutes a claim whose truth lives outside the diff, returning the family it belongs to or null.
- *
- * Deliberately requires TWO independent signals per family -- a subject and a consequence -- because
- * either alone is ordinary review language. "This breaks the build" is a normal thing to say about
- * code in the diff; "other modules import this" is a normal aside. Only together do they describe a
- * consequence in a file nobody showed the model.
- */
+/** Refutes a claim whose truth lives outside the diff; two signals per family, since one is ordinary. */
 export function refuteUndecidableClaim(input: { title: string; body: string }): UndecidableClaimReason | null {
   const text = `${input.title}\n${input.body}`;
 
@@ -81,7 +74,8 @@ export function isVersionClaimRefutedByPin(input: { title: string; body: string;
   return FULL_SHA_PATTERN.test(input.anchorContent);
 }
 
-type PresenceEntry = { line: DiffLine; hunkIndex: number; code: string };
+/** One line the identifier could be found on; `hunkIndex` is null for lines from the post-image. */
+type PresenceEntry = { newLineNumber: number | undefined; hunkIndex: number | null; code: string };
 
 export type PresenceIndex = {
   byToken: Map<string, PresenceEntry[]>;
@@ -100,16 +94,37 @@ export type AbsenceClaimVerdict =
         | 'not_present'
         | 'out_of_window';
     }
-  | { status: 'refuted'; identifier: string; line: DiffLine };
+  | { status: 'refuted'; identifier: string; line: number | undefined };
 
 type CommentSyntax = { line: readonly string[]; block: boolean };
 
+// Must stay complete: a misclassified file keeps comment text as code, refuting real absence claims.
+const HASH_COMMENT_EXTENSIONS = new Set([
+  'py', 'pyi', 'rb', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
+  'tf', 'tfvars', 'hcl', 'pl', 'pm', 'r', 'jl', 'nim', 'cr', 'ex', 'exs', 'elixir', 'gemspec',
+  'dockerfile', 'containerfile', 'mk', 'cmake', 'gradle', 'properties', 'env', 'gitignore',
+  'dockerignore', 'editorconfig',
+]);
+
+const HASH_COMMENT_FILENAMES = new Set([
+  'dockerfile', 'containerfile', 'makefile', 'gnumakefile', 'rakefile', 'gemfile', 'brewfile',
+  'procfile', 'vagrantfile', 'justfile', 'cmakelists.txt', '.gitignore', '.dockerignore', '.env',
+]);
+
 export function commentSyntaxFor(path: string): CommentSyntax {
-  const ext = path.toLowerCase().split('.').pop() ?? '';
-  if (ext === 'py' || ext === 'rb' || ext === 'sh' || ext === 'yaml' || ext === 'yml' || ext === 'toml') {
-    return { line: ['#'], block: false };
-  }
+  const name = path.toLowerCase().split('/').pop() ?? '';
+  if (HASH_COMMENT_FILENAMES.has(name)) return { line: ['#'], block: false };
+
+  const ext = name.includes('.') ? name.split('.').pop() ?? '' : '';
+  if (HASH_COMMENT_EXTENSIONS.has(ext)) return { line: ['#'], block: false };
+
   if (ext === 'sql') return { line: ['--'], block: true };
+  if (ext === 'lua') return { line: ['--'], block: true };
+  if (ext === 'hs' || ext === 'elm' || ext === 'ada') return { line: ['--'], block: false };
+  if (ext === 'vim') return { line: ['"'], block: false };
+  if (ext === 'clj' || ext === 'cljs' || ext === 'edn' || ext === 'lisp' || ext === 'scm') {
+    return { line: [';'], block: false };
+  }
   return { line: ['//'], block: true };
 }
 
@@ -195,13 +210,28 @@ function scanTemplateLiteral(input: string, start: number): { code: string; next
   return null;
 }
 
+// MEASURED AND REJECTED: a call-site/reachability gate. The withheld slice had precision 27.3% vs an
+// 18.7% pooled baseline, and "mentions callers" scored -0.3 on the codra-only subset. Any gate proposed
+// from this corpus must be re-checked on the codra-only subset -- pooled signals do not survive it.
+
 const TOKEN_PATTERN = /[A-Za-z_$][\w$]*/g;
 
-export function buildPresenceIndex(file: FileDiff): PresenceIndex {
+/** Where each identifier appears after the change; without a post-image the index sees only the diff. */
+export function buildPresenceIndex(file: FileDiff, fileContent?: string | null): PresenceIndex {
   const syntax = commentSyntaxFor(file.path);
   const byToken = new Map<string, PresenceEntry[]>();
   const entries: PresenceEntry[] = [];
   const hunkByLine = new Map<number, number>();
+
+  const add = (entry: PresenceEntry) => {
+    entries.push(entry);
+    for (const match of entry.code.matchAll(TOKEN_PATTERN)) {
+      const token = match[0];
+      const existing = byToken.get(token);
+      if (existing) existing.push(entry);
+      else byToken.set(token, [entry]);
+    }
+  };
 
   file.hunks.forEach((hunk, hunkIndex) => {
     for (const line of hunk.lines) {
@@ -212,17 +242,22 @@ export function buildPresenceIndex(file: FileDiff): PresenceIndex {
       const code = stripCommentsAndStrings(normalizeDiffText(line.content), syntax);
       if (code === null) continue;
 
-      const entry: PresenceEntry = { line, hunkIndex, code };
-      entries.push(entry);
-
-      for (const match of code.matchAll(TOKEN_PATTERN)) {
-        const token = match[0];
-        const existing = byToken.get(token);
-        if (existing) existing.push(entry);
-        else byToken.set(token, [entry]);
-      }
+      add({ newLineNumber: line.newLineNumber, hunkIndex, code });
     }
   });
+
+  if (fileContent) {
+    const lines = fileContent.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const newLineNumber = i + 1;
+      if (hunkByLine.has(newLineNumber)) continue;
+
+      const code = stripCommentsAndStrings(normalizeDiffText(lines[i]), syntax);
+      if (code === null) continue;
+
+      add({ newLineNumber, hunkIndex: null, code });
+    }
+  }
 
   return { byToken, entries, hunkByLine };
 }
@@ -286,11 +321,11 @@ export function checkAbsenceClaim(input: {
 
   const anchorHunk = input.anchorLine !== undefined ? input.index.hunkByLine.get(input.anchorLine) : undefined;
   const nearby = occurrences.find((entry) => {
-    if (anchorHunk !== undefined && entry.hunkIndex === anchorHunk) return true;
-    if (input.anchorLine === undefined || entry.line.newLineNumber === undefined) return false;
-    return Math.abs(entry.line.newLineNumber - input.anchorLine) <= PROXIMITY_WINDOW_LINES;
+    if (anchorHunk !== undefined && entry.hunkIndex !== null && entry.hunkIndex === anchorHunk) return true;
+    if (input.anchorLine === undefined || entry.newLineNumber === undefined) return false;
+    return Math.abs(entry.newLineNumber - input.anchorLine) <= PROXIMITY_WINDOW_LINES;
   });
 
   if (!nearby) return { status: 'unknown', reason: 'out_of_window' };
-  return { status: 'refuted', identifier, line: nearby.line };
+  return { status: 'refuted', identifier, line: nearby.newLineNumber };
 }

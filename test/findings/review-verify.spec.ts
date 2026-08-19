@@ -176,6 +176,61 @@ describe('verifyFindings orchestrator', () => {
     expect([...indices]).toEqual([...indices].sort((a, b) => a - b));
   });
 
+  // A verification pass that gives up keeps every candidate -- correct, but the job used to report a
+  // clean run either way, so unverified findings were posted while the dashboard said they had been
+  // checked. `skipped` is what makes those two outcomes distinguishable.
+  describe('reporting that it did not actually verify', () => {
+    it('is not a skip when there was nothing to verify', async () => {
+      const result = await verifyFindings({ ...base, comments: [], model: fakeModel('{"results":[]}') });
+      expect(result.skipped).toBeNull();
+      expect(result.comments).toEqual([]);
+    });
+
+    it('is not a skip when the verifier answered', async () => {
+      const result = await verifyFindings({
+        ...base,
+        comments: [comment({ title: 'Real bug' })],
+        model: fakeModel('{"results":[{"index":0,"verdict":"keep"}]}'),
+      });
+      expect(result.skipped).toBeNull();
+    });
+
+    it('reports a skip when no candidate could be rendered for the verifier', async () => {
+      // No snippet (the path is not in `files`) and no evidence quote: nothing to ask about.
+      const result = await verifyFindings({
+        ...base,
+        comments: [comment({ path: 'not-in-this-pr.ts', evidence: undefined })],
+        model: fakeModel('{"results":[]}'),
+      });
+      expect(result.skipped).toBe('no_verifiable_candidates');
+      expect(result.comments).toHaveLength(1);
+    });
+
+    it('reports a skip when too few indices come back', async () => {
+      const comments = [comment({ title: 'A' }), comment({ title: 'B' }), comment({ title: 'C' })];
+      // One verdict out of three is below VERIFY_MIN_ANSWER_RATIO.
+      const result = await verifyFindings({
+        ...base,
+        comments,
+        model: fakeModel('{"results":[{"index":0,"verdict":"keep"}]}'),
+      });
+      expect(result.skipped).toBe('low_answer_ratio');
+      // Still keeps everything -- the signal is additive, it does not change the outcome.
+      expect(result.comments).toHaveLength(3);
+      expect(result.dropped).toEqual([]);
+    });
+
+    it('reports a skip when the verify call itself fails', async () => {
+      const result = await verifyFindings({
+        ...base,
+        comments: [comment({ title: 'Real bug' })],
+        model: throwingModel(),
+      });
+      expect(result.skipped).toBe('verify_call_failed');
+      expect(result.comments).toHaveLength(1);
+    });
+  });
+
   it('forwards the evidence quote so the verifier judges a specific line', async () => {
     let seen: any;
     const model = {

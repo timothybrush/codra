@@ -1,7 +1,6 @@
 // Re-exported from @codraoss/core/ports so existing @codraoss/models/types imports keep working.
-import type { ModelResponseSchema } from '@codraoss/core/ports';
+import type { ModelResponse as ModelResponseShape, ModelResponseSchema } from '@codraoss/core/ports';
 export type { ModelResponse, ModelResponseSchema } from '@codraoss/core/ports';
-import type { ModelResponse as ModelResponseShape } from '@codraoss/core/ports';
 
 export type ModelInput = {
   systemPrompt: string;
@@ -80,6 +79,7 @@ export function providerErrorMessage(errorText: string) {
       }
     }
   } catch {
+    // Not JSON: fall through to the raw provider body below.
   }
 
   return errorText.trim() || 'The provider returned an error.';

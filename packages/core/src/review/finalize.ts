@@ -83,10 +83,14 @@ export async function runFinalizePhase(
 
   const hasFailures = fileSummaries.some((file) => file.verdict === 'failed');
   const failedFileCount = fileSummaries.filter((file) => file.verdict === 'failed').length;
+
+  await env.jobs.updateJobStep(job.id, 'Verifying Findings', { status: 'running' });
+
   const {
     finalComments,
     dispositions,
     verifyReasons,
+    verificationSkipped,
     suppressedComments,
     droppedBySuppression,
     beforeVerifyList,
@@ -104,6 +108,7 @@ export async function runFinalizePhase(
   logger.info('Finding pipeline outcome', {
     jobId: job.id,
     parsed: reviewedComments.length,
+    verificationSkipped,
     droppedByFilters,
     droppedBySuppression,
     droppedByVerification,
@@ -130,6 +135,11 @@ export async function runFinalizePhase(
     ...shadowEvaluate(beforeVerifyList, finalComments),
   });
 
+  // Failed on every skip reason: each one means findings were posted unverified.
+  await env.jobs.updateJobStep(job.id, 'Verifying Findings', verificationSkipped
+    ? { status: 'failed', error: `Verification did not run (${verificationSkipped}); findings were posted unverified.` }
+    : { status: 'done' });
+
   const rawVerdict = formatter.summarizeVerdict([...finalComments, ...suppressedComments], hasFailures);
 
   const everythingWithheld = finalComments.length === 0
@@ -141,10 +151,16 @@ export async function runFinalizePhase(
   await env.jobs.updateJobStep(job.id, 'Generating Summary', { status: 'done' });
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
-  let formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.botUsername);
+  const formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.botUsername);
 
+  // Skipped-file counts are dashboard information, not PR content: skips have more than one cause.
   if (filesOverCap > 0) {
-    formattedSummary += `\n\n> [!WARNING]\n> **${filesOverCap} file${filesOverCap === 1 ? ' was' : 's were'} not reviewed.** This pull request has ${files.length + filesOverCap} reviewable files and the limit is ${reviewSettings.maxFiles}. Raise it in Settings to cover the whole diff.`;
+    logger.info('Some reviewable files were skipped by the file or diff-size limits', {
+      jobId: job.id,
+      filesOverCap,
+      reviewed: files.length,
+      maxFiles: reviewSettings.maxFiles,
+    });
   }
 
   const finalizeRetriedPastPost = job.steps.some(

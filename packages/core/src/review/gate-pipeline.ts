@@ -6,6 +6,7 @@ import type { PersistedReviewJob } from './phase-control';
 import type { ReviewModel, ReviewRuntime } from '../ports';
 import { loadSuppressedFingerprints } from './telemetry';
 import { reviewBreadth } from '../prompts/file-review';
+import { getLanguageForFile } from '../prompts/languages';
 
 export async function applyFindingGates(params: {
   env: Pick<ReviewRuntime, 'fileReviews'>;
@@ -15,13 +16,31 @@ export async function applyFindingGates(params: {
   model: Pick<ReviewModel, 'verifyFindings'>;
   effectiveMaxComments: number;
   reviewedComments: ParsedReviewComment[];
-  reviews: Array<{ withheld_counts?: { evidence?: number; claimDenied?: number } | null }>;
+  reviews: Array<{ withheld_counts?: { evidence?: number; claimDenied?: number; contextOnly?: number; absenceRefuted?: number } | null }>;
 }) {
   const { env, job, config, files, model, effectiveMaxComments, reviewedComments, reviews } = params;
 
   const severityRanks: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, nit: 4 };
   const minRank = severityRanks[config.review.min_severity] ?? 4;
   const minConfidence = config.review.min_confidence ?? 0;
+
+  // Precision varies 5.8x by language in the measured corpus, and until now every gate was global.
+  // Resolved per finding from its own path, so a mixed-language pull request is judged per file rather
+  // than by whatever the repo is mostly written in.
+  const languageGates = config.review.language_gates ?? {};
+  const gatesByLanguage = new Map(
+    Object.entries(languageGates).map(([language, gate]) => [language.toLowerCase(), gate]),
+  );
+  const thresholdsFor = (path: string) => {
+    if (gatesByLanguage.size === 0) return { minRank, minConfidence };
+    const language = getLanguageForFile(path)?.language;
+    const override = language ? gatesByLanguage.get(language.toLowerCase()) : undefined;
+    if (!override) return { minRank, minConfidence };
+    return {
+      minRank: override.min_severity ? (severityRanks[override.min_severity] ?? 4) : minRank,
+      minConfidence: override.min_confidence ?? minConfidence,
+    };
+  };
 
   const dispositions = new Map<string, FindingDisposition>();
   const verifyReasons = new Map<string, string>();
@@ -34,11 +53,12 @@ export async function applyFindingGates(params: {
   };
 
   let finalComments = reviewedComments.filter((c) => {
-    if ((severityRanks[c.severity] ?? 4) > minRank) {
+    const thresholds = thresholdsFor(c.path);
+    if ((severityRanks[c.severity] ?? 4) > thresholds.minRank) {
       recordDisposition([c], 'severity');
       return false;
     }
-    if (typeof c.confidenceScore === 'number' && c.confidenceScore < minConfidence) {
+    if (typeof c.confidenceScore === 'number' && c.confidenceScore < thresholds.minConfidence) {
       recordDisposition([c], 'confidence');
       return false;
     }
@@ -99,7 +119,13 @@ export async function applyFindingGates(params: {
   const droppedByFilters = omittedCount - droppedBySuppression - droppedByVerification - droppedByCap;
 
   const withheldByParser = reviews.reduce(
-    (sum, review) => sum + (review.withheld_counts?.evidence ?? 0) + (review.withheld_counts?.claimDenied ?? 0),
+    (sum, review) => sum
+      + (review.withheld_counts?.evidence ?? 0)
+      + (review.withheld_counts?.claimDenied ?? 0)
+      // Counted here too, or a file whose findings were ALL about untouched code looks like a file
+      // with nothing to say, and `everythingWithheld` lets the PR be approved silently.
+      + (review.withheld_counts?.contextOnly ?? 0)
+      + (review.withheld_counts?.absenceRefuted ?? 0),
     0,
   );
 
@@ -118,6 +144,9 @@ export async function applyFindingGates(params: {
     finalComments,
     dispositions,
     verifyReasons,
+    // Non-null means these findings were never checked. The caller records it on the job, so a review
+    // that skipped verification stops looking identical to one that passed it.
+    verificationSkipped: verify.skipped,
     suppressedComments,
     droppedBySuppression,
     beforeVerifyList,

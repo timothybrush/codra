@@ -44,10 +44,25 @@ export class MemoryKV {
   }
 }
 
+// Strict in the two ways a forgiving mock let production outages ship green: throws on a detached `fetch` call, and 307s an explicit /index.html.
 export class MockAssets {
+  private readonly self = 'mock-assets';
+
   async fetch(input: RequestInfo | URL) {
+    if (this?.self !== 'mock-assets') {
+      throw new TypeError('Illegal invocation: function called with incorrect `this` reference.');
+    }
     const request = input instanceof Request ? input : new Request(input);
-    return new Response(`<html><body>${new URL(request.url).pathname}</body></html>`, {
+    const pathname = new URL(request.url).pathname;
+
+    if (pathname === '/index.html' || pathname.endsWith('/index.html')) {
+      return new Response(null, {
+        status: 307,
+        headers: { location: pathname.slice(0, -'index.html'.length) || '/' },
+      });
+    }
+
+    return new Response(`<html><body>${pathname}</body></html>`, {
       headers: { 'content-type': 'text/html' },
     });
   }

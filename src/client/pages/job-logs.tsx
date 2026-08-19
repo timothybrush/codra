@@ -42,8 +42,16 @@ const STATUS_META: Record<FileStatus, {
 function withheldTotal(file: FileReviewRecord): number {
   const counts = file.withheldCounts;
   if (!counts) return 0;
-  return (counts.evidence ?? 0) + (counts.claimDenied ?? 0);
+  return (counts.evidence ?? 0) + (counts.claimDenied ?? 0) + (counts.contextOnly ?? 0) + (counts.absenceRefuted ?? 0);
 }
+
+// A review that answered but not cleanly. Worth a badge rather than a log line: an unconstrained or
+// truncated response can look exactly like a clean one from the outside.
+const DEGRADED_LABEL: Record<string, string> = {
+  'schema-dropped': 'The model refused the response format and answered without it.',
+  'schema-dropped-catchall': 'The response format may have been dropped (the provider error was ambiguous).',
+  truncated: 'The model ran out of output room; some findings may be missing.',
+};
 
 function FileRow({ file, diffsLoading, batch }: { file: FileReviewRecord; diffsLoading: boolean; batch?: BatchGroup }) {
   const meta = STATUS_META[file.fileStatus] ?? STATUS_META.pending;
@@ -101,6 +109,14 @@ function FileRow({ file, diffsLoading, batch }: { file: FileReviewRecord; diffsL
           {(inTok || outTok) && (
             <span className="ui-font-mono flex items-center gap-1 text-[10px] tabular-nums text-ui-subtle">
               <Hash size={10} />{inTok ?? '-'}↑ {outTok ?? '-'}↓
+            </span>
+          )}
+          {file.degraded && (
+            <span
+              title={DEGRADED_LABEL[file.degraded] ?? `Review ran degraded: ${file.degraded}`}
+              className="ui-font-mono flex items-center gap-1 text-[10px] text-warning"
+            >
+              <AlertCircle size={10} />degraded
             </span>
           )}
           {batchSize !== null && (
