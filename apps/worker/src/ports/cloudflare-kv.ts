@@ -1,4 +1,4 @@
-import type { KeyValueStore } from '@codra/core';
+import type { KeyValueStore } from '@codraoss/core';
 
 export class CloudflareKV implements KeyValueStore {
   constructor(private readonly kv: KVNamespace) {}

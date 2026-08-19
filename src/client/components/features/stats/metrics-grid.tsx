@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import type { StatsPayload } from '@codra/schema';
+import type { StatsPayload } from '@codraoss/schema';
 import { MetricsGridSkeleton } from './chart-primitives';
 
 // Recharts is only needed once stats have loaded, so it stays out of the initial bundle and the

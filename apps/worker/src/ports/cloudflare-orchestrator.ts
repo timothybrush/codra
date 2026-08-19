@@ -1,9 +1,9 @@
-import type { JobOrchestrator } from '@codra/core';
-import type { ReviewJobMessage } from '@codra/schema';
-import { FRESH_INVOCATION_YIELD_SECONDS } from '@codra/core';
+import type { JobOrchestrator } from '@codraoss/core';
+import type { ReviewJobMessage } from '@codraoss/schema';
+import { FRESH_INVOCATION_YIELD_SECONDS } from '@codraoss/core';
 import { runReviewJob } from '@server/core/review';
-import { setJobWorkflowInstance } from '@codra/db/jobs';
-import { logger } from '@codra/core/logger';
+import { setJobWorkflowInstance } from '@codraoss/db/jobs';
+import { logger } from '@codraoss/core/logger';
 import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
 import type { AppBindings } from '../env';
 import type { WorkflowStep } from 'cloudflare:workers';

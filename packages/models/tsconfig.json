@@ -9,5 +9,24 @@
     "emitDeclarationOnly": false,
     "noEmit": true
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["src/**/*", "test/**/*"],
+
+  // These specs drive the runner against the app-level harness (`test/helpers.ts`), which reaches into
+  // `apps/worker` and therefore into Cloudflare globals like ExecutionContext and KVNamespace. This
+  // project deliberately omits @cloudflare/workers-types -- the same guardrail packages/core relies on,
+  // so a stray KVNamespace in package SOURCE cannot resolve -- so those globals are unresolvable here
+  // and the project failed on files it was never meant to own.
+  //
+  // Nothing is left unchecked: the ROOT program's include covers `packages/*/test/**` and does pull in
+  // the worker type declarations, so these files are typechecked there. Adding workers-types here
+  // instead would typecheck them twice and quietly retire the guardrail.
+  "exclude": [
+    "test/model/chain-resume.spec.ts",
+    "test/model/config-cache.spec.ts",
+    "test/model/service-chunking.spec.ts",
+    "test/model/service-fallbacks.spec.ts",
+    "test/model/service-grammar-rejection.spec.ts",
+    "test/model/service-requests.spec.ts",
+    "test/model/service-retries.spec.ts"
+  ]
 }

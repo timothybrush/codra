@@ -1,7 +1,7 @@
 import type { DbEnv } from './env';
 
 import { parseJsonColumn, queryRows } from './client';
-import { defaultRepoConfig, normalizeRepoConfig, repoConfigRecordSchema, repoConfigSchema, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, normalizeRepoConfig, repoConfigRecordSchema, repoConfigSchema, type RepoConfig } from '@codraoss/schema';
 import { getOrCreateRepository } from './repositories';
 
 type RepoConfigRow = {

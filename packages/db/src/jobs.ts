@@ -1,7 +1,7 @@
 import type { DbEnv } from './env';
-import { hexToBytes } from '@codra/schema/hex';
+import { hexToBytes } from '@codraoss/schema/hex';
 import { parseJsonColumn, queryRows } from './client';
-import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, jobDetailSchema, repoConfigSchema, type RepoConfig } from '@codraoss/schema';
 import { getOrCreateRepository } from './repositories';
 import { reviewCommentJsonObject } from './review-comment-sql';
 import { type JobRow, bytesToHex, mapJob } from './jobs-mapping';
@@ -248,6 +248,7 @@ export async function getJobDetail(env: DbEnv, jobId: string) {
                 -- What the gates dropped. Without it the logs cannot tell "found nothing" apart
                 -- from "found things and withheld every one of them".
                 'withheldCounts', fr.withheld_counts,
+                'degraded', fr.degraded,
                 'parsedComments', COALESCE(
                   (
                     SELECT JSON_AGG(

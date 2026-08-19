@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
-import { upsertDashboardFeedback } from '@codra/db/comment-feedback';
-import { runWithDb, queryRows } from '@codra/db/client';
-import { insertJob } from '@codra/db/jobs';
-import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@codra/db/file-reviews';
-import type { ParsedReviewComment } from '@codra/schema';
+import { upsertDashboardFeedback } from '@codraoss/db/comment-feedback';
+import { runWithDb, queryRows } from '@codraoss/db/client';
+import { insertJob } from '@codraoss/db/jobs';
+import { getSuppressedFindings, markCommentsPosted, upsertFileReview } from '@codraoss/db/file-reviews';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 
 

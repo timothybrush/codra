@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator, KvStore, TelemetrySink } from '@codra/core/ports';
+import type { Clock, IdGenerator, KvStore, TelemetrySink } from '@codraoss/core/ports';
 import type { AppBindings } from '@server/env';
 import { sendTelemetryEvent } from '@server/core/telemetry';
 

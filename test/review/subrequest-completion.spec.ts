@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTestEnv } from '../helpers';
 
-// Regression coverage for the subrequest-exhaustion incident: hitting Cloudflare's per-invocation
-// cap (50 on Free) terminally FAILED the job instead of resuming on a fresh budget, so large PRs
-// never finished. A subrequest-limit error must reschedule the same phase; anything else still
-// fails the job.
+// Regression: hitting the per-invocation subrequest cap used to fail the job instead of
+// rescheduling on a fresh budget.
 
 const {
   getJobForProcessingMock,
@@ -32,7 +30,7 @@ const {
   getPullRequestMock: vi.fn(),
 }));
 
-vi.mock('@codra/db/jobs', async (importOriginal) => {
+vi.mock('@codraoss/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<any>();
   return {
     ...mod,
@@ -49,7 +47,7 @@ vi.mock('@codra/db/jobs', async (importOriginal) => {
   };
 });
 
-vi.mock('@codra/db/app-settings', async (importOriginal) => {
+vi.mock('@codraoss/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<any>();
   return {
     ...mod,
@@ -57,7 +55,7 @@ vi.mock('@codra/db/app-settings', async (importOriginal) => {
   };
 });
 
-vi.mock('@codra/provider-github', async (importOriginal) => {
+vi.mock('@codraoss/provider-github', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return {
     ...mod,
@@ -68,7 +66,6 @@ vi.mock('@codra/provider-github', async (importOriginal) => {
   };
 });
 
-// Imported after the mocks are registered.
 import { runReviewJob } from '@server/core/review';
 
 const JOB_ID = '9dda151e-0c61-4205-9cba-497027706698';
@@ -83,7 +80,7 @@ const reviewJob = {
   retryOfJobId: null as string | null,
   trigger: 'auto' as const,
   createdAt: new Date().toISOString(),
-  // Preparation already done, so runReviewPhase reaches the getPullRequest call we make throw.
+  // Preparation done so runReviewPhase reaches the throwing getPullRequest call.
   steps: [{ name: 'Preparation', status: 'done' }],
   configSnapshot: undefined,
 };
@@ -91,7 +88,6 @@ const reviewJob = {
 describe('runReviewJob subrequest-budget handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // A claimable, non-terminal job every time.
     getJobForProcessingMock.mockResolvedValue({ check_run_id: null });
     mapJobMock.mockReturnValue(reviewJob);
     getOtherRunningJobsCountMock.mockResolvedValue(0);
@@ -110,10 +106,8 @@ describe('runReviewJob subrequest-budget handling', () => {
     const result = await runReviewJob(env, { jobId: JOB_ID, phase: 'review' } as any);
 
     expect(result).toEqual({ action: 'next_phase', phase: 'review', delaySeconds: expect.any(Number), jobId: JOB_ID, freshInstance: true });
-    // Queued for continuation and the lease released so the fresh invocation can re-claim it...
     expect(markJobContinuationQueuedMock).toHaveBeenCalledTimes(1);
     expect(releaseJobLeaseMock).toHaveBeenCalledTimes(1);
-    // ...and crucially the job was NOT marked failed.
     expect(failJobMock).not.toHaveBeenCalled();
   });
 
@@ -130,7 +124,7 @@ describe('runReviewJob subrequest-budget handling', () => {
 
   it('keeps rescheduling while the continuation count is still under the ceiling', async () => {
     const env = createTestEnv();
-    // At or under MAX_JOB_CONTINUATIONS (20) it must still reschedule rather than give up.
+    // At MAX_JOB_CONTINUATIONS (20), still under the ceiling.
     markJobContinuationQueuedMock.mockResolvedValue(20);
     getPullRequestMock.mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
 
@@ -142,9 +136,7 @@ describe('runReviewJob subrequest-budget handling', () => {
 
   it('degrades a wedged review phase to a partial review (finalize) once it exceeds the continuation ceiling', async () => {
     const env = createTestEnv();
-    // Past MAX_JOB_CONTINUATIONS (20) the review phase is wedged, so it hands off to finalize for
-    // a partial review rather than discarding completed file reviews. The transition must be
-    // RETURNED, not thrown: enqueueJobPhase's NextPhaseError would escape the catch block.
+    // Past the ceiling (21), hands off to finalize for a partial review instead of discarding it.
     markJobContinuationQueuedMock.mockResolvedValue(21);
     getPullRequestMock.mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
 
@@ -153,14 +145,13 @@ describe('runReviewJob subrequest-budget handling', () => {
     expect(result).toEqual({ action: 'next_phase', phase: 'finalize', delaySeconds: expect.any(Number), jobId: JOB_ID, freshInstance: true });
     expect(failJobMock).not.toHaveBeenCalled();
     expect(releaseJobLeaseMock).toHaveBeenCalled();
-    // Finalize needs a fresh continuation budget, or it enters already over the ceiling.
+    // Finalize needs a fresh continuation budget.
     expect(resetJobContinuationCountMock).toHaveBeenCalledWith(expect.anything(), JOB_ID);
   });
 
   it('reschedules the finalize phase (fresh budget) while under its low continuation ceiling', async () => {
     const env = createTestEnv();
-    // Finalize can itself exhaust the budget (backfilling files, fetching the PR/diff), so at the
-    // ceiling (MAX_FINALIZE_CONTINUATIONS = 3) it must still reschedule rather than fail unposted.
+    // At MAX_FINALIZE_CONTINUATIONS (3), still under the ceiling.
     markJobContinuationQueuedMock.mockResolvedValue(3);
     getPullRequestMock.mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
 
@@ -174,8 +165,7 @@ describe('runReviewJob subrequest-budget handling', () => {
 
   it('fails a wedged finalize phase fast once it exceeds the LOW finalize ceiling (not the review ceiling)', async () => {
     const env = createTestEnv();
-    // Bounded far tighter than review: past MAX_FINALIZE_CONTINUATIONS (3) it fails rather than
-    // churning ~20 min up to the review-sized ceiling.
+    // Past finalize's tighter ceiling (3), fails instead of using review's larger one.
     markJobContinuationQueuedMock.mockResolvedValue(4);
     getPullRequestMock.mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
 
@@ -188,7 +178,7 @@ describe('runReviewJob subrequest-budget handling', () => {
 
   it('fails a non-review phase terminally once it exceeds the continuation ceiling without making progress', async () => {
     const env = createTestEnv();
-    // A wedged prepare phase has no partial result to salvage, so it still fails terminally.
+    // Prepare has no partial result to salvage, unlike review.
     markJobContinuationQueuedMock.mockResolvedValue(21);
     getPullRequestMock.mockRejectedValue(new Error('Too many subrequests by single Worker invocation.'));
 

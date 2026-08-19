@@ -1,4 +1,4 @@
-import { SectionCard, Select, Skeleton, Text } from '@codra/ui';
+import { SectionCard, Select, Skeleton, Text } from '@codraoss/ui';
 import { useMemo } from 'react';
 import { Mail } from 'lucide-react';
 import {
@@ -9,7 +9,7 @@ import {
   resolvedTimeZone,
   timeZoneOffsetLabel,
 } from '@client/lib/timezone';
-import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
+import type { AccountSettings, AuthSessionUser } from '@codraoss/schema/api';
 
 import { DetailGroup, RevealOnClick, DetailRow } from './detail-rows';
 

@@ -1,18 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { TokenTracker } from '@server/core/token-tracker';
 
-// Regression coverage for the subrequest-exhaustion incident (job bb9cf692...): the review
-// workflow could burn through Cloudflare's per-invocation subrequest cap (Workers Free plan:
-// 50 subrequests/invocation) without ever checking how much budget was left. TokenTracker
-// already tracked a running count but exposed no way to ask "how much is safely left", so
-// nothing consulted it before starting more concurrent work. These tests pin down the new
-// remainingSafeBudget() accessor that review.ts and model.ts now use to throttle themselves.
+// Regression for subrequest-exhaustion incident (job bb9cf692): nothing checked remaining budget before more concurrent work.
 
 describe('TokenTracker.remainingSafeBudget', () => {
   it('starts with the full margin below the hard cap available', () => {
     const tracker = new TokenTracker();
-    // MAX_SUBREQUESTS (50) - SAFE_MARGIN (25) = 25, with nothing spent yet.
-    expect(tracker.remainingSafeBudget()).toBe(25);
+    expect(tracker.remainingSafeBudget()).toBe(25); // 50 - 25 margin
   });
 
   it('shrinks by exactly what has been spent so far', () => {
@@ -35,8 +29,7 @@ describe('TokenTracker.remainingSafeBudget', () => {
 
   it('agrees with isNearLimit at the same threshold', () => {
     const tracker = new TokenTracker();
-    // Near-limit / zero-safe-budget threshold is MAX_SUBREQUESTS (50) - SAFE_MARGIN (25) = 25.
-    tracker.incrementSubrequests(24);
+    tracker.incrementSubrequests(24); // threshold is 25
     expect(tracker.isNearLimit()).toBe(false);
     expect(tracker.remainingSafeBudget()).toBeGreaterThan(0);
 
@@ -46,9 +39,7 @@ describe('TokenTracker.remainingSafeBudget', () => {
   });
 });
 
-// A failed model call still put a full prompt on the wire, but record() only ever ran after a
-// success -- so every 429'd and retried send was invisible to token accounting and telemetry, and
-// the reported input total understated what the review actually cost.
+// record() only ran on success, so retried/429'd sends were invisible to accounting.
 describe('TokenTracker wasted-attempt accounting', () => {
   it('counts failed attempts by reason without touching billed usage', () => {
     const tracker = new TokenTracker();
@@ -57,7 +48,6 @@ describe('TokenTracker wasted-attempt accounting', () => {
     tracker.recordFailedAttempt('google:m', 3000, 'error');
     tracker.recordFailedAttempt('google:m', 3000, 'rate-limited');
 
-    // Estimates must never leak into the billed figures.
     expect(tracker.getTotalUsage()).toEqual({ input: 1000, output: 200 });
     expect(tracker.getBreakdown()).toHaveLength(1);
 
@@ -76,7 +66,6 @@ describe('TokenTracker wasted-attempt accounting', () => {
 
     const wasted = tracker.getWasted();
     expect(wasted.skips).toBe(2);
-    // A skip sent no prompt, so it costs no estimated tokens.
     expect(wasted.attempts).toBe(0);
     expect(wasted.estimatedInput).toBe(0);
   });

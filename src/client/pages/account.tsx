@@ -1,4 +1,4 @@
-import { LoadError } from '@codra/ui';
+import { LoadError } from '@codraoss/ui';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
@@ -8,7 +8,7 @@ import {
   resolvedTimeZone,
   setStoredTimeZone,
 } from '@client/lib/timezone';
-import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
+import type { AccountSettings, AuthSessionUser } from '@codraoss/schema/api';
 
 import { ProfileCard } from '@client/components/features/account/profile-card';
 import { AccountDetailsSection } from '@client/components/features/account/details-section';

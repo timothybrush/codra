@@ -15,7 +15,7 @@ vi.mock('@server/core/job-recovery', async (importOriginal) => ({
   runBestEffortJobMaintenance: runBestEffortJobMaintenanceMock,
 }));
 
-vi.mock('@codra/db/jobs', async (importOriginal) => ({
+vi.mock('@codraoss/db/jobs', async (importOriginal) => ({
   ...(await importOriginal<any>()),
   hasPendingMaintenanceWork: hasPendingMaintenanceWorkMock,
 }));
@@ -62,7 +62,7 @@ describe('scheduled() cron maintenance gating', () => {
   });
 
   it('markSystemActive writes the flag only once while it is set (no per-chunk KV write storm)', async () => {
-    const { markSystemActive } = await import('@codra/db/jobs');
+    const { markSystemActive } = await import('@codraoss/db/jobs');
     const env = createTestEnv();
     const putSpy = vi.spyOn(env.APP_KV, 'put');
 

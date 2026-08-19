@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { reviewWithCloudflare } from '@codra/models/cloudflare';
-import { reviewWithGoogle } from '@codra/models/google';
+import { reviewWithCloudflare } from '@codraoss/models/cloudflare';
+import { reviewWithGoogle } from '@codraoss/models/google';
 
-import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codra/core/prompts/file-review';
-import { VERIFY_RESPONSE_SCHEMA } from '@codra/core/prompts/verify';
+import { buildBatchReviewResponseSchema, buildReviewResponseSchema } from '@codraoss/core/prompts/file-review';
+import { VERIFY_RESPONSE_SCHEMA } from '@codraoss/core/prompts/verify';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
 
 
@@ -115,7 +115,7 @@ describe('ModelRunner: request shape and response handling', () => {
     it('sends the caller\'s grammar as responseJsonSchema, or none at all', async () => {
       const review = await captureGeminiBody({ systemPrompt: 'system', userPrompt: 'user', responseSchema: buildReviewResponseSchema(10) });
       expect(schemaKeys(review)).toEqual(['responseJsonSchema']);
-      expect(review.generationConfig.responseJsonSchema.properties.findings.maxItems).toBe(20);
+      expect(review.generationConfig.responseJsonSchema.properties.findings.maxItems).toBe(10);
       expect(review.generationConfig.responseMimeType).toBe('application/json');
       // No `outputBudgetTokens` on this input, so the adapter's own default answer budget applies -- and
       // the bounded thinking budget is added ON TOP of it, never carved out of it.

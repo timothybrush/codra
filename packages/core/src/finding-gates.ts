@@ -1,8 +1,9 @@
-import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@codra/schema';
+import type { FindingDisposition, ParsedReviewComment, RepoConfig } from '@codraoss/schema';
 import type { FileDiff } from './diff';
 import type { ReviewModel } from './ports';
 import { renderDiffSnippet, parseVerifyResponse, type VerifyCandidate } from './prompts/verify';
 import { logger } from './logger';
+import { reviewBreadth } from './prompts/file-review';
 
 type VerifiableJob = { id: string };
 
@@ -24,8 +25,8 @@ export function shadowEvaluate(candidates: ParsedReviewComment[], posted: Parsed
   };
 }
 
-function verifyCandidateLimit(effectiveMaxComments: number) {
-  return Math.min(40, Math.max(10, effectiveMaxComments * 3));
+function verifyCandidateLimit(breadth: number) {
+  return Math.min(40, Math.max(10, breadth * 3));
 }
 
 import { VERIFY_MIN_ANSWER_RATIO } from './constants';
@@ -36,10 +37,14 @@ export type VerifyDrop = {
   reason?: string;
 };
 
+/** `null` means verification ran; any other value means findings were posted unverified. */
+export type VerifySkipReason = 'no_verifiable_candidates' | 'low_answer_ratio' | 'verify_call_failed';
+
 export type VerifyOutcome = {
   comments: ParsedReviewComment[];
   dropped: VerifyDrop[];
   reasons: Map<ParsedReviewComment, string>;
+  skipped: VerifySkipReason | null;
 };
 
 export async function verifyFindings(params: {
@@ -52,11 +57,16 @@ export async function verifyFindings(params: {
 }): Promise<VerifyOutcome> {
   const { comments, files, model, config, job } = params;
 
-  const keepAll = (): VerifyOutcome => ({ comments, dropped: [], reasons: new Map() });
+  const keepAll = (skipped: VerifySkipReason | null): VerifyOutcome => ({
+    comments,
+    dropped: [],
+    reasons: new Map(),
+    skipped,
+  });
 
-  if (comments.length === 0) return keepAll();
+  if (comments.length === 0) return keepAll(null);
 
-  const limit = verifyCandidateLimit(params.maxCandidates ?? config.review.max_comments);
+  const limit = verifyCandidateLimit(params.maxCandidates ?? reviewBreadth(config.review));
   const toVerify = comments.slice(0, limit);
 
   const fileByPath = new Map(files.map((file) => [file.path, file]));
@@ -66,7 +76,7 @@ export async function verifyFindings(params: {
   }));
 
   const verifiable = prepared.filter((entry) => entry.snippet !== '' || entry.comment.evidence);
-  if (verifiable.length === 0) return keepAll();
+  if (verifiable.length === 0) return keepAll('no_verifiable_candidates');
 
   const candidates: VerifyCandidate[] = verifiable.map((entry, index) => ({
     index,
@@ -101,7 +111,7 @@ export async function verifyFindings(params: {
       logger.warn('Verification did not answer enough indices; keeping all findings', {
         jobId: job.id, candidates: candidates.length, answered,
       });
-      return keepAll();
+      return keepAll('low_answer_ratio');
     }
 
     const dropped: VerifyDrop[] = [];
@@ -133,12 +143,12 @@ export async function verifyFindings(params: {
       topReasons: dropped.slice(0, 5).map((drop) => drop.reason),
     });
 
-    return { comments: comments.filter((comment) => !droppedSet.has(comment)), dropped, reasons };
+    return { comments: comments.filter((comment) => !droppedSet.has(comment)), dropped, reasons, skipped: null };
   } catch (error) {
     logger.warn('Verification pass failed; posting pre-verification findings', {
       jobId: job.id,
       error: error instanceof Error ? error.message : String(error),
     });
-    return keepAll();
+    return keepAll('verify_call_failed');
   }
 }

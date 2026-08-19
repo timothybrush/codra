@@ -1,5 +1,5 @@
-import type { WebhookPayload, WebhookEventName } from '@codra/schema/webhook';
-import type { PullRequestWebhookPayload, IssueCommentWebhookPayload } from '@codra/schema/github';
+import type { WebhookPayload, WebhookEventName } from '@codraoss/schema/webhook';
+import type { PullRequestWebhookPayload, IssueCommentWebhookPayload } from '@codraoss/schema/github';
 
 export function normalizeGitHubWebhook(
   eventName: string,

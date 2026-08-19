@@ -1,6 +1,6 @@
-import { parseFileReviewResponse, dedupeFindings } from '@codra/core/model-output';
-import type { FileDiff } from '@codra/core/diff';
-import type { ParsedReviewComment } from '@codra/schema';
+import { parseFileReviewResponse, dedupeFindings } from '@codraoss/core/model-output';
+import type { FileDiff } from '@codraoss/core/diff';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 describe('Model Output Parsing Deep Dive', () => {
   const mockFile: FileDiff = {
@@ -204,16 +204,28 @@ describe('dedupeFindings', () => {
     ...over,
   });
 
-  it('collapses same-titled findings across files, keeping the strongest', () => {
-    const input = [
+  // This used to assert the opposite, and the opposite was a bug: the key was the normalized title
+  // alone, so "Use of any" in three files became one comment and two real findings were dropped.
+  // Dedupe is a union over locations, not a merge of everything that happens to share a name.
+  it('keeps same-titled findings that are in different files', () => {
+    const result = dedupeFindings([
       make({ path: 'a.ts', severity: 'P3', confidenceScore: 0.4 }),
       make({ path: 'b.ts', severity: 'P1', confidenceScore: 0.5 }),
       make({ path: 'c.ts', severity: 'P3', confidenceScore: 0.9 }),
-    ];
-    const result = dedupeFindings(input);
+    ]);
+
+    expect(result.map((c) => c.path)).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('collapses the same finding at the same place, keeping the strongest', () => {
+    const result = dedupeFindings([
+      make({ severity: 'P3', confidenceScore: 0.4, anchorHash: 'aaaa' }),
+      make({ severity: 'P1', confidenceScore: 0.5, anchorHash: 'aaaa' }),
+      make({ severity: 'P3', confidenceScore: 0.9, anchorHash: 'aaaa' }),
+    ]);
+
     expect(result).toHaveLength(1);
     expect(result[0].severity).toBe('P1');
-    expect(result[0].path).toBe('b.ts');
   });
 
 });

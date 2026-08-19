@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPlausibleTokenBucket, parseRateLimitFromError } from '@codra/models';
+import { isPlausibleTokenBucket, parseRateLimitFromError } from '@codraoss/models';
 
 // Verbatim from production: a free-tier 429 whose only stated quota counts REQUESTS, not tokens.
 const REQUESTS_QUOTA_429 = [

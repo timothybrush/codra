@@ -1,5 +1,5 @@
-import type { LlmApiFormat } from '@codra/schema';
-import { withTimeout } from '@codra/core/timeout';
+import type { LlmApiFormat } from '@codraoss/schema';
+import { withTimeout } from '@codraoss/core/timeout';
 import { assertPublicBaseUrl } from './url-guard';
 
 const MODEL_LIST_TIMEOUT_MS = 8_000;

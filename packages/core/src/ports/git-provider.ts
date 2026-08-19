@@ -23,6 +23,8 @@ export interface ReviewGitProvider {
   getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequestRecord>;
   getPullRequestDiff(owner: string, repo: string, prNumber: number): Promise<string>;
   getCompareDiff(owner: string, repo: string, base: string, head: string): Promise<string>;
+  /** File content at `ref`, or null if unavailable. Optional: backs opt-in file-context enrichment. */
+  getRepoFile?(owner: string, repo: string, path: string, ref?: string): Promise<string | null>;
   createCheckRun(owner: string, repo: string, params: { headSha: string; title: string; summary: string }): Promise<{ id: number }>;
   updateCheckRun(owner: string, repo: string, checkRunId: number, params: {
     title: string;
@@ -39,6 +41,8 @@ export interface ReviewGitProvider {
   findBotReviewForCommit(owner: string, repo: string, prNumber: number, commitSha: string, botLogin: string): Promise<{ id: number } | null>;
   ensureLabel(owner: string, repo: string, name: string, color: string): Promise<unknown>;
   addIssueLabels(owner: string, repo: string, prNumber: number, labels: string[]): Promise<unknown>;
+  /** Optional: a provider or test double without it simply does not react. */
+  addIssueReaction?(owner: string, repo: string, prNumber: number, content: '+1'): Promise<unknown>;
   removeIssueLabelsIfPresent(owner: string, repo: string, prNumber: number, labels: string[]): Promise<unknown>;
 }
 

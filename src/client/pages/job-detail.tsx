@@ -1,4 +1,4 @@
-import { LoadError } from '@codra/ui';
+import { LoadError } from '@codraoss/ui';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { LazyMotion, m, domMax } from 'motion/react';
@@ -11,7 +11,7 @@ import { JobReviewOverview } from '@client/components/features/job-detail/job-re
 import { JobFindingsList } from '@client/components/features/job-detail/job-findings-list';
 import { JobDiffs } from '@client/components/features/job-detail/job-diffs';
 import { JobDetailSkeleton } from '@client/components/features/job-detail/job-skeleton';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 
 type DetailTab = 'overview' | 'files';
 

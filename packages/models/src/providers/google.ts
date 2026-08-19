@@ -1,33 +1,30 @@
-import { logger } from '@codra/core/logger';
-import { withTimeout } from '@codra/core/timeout';
-import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, type ModelInput, type ModelResponse } from '../types';
+import { logger } from '@codraoss/core/logger';
+import { withTimeout } from '@codraoss/core/timeout';
+import { ProviderRequestError, UnparseableModelResponseError, providerErrorMessage, jsonOnlyPrompts, isThinkingRejection, attachPartialResponse, type ModelInput, type ModelResponse } from '../types';
 import { toGeminiResponseJsonSchema } from '../gemini-schema';
 import { assertPublicBaseUrl } from '../url-guard';
 import {
   MODEL_TIMEOUT_MAX_MS,
+  MODEL_TIMEOUT_PER_1K_OUTPUT_MS,
   OUTPUT_TOKENS_FLOOR,
   geminiThinkingBudgetTokens,
   resolveOutputTokenCeiling,
 } from '../limits';
 
-/** Fallback timeout if caller omits budget. */
 const GEMINI_TIMEOUT_MS = MODEL_TIMEOUT_MAX_MS;
 const GEMINI_MAX_RETRIES = 2;
-// Output floor for low-budget tasks (verify, summary).
 const GEMINI_DEFAULT_OUTPUT_TOKENS = OUTPUT_TOKENS_FLOOR;
-// Max output claims. 65k allows room for thinking tokens and dense multi-file bins.
+// 65k leaves room for thinking tokens plus dense multi-file output.
 const GEMINI_MAX_OUTPUT_TOKENS = 65_536;
-// Cap on retry sleeps; longer cool-offs defer files to free up gates.
 const GEMINI_MAX_RETRY_DELAY_MS = 5_000;
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
-// 429 handled separately (only retryable if cool-off is stated).
+// 429 handled separately; only retryable if a cool-off is stated.
 function isRetryableGeminiStatus(status: number) {
   return status === 408 || status === 500 || status === 502 || status === 503 || status === 504 || status === 524;
 }
 
 function defaultRetryDelayMs(attempt: number) {
-  // Exponential backoff for transient 5xx errors (clears quickly).
   return Math.pow(2, attempt) * 800 + Math.random() * 400;
 }
 
@@ -46,7 +43,6 @@ function retryAfterDelayMs(value: string | null) {
   return null;
 }
 
-// Extract body cool-off ("Please retry in Xs.") to avoid indefinite 429 retries.
 function requestedRetryDelayFromBody(message: string): number | null {
   const match = /retry in ([\d.]+)s/i.exec(message);
   if (!match) return null;
@@ -54,33 +50,34 @@ function requestedRetryDelayFromBody(message: string): number | null {
   return Number.isFinite(seconds) ? seconds * 1000 : null;
 }
 
-// Broad matcher (false positives cost 1 subrequest; false negatives break chains).
-function isSchemaRejection(status: number, message: string) {
-  if (status !== 400) return false;
+export function classifySchemaRejection(status: number, message: string): 'confident' | 'catchall' | null {
+  if (status !== 400) return null;
   const lower = message.toLowerCase();
-  return (
+
+  const namesTheGrammar =
     lower.includes('responsejsonschema') ||
     lower.includes('response_json_schema') ||
     lower.includes('responseschema') ||
     lower.includes('response_schema') ||
     lower.includes('invalid json payload') ||
     lower.includes('unknown name') ||
-    lower.includes('schema') ||
-    // Bare 400 catch-all to prevent permanent schema failures. Worst case: one extra failed schema-less attempt.
-    lower.includes('invalid argument')
-  );
-}
+    lower.includes('schema');
+  if (namesTheGrammar) return 'confident';
 
-// Narrow matcher probed BEFORE isSchemaRejection to prevent misidentifying thinking-config refusals as schema drops.
-function isThinkingRejection(status: number, message: string) {
-  if (status !== 400) return false;
-  const lower = message.toLowerCase();
-  return lower.includes('thinking') || lower.includes('thought');
+  const grammarAdjacent =
+    lower.includes('generation_config') ||
+    lower.includes('generationconfig') ||
+    lower.includes('json') ||
+    lower.includes('constrained') ||
+    lower.includes('too many states');
+  if (lower.includes('invalid argument') && grammarAdjacent) return 'catchall';
+
+  return null;
 }
 
 function isRetryableTransportError(error: unknown) {
   if (!(error instanceof Error)) return false;
-  // Don't retry timeouts (caller grants up to 2m); defer to fallback chains.
+  // Skip retrying timeouts (caller already grants up to 2m); defer to fallback chain.
   if (error.name === 'TimeoutError' || error.message.toLowerCase().includes('timed out')) return false;
   if (error.message.includes('fetch failed')) return true;
   return error instanceof TypeError;
@@ -100,21 +97,21 @@ export async function reviewWithGoogle(
   const responseJsonSchema = input.responseSchema
     ? toGeminiResponseJsonSchema(input.responseSchema.schema)
     : null;
-  // Latches to disable features on subsequent attempts if rejected.
   let schemaRejected = false;
+  let schemaRejectionBranch: 'confident' | 'catchall' = 'confident';
   let thinkingRejected = false;
 
-  // Summing JSON and thinking token budgets prevents truncated prefixes.
   const answerBudget = resolveOutputTokenCeiling(
     input.outputBudgetTokens,
     GEMINI_MAX_OUTPUT_TOKENS,
     GEMINI_DEFAULT_OUTPUT_TOKENS,
   );
   const thinkingBudget = geminiThinkingBudgetTokens(answerBudget);
-  const outputCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
-  // Mark error so caller latches schema-dropped state even on subsequent failure.
+  let currentCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, answerBudget + thinkingBudget);
+  let ceilingRaised = false;
   const fail = (error: unknown): never => {
-    if (schemaRejected && typeof error === 'object' && error !== null) {
+    // Confident rejections only: a probe that failed anyway proves nothing, and latching would strip the schema from every later call in the job. A successful probe latches via `degraded` instead.
+    if (schemaRejected && schemaRejectionBranch === 'confident' && typeof error === 'object' && error !== null) {
       Object.defineProperty(error, 'schemaDropped', { value: true, configurable: true });
     }
     throw error;
@@ -156,14 +153,11 @@ export async function reviewWithGoogle(
               { role: 'user', parts: [{ text: prompts.user }] },
             ],
             generationConfig: {
-              // Required for schemas and summary path.
               responseMimeType: 'application/json',
-              // See gemini-schema.ts.
               ...(responseJsonSchema && !schemaRejected ? { responseJsonSchema } : {}),
-              maxOutputTokens: outputCeiling,
-              // Bounded thinking budget so it doesn't consume the output ceiling.
+              maxOutputTokens: currentCeiling,
               ...(thinkingRejected ? {} : { thinkingConfig: { thinkingBudget } }),
-              // 0.9 on Gemini's 0-2 scale.
+              // Gemini's temperature scale is 0-2, not 0-1.
               temperature: 0.9,
             },
           }),
@@ -182,7 +176,7 @@ export async function reviewWithGoogle(
       const errorText = await response.text();
       const message = providerErrorMessage(errorText);
 
-      // Check thinking first; isSchemaRejection is broad.
+      // Check thinking rejection first; isSchemaRejection below is broad.
       if (!thinkingRejected && isThinkingRejection(response.status, message)) {
         thinkingRejected = true;
         logger.warn('Gemini rejected thinkingConfig; retrying without an explicit thinking budget', {
@@ -190,28 +184,56 @@ export async function reviewWithGoogle(
           error: message,
         });
         lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
-        // Refund attempt (no sleep); latched.
         attempt--;
         continue;
       }
 
-      if (responseJsonSchema && !schemaRejected && isSchemaRejection(response.status, message)) {
+      const schemaRejection = responseJsonSchema && !schemaRejected
+        ? classifySchemaRejection(response.status, message)
+        : null;
+      if (schemaRejection) {
         schemaRejected = true;
-        // Inferred schema rejection; real cause thrown below if 400 recurs.
+        schemaRejectionBranch = schemaRejection;
+        // Inferred from message; real cause surfaces below if 400 recurs.
         logger.warn('Gemini returned a 400 that looks like a response-grammar rejection; retrying without constrained decoding', {
           model,
+          branch: schemaRejection,
           error: message,
         });
         lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
-        // Refund attempt (no sleep); latched.
         attempt--;
         continue;
+      }
+
+      // Unexplained invalid-argument 400: strip optional features one at a time -- grammar, then thinking budget -- refunding the attempt each time. The latches bound this ladder to two extra probes.
+      if (response.status === 400 && /invalid argument/i.test(message)) {
+        if (responseJsonSchema && !schemaRejected) {
+          schemaRejected = true;
+          schemaRejectionBranch = 'catchall';
+          logger.warn('Gemini returned an unexplained 400; probing without constrained decoding', {
+            model,
+            error: message,
+          });
+          lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+          attempt--;
+          continue;
+        }
+        if (!thinkingRejected) {
+          thinkingRejected = true;
+          logger.warn('Gemini returned an unexplained 400 with the grammar already off; probing without an explicit thinking budget', {
+            model,
+            error: message,
+          });
+          lastError = new ProviderRequestError(config.providerName ?? 'Google', response.status, message);
+          attempt--;
+          continue;
+        }
       }
 
       const requestedDelayMs = response.status === 429
         ? retryAfterDelayMs(response.headers.get('retry-after')) ?? requestedRetryDelayFromBody(message)
         : null;
-      // Unstated 429s back-off for ~60s, making them unretryable here. Retry only on short, stated cool-offs.
+      // Unstated 429s back off ~60s, making them unretryable here; retry only short, stated cool-offs.
       const isRetryable = response.status === 429
         ? requestedDelayMs !== null && requestedDelayMs <= GEMINI_MAX_RETRY_DELAY_MS
         : isRetryableGeminiStatus(response.status);
@@ -226,7 +248,6 @@ export async function reviewWithGoogle(
         willRetry: isRetryable && attempt < maxRetries,
         requestedDelayMs: requestedDelayMs ?? undefined,
         retryDelayMs: isRetryable && attempt < maxRetries ? retryDelayMs : undefined,
-        // Log bounded raw body for terminal 4xx to debug unactionable "invalid argument" errors.
         rawBody: response.status >= 400 && response.status < 500 && !(isRetryable && attempt < maxRetries)
           ? errorText.slice(0, 2_000)
           : undefined,
@@ -250,32 +271,64 @@ export async function reviewWithGoogle(
       usageMetadata?: {
         promptTokenCount?: number;
         candidatesTokenCount?: number;
-        // Billed against `maxOutputTokens`.
+        // Billed against maxOutputTokens.
         thoughtsTokenCount?: number;
       };
     };
 
     const candidate = data.candidates?.[0];
     const rawText = candidate?.content?.parts?.map((part) => part.text ?? '').join('')?.trim();
+    const finishReason = candidate?.finishReason;
+    const truncated = finishReason === 'MAX_TOKENS';
+
+    if (finishReason && finishReason !== 'STOP') {
+      logger.warn(`Gemini response for ${model} ended with finishReason=${finishReason}; output is likely incomplete`, {
+        // Avoid a `Tokens` key name; the logger redacts it.
+        outputSpend: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+        thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+        outputCeiling: currentCeiling,
+        thinkingBudget: thinkingRejected ? undefined : thinkingBudget,
+        schemaDropped: schemaRejected,
+      });
+    }
+
+    if (truncated && input.truncationIntolerant && !ceilingRaised) {
+      const elapsed = Date.now() - startTime;
+      const raisedCeiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, 2 * answerBudget + thinkingBudget);
+      const extraMs = ((raisedCeiling - currentCeiling) / 1_000) * MODEL_TIMEOUT_PER_1K_OUTPUT_MS;
+
+      if (elapsed + extraMs < timeoutMs) {
+        ceilingRaised = true;
+        currentCeiling = raisedCeiling;
+        logger.warn(`Gemini ran out of output room on ${model}; resending once with a larger ceiling`, {
+          outputCeiling: raisedCeiling,
+          thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
+          hadPartialText: Boolean(rawText),
+        });
+        attempt--;
+        continue;
+      }
+    }
+
     if (!rawText) {
-      const finishReason = candidate?.finishReason;
-      // Deterministic non-STOP (budget burn, safety) fails permanently; empty STOP is transient.
+      // Non-STOP finish fails permanently; empty STOP is transient.
       if (finishReason && finishReason !== 'STOP') {
         return fail(new UnparseableModelResponseError(model, `finishReason=${finishReason}`));
       }
       return fail(new Error('Gemini returned an empty response.'));
     }
 
-    // Log non-STOP prefix truncations.
-    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-      logger.warn(`Gemini response for ${model} ended with finishReason=${candidate.finishReason}; output is likely incomplete`, {
-        // Avoid `Tokens` key name to bypass logger redaction. Sum thinking + output spend.
-        outputSpend: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
-        thoughtSpend: data.usageMetadata?.thoughtsTokenCount ?? 0,
-        outputCeiling,
-        thinkingBudget: thinkingRejected ? undefined : thinkingBudget,
-        schemaDropped: schemaRejected,
+    // Attach partial text so a later fallback model can salvage it.
+    if (truncated && input.truncationIntolerant) {
+      const error = new UnparseableModelResponseError(model, 'finishReason=MAX_TOKENS');
+      attachPartialResponse(error, {
+        rawText,
+        inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+        outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+        modelUsed: model,
+        provider: config.providerName ?? 'Google',
       });
+      return fail(error);
     }
 
     return {
@@ -284,7 +337,11 @@ export async function reviewWithGoogle(
       outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
       modelUsed: model,
       provider: config.providerName ?? 'Google',
-      ...(schemaRejected ? { degraded: 'schema-dropped' as const } : {}),
+      ...(schemaRejected
+        ? { degraded: schemaRejectionBranch === 'catchall'
+            ? ('schema-dropped-catchall' as const)
+            : ('schema-dropped' as const) }
+        : {}),
     };
   }
 

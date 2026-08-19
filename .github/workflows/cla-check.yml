@@ -15,40 +15,82 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: Verify contributor CLA signature
+      - name: Verify CLA signatures for the PR author and every commit author
         env:
           CLA_CHECK_SECRET: ${{ secrets.CLA_CHECK_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           node -e "
           (async () => {
-            const author = process.env.PR_AUTHOR;
             const secret = process.env.CLA_CHECK_SECRET;
-            
-            if (!author) throw new Error('Missing PR author.');
+            const token = process.env.GITHUB_TOKEN;
+            const repo = process.env.REPO;
+            const prNumber = process.env.PR_NUMBER;
+            const prAuthor = process.env.PR_AUTHOR;
+
             if (!secret) throw new Error('Missing CLA_CHECK_SECRET.');
+            if (!token) throw new Error('Missing GITHUB_TOKEN.');
+            if (!repo || !prNumber || !prAuthor) throw new Error('Missing PR context.');
 
-            console.log('Checking CLA signature for @' + author + '...');
+            const isBot = (login) => login.endsWith('[bot]');
+            const logins = new Set();
+            if (!isBot(prAuthor)) logins.add(prAuthor);
 
-            const response = await fetch('https://codra.run/api/internal/check-cla?user=' + encodeURIComponent(author), {
-              headers: {
-                'x-cla-check-secret': secret,
-              },
-            });
-
-            if (!response.ok) {
-              const body = await response.text();
-              throw new Error('API Error ' + response.status + ': ' + body);
+            // Walk every commit in the PR, not just the opener: cherry-picked or
+            // applied patches carry other people's copyright and need a signature too.
+            const headers = {
+              authorization: 'Bearer ' + token,
+              accept: 'application/vnd.github+json',
+              'x-github-api-version': '2022-11-28',
+            };
+            const unmatched = [];
+            for (let page = 1; page <= 3; page++) {
+              const url = 'https://api.github.com/repos/' + repo + '/pulls/' + prNumber + '/commits?per_page=100&page=' + page;
+              const res = await fetch(url, { headers });
+              if (!res.ok) throw new Error('GitHub API error ' + res.status + ': ' + (await res.text()));
+              const commits = await res.json();
+              for (const c of commits) {
+                if (c.author && c.author.login) {
+                  if (c.author.type !== 'Bot' && !isBot(c.author.login)) logins.add(c.author.login);
+                } else {
+                  unmatched.push(c.sha.slice(0, 7) + ' (' + c.commit.author.name + ' <' + c.commit.author.email + '>)');
+                }
+              }
+              if (commits.length < 100) break;
             }
 
-            const payload = await response.json();
-            if (!payload.signed) {
-              console.error('❌ @' + author + ' has not signed the CLA.');
+            if (unmatched.length > 0) {
+              console.error('❌ Some commits are not linked to a GitHub account, so their CLA status cannot be verified:');
+              for (const line of unmatched) console.error('   ' + line);
+              console.error('Each author must add their commit email to their GitHub account, or the commits must be re-authored.');
+              process.exit(1);
+            }
+
+            const unsigned = [];
+            for (const login of [...logins].sort()) {
+              console.log('Checking CLA signature for @' + login + '...');
+              const res = await fetch('https://codra.run/api/internal/check-cla?user=' + encodeURIComponent(login), {
+                headers: { 'x-cla-check-secret': secret },
+              });
+              if (!res.ok) throw new Error('API Error ' + res.status + ': ' + (await res.text()));
+              const payload = await res.json();
+              if (payload.signed) {
+                console.log('✅ CLA confirmed for @' + login + '.');
+              } else {
+                unsigned.push(login);
+              }
+            }
+
+            if (unsigned.length > 0) {
+              for (const login of unsigned) console.error('❌ @' + login + ' has not signed the CLA.');
               console.error('Please visit https://codra.run/cla to sign.');
               process.exit(1);
             }
 
-            console.log('✅ CLA confirmed for @' + author + '.');
+            console.log('✅ CLA confirmed for all ' + logins.size + ' author(s).');
           })().catch(err => {
             console.error(err.message);
             process.exit(1);

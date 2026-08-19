@@ -1,10 +1,10 @@
-import { Alert, Button } from '@codra/ui';
+import { Alert, Button } from '@codraoss/ui';
 import { useMemo, useState } from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import { Save, RotateCcw, X } from 'lucide-react';
-import type { RepoConfigRecord } from '@codra/schema';
+import type { RepoConfigRecord } from '@codraoss/schema';
 import { ModelRouteEditor } from '@client/components/features/models/model-chain';
 import {
   EMPTY_MODEL_ROUTE,

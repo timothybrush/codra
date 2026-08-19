@@ -3,11 +3,11 @@ import {
   buildBatchReviewPrompts,
   buildBatchReviewResponseSchema,
   buildReviewResponseSchema,
-  generatorFindingCap,
+  reviewBreadth,
 } from '@server/prompts/file-review';
 import { BIN_DIFF_CHAR_BUDGET, BIN_MAX_FILES } from '@server/core/review';
-import { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from '@codra/models';
-import { defaultRepoConfig } from '@codra/schema';
+import { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from '@codraoss/models';
+import { defaultRepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
 function file(path: string, lines: string[]): FileDiff {
@@ -66,7 +66,7 @@ describe('buildBatchReviewPrompts', () => {
   it('substitutes the cap and states the persona once per language present', () => {
     const uniform = build([file('src/a.ts', ['a']), file('src/b.ts', ['b'])]);
     expect(uniform.systemPrompt).not.toContain('{{MAX_COMMENTS}}');
-    expect(uniform.systemPrompt).toContain(`at most ${generatorFindingCap(defaultRepoConfig.review.max_comments)} findings PER FILE`);
+    expect(uniform.systemPrompt).toContain(`at most ${reviewBreadth(defaultRepoConfig.review)} findings PER FILE`);
     expect(uniform.systemPrompt).toMatch(/^You are a world-class professional senior code reviewer as .+\./);
     expect(uniform.userPrompt.match(/^Language: /gm)).toHaveLength(1);
 
@@ -113,7 +113,7 @@ describe('buildBatchReviewResponseSchema', () => {
     // The single-file grammar caps in the schema; the batch one cannot. Gemini rejects a bounded
     // array nested inside a bounded array ("too many states for serving") and we lose constrained
     // decoding for the whole bin, so the per-file cap lives in prose and in parse-time truncation.
-    expect(single.properties.findings.maxItems).toBe(generatorFindingCap(10));
+    expect(single.properties.findings.maxItems).toBe(10);
     expect(fileEntry.properties.findings.maxItems).toBeUndefined();
     expect(schema.properties.files.maxItems).toBe(4);
     // Path first, and required: the nesting is what carries file identity.

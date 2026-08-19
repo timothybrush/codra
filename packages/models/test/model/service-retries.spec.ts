@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isRetryableModelError } from '@codra/models';
-import { reviewWithCloudflare } from '@codra/models/cloudflare';
-import { reviewWithGoogle } from '@codra/models/google';
+import { isRetryableModelError } from '@codraoss/models';
+import { reviewWithCloudflare } from '@codraoss/models/cloudflare';
+import { reviewWithGoogle } from '@codraoss/models/google';
 import { MODEL_TIMEOUT_MAX_MS } from '../../src/limits';
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 
 // The retry ladder: inline retries, Retry-After, and which exhausted runs report as retryable.
 describe('ModelRunner: transient failures and the retry ladder', () => {

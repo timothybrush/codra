@@ -1,17 +1,14 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codra/schema';
+import { defaultRepoConfig, findingLabelSchema, jobsQuerySchema } from '@codraoss/schema';
 import { jsonError } from '../../http';
-import { parseUnifiedDiff } from '@codra/core/diff';
-import { buildFileReviewPrompts } from '@codra/core/prompts/file-review';
+import { parseUnifiedDiff } from '@codraoss/core/diff';
+import { buildFileReviewPrompts, changelogExcerptFromDiff, wantsFileContext } from '@codraoss/core/prompts/file-review';
 import type { ApiEnv } from '../../ports';
 
-// Best-effort terminate; .get() throws if the instance is gone and .terminate() if already terminal, both non-fatal.
+// Best-effort: .get()/.terminate() throw if instance is gone/already terminal; both non-fatal.
 async function terminateJobWorkflow(c: Context<ApiEnv>, job: { id: string; workflowInstanceId?: string | null }) {
-  // This interacts with bindings. The plan says "No binding access in a handler".
-  // So we need to put workflow termination behind a platform port.
-  // Wait! The user plan says: "call a packages/core use case". 
-  // Let's add it to `platform` port as well.
+  // Goes through platform port; handlers must not touch bindings directly.
   await c.env.deps.platform.terminateJobWorkflow(job);
 }
 
@@ -67,7 +64,7 @@ export function createJobsRouter() {
     return response;
   });
 
-  // diff_input is not persisted; rebuilt on demand from the job's own base/head commits (not the live PR), using the KV cache while warm.
+  // diff_input isn't persisted; rebuilt from the job's own base/head commits (not the live PR), via KV cache.
   app.get('/:id/diffs', async (c) => {
     const job = await c.env.deps.repositories.jobs.getJobDetail(c.env as any, c.req.param('id'));
     if (!job) {
@@ -85,31 +82,37 @@ export function createJobsRouter() {
         github,
       );
     } catch (error) {
-      // Need logger from deps or imported directly since we moved it
       c.env.deps.platform.logger.warn(`Could not reconstruct diff for job ${job.id}`, error instanceof Error ? error : new Error(String(error)));
       return c.json({ diffs: {} });
     }
 
-    // Must include the PR description: this reconstructs the prompt the model actually saw.
+    // Reconstructs the prompt the model actually saw, so it needs the PR description too.
     let prDescription: string | null = null;
     try {
       prDescription = (await github.getPullRequest(job.owner, job.repo, job.prNumber)).body ?? null;
     } catch (error) {
-      // Best-effort: a missing description degrades fidelity, never fails the view.
+      // Best-effort: missing description degrades fidelity, doesn't fail the view.
       c.env.deps.platform.logger.warn(`Could not load the PR body for job ${job.id}; prompts will omit the description`,
         error instanceof Error ? error : new Error(String(error)));
     }
 
-    // The ENTIRE PR diff, not just files with a review row, so Files-changed matches GitHub mid-review.
+    // Full PR diff, not just reviewed files, so file count matches GitHub mid-review.
     const diffs: Record<string, string> = {};
-    for (const file of parseUnifiedDiff(rawDiff, config.review)) {
+    const parsedFiles = parseUnifiedDiff(rawDiff, config.review);
+    const changelogExcerpt = changelogExcerptFromDiff(parsedFiles);
+    for (const file of parsedFiles) {
       if (file.isDeleted || file.isBinary || !file.path) continue;
-      diffs[file.path] = buildFileReviewPrompts({
+      const { userPrompt } = buildFileReviewPrompts({
         file,
         prTitle: job.prTitle,
         prDescription,
+        changelogExcerpt,
         config: config.review,
-      }).userPrompt;
+      });
+      const hadContext = wantsFileContext(file, config.review.full_file_context);
+      diffs[file.path] = hadContext
+        ? `${userPrompt}\n\n[The full file at the reviewed commit was included here at review time; it is omitted from this preview.]`
+        : userPrompt;
     }
 
     const response = c.json({ diffs });
@@ -117,7 +120,7 @@ export function createJobsRouter() {
     return response;
   });
 
-  // Shared by re-run and rerun-from-start; inherit=true links retryOfJobId and reuses `done` file reviews, false reviews everything.
+  // inherit=true links retryOfJobId and reuses done file reviews; false reviews everything.
   async function startReplacementJob(c: Context<ApiEnv>, rawSource: any, options: { inherit: boolean }) {
     const jobs = c.env.deps.repositories.jobs;
     const source = jobs.mapJob(rawSource);
@@ -167,7 +170,6 @@ export function createJobsRouter() {
     return job;
   }
 
-  // Re-run: reuse the parent's completed reviews where the model strategy still matches.
   app.post('/:id/retry', async (c) => {
     const jobs = c.env.deps.repositories.jobs;
     const rawSource = await jobs.getJobForProcessing(c.env as any, c.req.param('id'));
@@ -178,7 +180,7 @@ export function createJobsRouter() {
     return c.json({ job }, 202);
   });
 
-  // Rerun from start: no inheritance. Stops the current run so two workflows cannot race.
+  // No inheritance; stops the current run first so two workflows can't race.
   app.post('/:id/rerun', async (c) => {
     const jobs = c.env.deps.repositories.jobs;
     const rawSource = await jobs.getJobForProcessing(c.env as any, c.req.param('id'));
@@ -210,7 +212,7 @@ export function createJobsRouter() {
     return c.json({ job: updated ? jobs.mapJob(updated) : job }, 200);
   });
 
-  // Human verdict on one finding: WRONG suppresses repository-wide, RIGHT suppresses nothing and is purely measurement.
+  // "wrong" suppresses this finding repo-wide; "right" is measurement only.
   app.put('/:id/findings/:fingerprint/label', async (c) => {
     const jobId = c.req.param('id');
     const fingerprint = c.req.param('fingerprint');
@@ -226,7 +228,7 @@ export function createJobsRouter() {
       prNumber: target.pr_number,
       fingerprint,
       anchorHash: target.anchor_hash,
-      // Carried so a rejection survives the model rewording its title.
+      // Keeps rejection valid even if the model rewords the title.
       fingerprintV2: target.fingerprint_v2,
       jobId,
       labelledBy: c.get('sessionUser')?.providerUserId ? Number(c.get('sessionUser')?.providerUserId) : null,
@@ -236,7 +238,7 @@ export function createJobsRouter() {
     return c.json({ label: parsed.data.label }, 200);
   });
 
-  // Undo a label, scoped to dashboard rows so a real GitHub deletion stays recorded.
+  // Scoped to dashboard rows; a real GitHub deletion still stays recorded.
   app.delete('/:id/findings/:fingerprint/label', async (c) => {
     const jobId = c.req.param('id');
     const fingerprint = c.req.param('fingerprint');

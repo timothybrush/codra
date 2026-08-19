@@ -4,7 +4,7 @@ import { logger } from './logger';
 const TELEMETRY_SECRET = 'codra-telemetry-v1-secret-8f9a2b5c';
 const INSTANCE_ID_KEY = 'codra:instance_id';
 
-import { queryRows } from '@codra/db/client';
+import { queryRows } from '@codraoss/db/client';
 // Static import: version string is inlined at build time by Vite - no runtime cost.
 import pkg from '../../../package.json';
 

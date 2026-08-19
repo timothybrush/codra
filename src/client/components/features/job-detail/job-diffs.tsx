@@ -9,10 +9,10 @@ import {
   Info,
 } from 'lucide-react';
 import { api } from '@client/lib/api';
-import { buildTree } from '@codra/ui/file-tree';
-import { diffStats } from '@codra/ui/prompt-diff';
+import { buildTree } from '@codraoss/ui/file-tree';
+import { diffStats } from '@codraoss/ui/prompt-diff';
 import { readDiffsCache, writeDiffsCache } from '@client/lib/diffs-cache';
-import type { FileReviewRecord, JobDetail } from '@codra/schema';
+import type { FileReviewRecord, JobDetail } from '@codraoss/schema';
 
 import { FileDiff } from './diff-file-panel';
 import { panelCvStyle, fileAnchorId } from './diff-file-panel-utils';

@@ -1,5 +1,5 @@
-import { createApiRouter } from '@codra/api';
-import { getJobForProcessing, insertJob } from '@codra/db/jobs';
+import { createApiRouter } from '@codraoss/api';
+import { getJobForProcessing, insertJob } from '@codraoss/db/jobs';
 
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';

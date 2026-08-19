@@ -1,4 +1,4 @@
-import type { BatchReviewOutcome } from '@codra/models';
+import type { BatchReviewOutcome } from '@codraoss/models';
 // Shared service doubles for the DB-backed review suites. `vi.mock` factories are hoisted, so pull
 // these in with a dynamic `await import(...)` inside the factory.
 
@@ -53,7 +53,7 @@ function reviewFileResponse(overrides: Record<string, unknown> = {}) {
       overallCorrectness: 'issues found',
       confidenceScore: 0.9,
       // Must stay in step with parseFileReviewResponse; finalize sums these.
-      evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
+      evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 },
       claimTypeCounts: { other: 1 },
       deniedClaimCounts: {},
       absenceCheckStats: { absenceShaped: 0, identifierExtracted: 0, refuted: 0 },
@@ -82,7 +82,7 @@ export function reviewBatchResponse(paths: readonly string[], overrides: Record<
         fileSummary: `Looks ok: ${path}`,
         overallCorrectness: 'issues found',
         confidenceScore: 0.9,
-        evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0 },
+        evidenceStats: { total: 1, matched: 1, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 },
         claimTypeCounts: { other: 1 },
         deniedClaimCounts: {},
         absenceCheckStats: { absenceShaped: 0, identifierExtracted: 0, refuted: 0 },
@@ -141,7 +141,7 @@ export function makeModelServiceMock(overrides: Record<string, unknown> = {}) {
 export const isRetryableModelErrorMock = (error: unknown) =>
   Boolean(error && typeof error === 'object' && (error as { retryable?: boolean }).retryable === true);
 
-// Every hand-built mock of the '@codra/models' barrel must include this. The review
+// Every hand-built mock of the '@codraoss/models' barrel must include this. The review
 // runners call it inside their catch block, so a missing export is a TypeError raised while
 // handling a failure -- which silently converts a deferral into a terminal one.
 export const nextChainIndexOfMock = (error: unknown) => {

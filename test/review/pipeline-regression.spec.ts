@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { parseFileReviewResponse } from '@server/core/model-output';
-import { DEFAULT_DENIED_CLAIM_TYPES } from '@codra/schema';
+import { DEFAULT_DENIED_CLAIM_TYPES } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
-// End-to-end regression over the parse-time chain: JSON extraction, evidence grounding, the
-// claim-type denylist, label repair and fingerprinting, in one pass over ONE realistic response.
-// Replaces a 3.4 MB corpus that showed regressions but never said which behaviour broke; each
-// behaviour is covered precisely elsewhere, and only the corpus exercised every gate at once.
-//
-// NOT a measure of model accuracy: synthetic findings flatter a reviewer by an order of
-// magnitude. Precision is measured on real reviews via `comment_feedback`.
+// Regression over the full parse chain (JSON extraction, grounding, denylist, labels, fingerprints), one pass.
+// Replaces a 3.4MB corpus that caught regressions without naming the broken behavior. Not an accuracy benchmark; see comment_feedback for that.
 
 const file: FileDiff = {
   path: 'src/server/db/stats.ts',
@@ -31,8 +26,7 @@ const file: FileDiff = {
   }],
 };
 
-// Six findings, chosen so each exits the chain by a different door. Markdown-fenced because that is
-// how the models in this chain actually answer.
+// Six findings, each dropped by a different gate; markdown-fenced like real model output.
 const response = `Here is my review.
 
 \`\`\`json
@@ -98,8 +92,7 @@ describe('the parse-time chain, composed', () => {
   });
 
 
-  // Six findings in, exactly one survives. Asserting the surviving SET rather than a count means
-  // a gate that stops firing shows up as a specific new title.
+  // Asserts the surviving title, not a count, so a broken gate shows up specifically.
   it('surfaces only the finding that is both grounded and decidable', () => {
     expect(parsed.comments.map((c) => c.title)).toEqual([
       'Empty catch swallows the refresh failure',
@@ -107,23 +100,17 @@ describe('the parse-time chain, composed', () => {
   });
 
   it('withholds the three findings whose evidence does not resolve', () => {
-    // unmatched: quoted a line that is not in the diff.
-    // weak:      quoted `}`, which matches dozens of lines and proves nothing.
-    // absent:    omitted the one field that can be checked.
-    //
-    // `matched` is 3, not 1: evidence resolution runs BEFORE the denylist, so the two findings
-    // later denied still resolved their quotes. The gates are independent.
+    // unmatched: off-diff quote. weak: `}` matches many lines. absent: no evidence field.
+    // matched=3 (not 1): grounding runs before the denylist, so denied findings still resolve.
     expect(parsed.evidenceStats).toMatchObject({ total: 6, matched: 3, unmatched: 1, weak: 1, absent: 1 });
   });
 
   it('denies the claim types that cannot be decided from a diff hunk', () => {
-    // Counted before being dropped, so the denial is measurable rather than silent.
     expect(parsed.deniedClaimCounts.react_hook_missing_deps).toBe(1);
     expect(parsed.deniedClaimCounts.external_version_claim).toBe(1);
   });
 
-  // The version claim arrives labelled `other`, so the denylist only sees it once the parser
-  // relabels it. This family posted two P0s against SHA-pinned actions while CI was green.
+  // Arrives labelled `other`; this family posted two P0s against SHA-pinned actions while CI was green.
   it('relabels a version-existence claim before denying it', () => {
     expect(parsed.claimTypeCounts.external_version_claim).toBe(1);
     expect(parsed.comments.some((c) => c.title.includes('Invalid GitHub Action'))).toBe(false);
@@ -134,14 +121,13 @@ describe('the parse-time chain, composed', () => {
     expect(comment.fingerprint).toMatch(/^[0-9a-f]{8}$/);
     expect(comment.fingerprintV2).toMatch(/^[0-9a-f]{8}$/);
     expect(comment.anchorHash).toMatch(/^[0-9a-f]{8}$/);
-    // Anchored by the quote, not by the model's reported line number.
+    // Anchored by the quote, not the model's reported line number.
     expect(comment.line).toBe(12);
   });
 
 });
 
 describe('a clean response', () => {
-  // The parser must not invent findings from an empty array.
   it('produces no findings and approves', () => {
     const parsed = parseFileReviewResponse(
       '{"findings":[],"overall_explanation":"No issues.","overall_correctness":"patch is correct","overall_confidence_score":0.9}',
@@ -150,7 +136,6 @@ describe('a clean response', () => {
     );
 
     expect(parsed.comments).toEqual([]);
-    // No "Off-diff" section, because nothing was withheld either.
     expect(parsed.fileSummary).not.toContain('Off-diff');
     expect(parsed.verdict).toBe('approve');
     expect(parsed.evidenceStats.total).toBe(0);

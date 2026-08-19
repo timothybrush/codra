@@ -6,15 +6,15 @@
 // That is why this file is over the max-lines limit and carries an explicit eslint override rather
 // than being divided; the account/session half could move out, but the settings half cannot.
 
-import { getReviewSettings, updateReviewSettings } from '@codra/db/app-settings';
-import { reviewMaxFilesRange } from '@codra/schema';
-import { createApiRouter } from '@codra/api';
+import { getReviewSettings, updateReviewSettings } from '@codraoss/db/app-settings';
+import { reviewMaxFilesRange } from '@codraoss/schema';
+import { createApiRouter } from '@codraoss/api';
 
-import { queryRows, runWithDb } from '@codra/db/client';
+import { queryRows, runWithDb } from '@codraoss/db/client';
 
 import { syncUpdatesEmail } from '@server/core/updates-email';
 
-import type { AccountResponse, JobsResponse, UpdatesEmailResponse } from '@codra/schema/api';
+import type { AccountResponse, JobsResponse, UpdatesEmailResponse } from '@codraoss/schema/api';
 import { createTestEnv, dbDescribe } from '../helpers';
 import { vi } from 'vitest';
 

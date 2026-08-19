@@ -1,8 +1,8 @@
-import { GithubMark } from '@codra/ui';
+import { GithubMark } from '@codraoss/ui';
 import { useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Sun, Moon, ShieldCheck, ArrowLeft, AlertCircle } from 'lucide-react';
-import { useTheme } from '@codra/ui/theme';
+import { useTheme } from '@codraoss/ui/theme';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
 import codraLight from '@/assets/codra-fullicon-light.svg';
 

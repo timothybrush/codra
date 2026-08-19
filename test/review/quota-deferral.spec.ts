@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isRetryableModelError } from '@codra/models';
+import { isRetryableModelError } from '@codraoss/models';
 import { createTestEnv, saveTestProviderApiKey } from '../helpers';
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 import { makeModelFactory } from '@server/adapters/services';
 
 const file = {
@@ -14,7 +14,7 @@ const file = {
   previousPath: null,
 };
 
-// Mirrors Free-tier body: cool-off is in the message, not just headers.
+// Free-tier body puts cool-off in message, not headers.
 function quotaResponse(retryInSeconds: number, model = 'gemini-3.1-pro-preview') {
   return new Response(
     JSON.stringify({
@@ -34,7 +34,6 @@ function quotaResponse(retryInSeconds: number, model = 'gemini-3.1-pro-preview')
 describe('quota 429 handling', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  // Prevents subrequest blowouts by deferring files after two quota failures.
   it('stops walking a long fallback chain after two quota failures and defers the file', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => quotaResponse(56));
     const env = createTestEnv();
@@ -58,17 +57,15 @@ describe('quota 429 handling', () => {
       }),
     ).rejects.toSatisfy(isRetryableModelError);
 
-    // Defers after two model failures instead of exhausting the fallback chain.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const attempted = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(attempted.some((url) => url.includes('gemini-3.1-pro-preview'))).toBe(true);
     expect(attempted.some((url) => url.includes('gemini-2.5-pro'))).toBe(true);
-    // Only seeded GOOGLE_TEST_MODEL_IDS issue fetches, making assertions reliable.
+    // Only seeded GOOGLE_TEST_MODEL_IDS models fetch.
     expect(attempted.some((url) => url.includes('gemini-3.1-flash-lite'))).toBe(false);
   });
 });
 
-// Minimal successful review payload.
 function reviewResponse() {
   return new Response(
     JSON.stringify({
@@ -82,7 +79,7 @@ function reviewResponse() {
   );
 }
 
-// Only one token-metered head model to prevent early MAX_QUOTA_FAILURES_PER_FILE deferrals masking these tests.
+// Single metered head model avoids MAX_QUOTA_FAILURES_PER_FILE masking tests.
 const chain = {
   ...defaultRepoConfig,
   model: {
@@ -92,7 +89,7 @@ const chain = {
   },
 };
 
-// Google's free tier meters input tokens per minute. Tests verify that we learn from 429 bodies to avoid wasted subrequests.
+// Learns provider rate limits from 429 bodies to avoid wasted subrequests.
 describe('learning a provider rate limit from its own 429', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -103,7 +100,6 @@ describe('learning a provider rate limit from its own 429', () => {
     });
   }
 
-  // Skips cooling-off models for subsequent files to save subrequests.
   it('skips a cooling-off model for subsequent files instead of re-probing it', async () => {
     const fetchMock = googleMock(() => quotaResponse(56));
     const env = createTestEnv();
@@ -111,12 +107,10 @@ describe('learning a provider rate limit from its own 429', () => {
     const service = makeModelFactory(env)('job-x', undefined as any);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
-    // First file: metered model 429s, fallback answers.
     await service.reviewFile({ ...params, file });
     const afterFirst = fetchMock.mock.calls.length;
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('pro-preview'))).toBe(true);
 
-    // Second file: skips metered model, goes straight to fallback.
     fetchMock.mockClear();
     await service.reviewFile({ ...params, file: { ...file, path: 'src/second.ts' } });
 
@@ -125,7 +119,6 @@ describe('learning a provider rate limit from its own 429', () => {
     expect(afterFirst).toBeGreaterThan(1);
   });
 
-  // Prevents sending prompts larger than the entire learned token bucket.
   it('skips a model whose whole token bucket is smaller than the prompt', async () => {
     const fetchMock = googleMock(() => quotaResponse(1));
     const env = createTestEnv();
@@ -133,11 +126,11 @@ describe('learning a provider rate limit from its own 429', () => {
     const service = makeModelFactory(env)('job-x', undefined as any);
     const params = { prTitle: 'Test', prDescription: null, totalLineCount: 1, config: chain };
 
-    // Teach 16k bucket with small file, let cool-off lapse.
+    // Teach bucket size, then let cool-off lapse.
     await service.reviewFile({ ...params, file });
     await new Promise((resolve) => setTimeout(resolve, 1100));
 
-    // 300 long lines exceeds 16k tokens, but fits chunk cap.
+    // Exceeds 16k tokens but fits chunk cap.
     const hugeFile = {
       ...file,
       path: 'src/huge.ts',
@@ -156,12 +149,10 @@ describe('learning a provider rate limit from its own 429', () => {
     fetchMock.mockClear();
     await service.reviewFile({ ...params, file: hugeFile });
 
-    // Size rule works even after cool-off expires.
     expect(fetchMock.mock.calls.map((c) => String(c[0])).some((url) => url.includes('pro-preview'))).toBe(false);
     expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
-  // Persisted cooldowns survive invocations, eliminating the largest source of wasted input tokens.
   it('carries a cool-off to the next invocation of the same job', async () => {
     const fetchMock = googleMock(() => quotaResponse(56));
     // MemoryKV mimics continuation handoff.
@@ -178,7 +169,6 @@ describe('learning a provider rate limit from its own 429', () => {
     const next = makeModelFactory(env)('job-continuation', undefined as any);
     await next.reviewFile({ ...params, file: { ...file, path: 'src/second.ts' } });
 
-    // Metered model correctly skipped.
     expect(fetchMock.mock.calls.map((c) => String(c[0])).some((url) => url.includes('pro-preview'))).toBe(false);
     expect(fetchMock.mock.calls).toHaveLength(1);
   });
@@ -191,14 +181,13 @@ describe('learning a provider rate limit from its own 429', () => {
 
     await makeModelFactory(env)('job-a', undefined as any).reviewFile({ ...params, file });
 
-    // Unrelated jobs must not inherit cool-offs (which could silently narrow coverage).
+    // Unrelated jobs must not inherit cool-offs.
     fetchMock.mockClear();
     await makeModelFactory(env)('job-b', undefined as any).reviewFile({ ...params, file });
 
     expect(fetchMock.mock.calls.map((c) => String(c[0])).some((url) => url.includes('pro-preview'))).toBe(true);
   });
 
-  // Small files correctly return to stronger models after cool-off lapses.
   it('returns to the primary model once its cool-off has expired', async () => {
     let meteredCalls = 0;
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

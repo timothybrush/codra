@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import type { RepoConfig } from '@codra/schema';
+import type { RepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '../diff';
 import { renderFileDiff, type RejectedExemplar } from '../prompts/file-review';
 import type { BulkFileReviewInput, PullRequestRecord, ReviewModel, ReviewRuntime } from '../ports';
@@ -36,6 +36,7 @@ export async function reviewAndPersistBin(
   model: ReviewModel,
   resolveFailureModelProvider: () => Promise<string | null>,
   rejectedExemplars: readonly RejectedExemplar[] = [],
+  changelogExcerpt: string | null = null,
 ): Promise<number> {
   const startedAt = env.clock.now();
 
@@ -66,6 +67,7 @@ export async function reviewAndPersistBin(
       files,
       prTitle: pr.title ?? null,
       prDescription: pr.body ?? null,
+      changelogExcerpt,
       config,
       totalLineCount,
       rejectedExemplars,
@@ -101,7 +103,11 @@ export async function reviewAndPersistBin(
             + (parsed.evidenceStats?.absent ?? 0)
             + (parsed.evidenceStats?.weak ?? 0),
           claimDenied: Object.values(parsed.deniedClaimCounts ?? {}).reduce((sum, n) => sum + n, 0),
+          contextOnly: parsed.evidenceStats?.contextOnly ?? 0,
+          absenceRefuted: parsed.absenceCheckStats?.refuted ?? 0,
         },
+        // The whole bin shared one call, so every member inherits its degradation.
+        degraded: response.degraded ?? null,
         batchSize: files.length,
       };
     });

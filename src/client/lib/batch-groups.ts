@@ -1,4 +1,4 @@
-import type { FileReviewRecord } from '@codra/schema';
+import type { FileReviewRecord } from '@codraoss/schema';
 
 // Bin membership is never persisted (pack.ts derives it rather than storing it). But every file in
 // a bin is written with the SAME shared response, so grouping on `rawAiOutput` reconstructs the bins

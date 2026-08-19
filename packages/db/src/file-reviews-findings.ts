@@ -1,8 +1,8 @@
 import type { DbEnv } from './env';
-import type { SuppressedFinding } from '@codra/core/ports';
+import type { SuppressedFinding } from '@codraoss/core/ports';
 import { queryRows } from './client';
 
-export type { SuppressedFinding } from '@codra/core/ports';
+export type { SuppressedFinding } from '@codraoss/core/ports';
 
 // Findings already posted on an EARLIER commit with the anchored line unchanged, or rejected by a human anywhere in this repository.
 // `j.commit_sha <> me.commit_sha` is load-bearing: retries and mention-triggered re-reviews reuse the SAME head commit.

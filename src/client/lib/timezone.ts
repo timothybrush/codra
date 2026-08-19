@@ -1,20 +1,15 @@
-import { isSupportedTimeZone } from '@codra/schema/timezone';
+import { isSupportedTimeZone } from '@codraoss/schema/timezone';
 
-/**
- * Display timezone for dashboard timestamps; storage is always TIMESTAMPTZ, so this is purely
- * presentation. The preference lives on `account_settings.timezone`, mirrored into localStorage so
- * first paint needn't wait on a fetch. Defaults to UTC, not the browser zone, so a timestamp reads
- * the same for everyone until chosen.
- */
+// Purely presentation; storage is always TIMESTAMPTZ. Mirrored to localStorage so first paint
+// skips the fetch. Defaults to UTC (not browser zone) so a timestamp reads the same for everyone.
 
 const STORAGE_KEY = 'codra-timezone';
 
-/** Display zone used when the account hasn't chosen one. */
 export const DEFAULT_TIME_ZONE = 'UTC';
 
 let cached: string | null | undefined;
 
-/** The zone the user explicitly chose, or null when falling back to the UTC default. */
+// null means falling back to UTC default, not "unset".
 export function getStoredTimeZone(): string | null {
   if (cached !== undefined) return cached;
   try {
@@ -32,11 +27,10 @@ export function setStoredTimeZone(zone: string | null) {
     if (cached) localStorage.setItem(STORAGE_KEY, cached);
     else localStorage.removeItem(STORAGE_KEY);
   } catch {
-  // Non-fatal: we still hold the value in memory for this session.
+  // storage write failed; value still held in memory
   }
 }
 
-/** The zone used for formatting - the stored choice, else UTC. */
 export function resolvedTimeZone(): string {
   return getStoredTimeZone() ?? DEFAULT_TIME_ZONE;
 }
@@ -49,7 +43,6 @@ export function browserTimeZone(): string {
   }
 }
 
-/** Short GMT offset label for a zone, e.g. "GMT+5:30" - used in the picker. */
 export function timeZoneOffsetLabel(zone: string): string {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -62,7 +55,6 @@ export function timeZoneOffsetLabel(zone: string): string {
   }
 }
 
-/** Formats in the display zone. Invalid input is returned as-is, never as "Invalid Date". */
 export function formatDateTime(
   value: string | number | Date,
   options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' },
@@ -72,7 +64,7 @@ export function formatDateTime(
   try {
     return date.toLocaleString(undefined, { ...options, timeZone: resolvedTimeZone() });
   } catch {
-    // Intl throws for an unknown zone or illegal option combo; retry without `options`.
+    // Intl throws on bad zone/options combo; retry without options
     try {
       return date.toLocaleString(undefined, { timeZone: resolvedTimeZone() });
     } catch {
@@ -81,10 +73,7 @@ export function formatDateTime(
   }
 }
 
-/**
- * Formats a date-ONLY value (`YYYY-MM-DD`), which the server already resolved into the display
- * zone. Parsed and rendered as UTC so the label is the literal day; another zone would shift it.
- */
+// value is date-only, already resolved by server; parse/render as UTC or the day shifts
 export function formatDayLabel(
   day: string,
   options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' },
@@ -98,7 +87,6 @@ export function formatDayLabel(
   }
 }
 
-/** A curated zone list for the picker; the browser's own zone is folded in. */
 export const COMMON_TIME_ZONES: string[] = [
   'UTC',
   'America/Los_Angeles',

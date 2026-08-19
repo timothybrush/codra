@@ -1,11 +1,11 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CheckCircle2, ClipboardList, TriangleAlert } from 'lucide-react';
-import type { JobDetail } from '@codra/schema';
-import { reviewSeverities } from '@codra/schema/review-limits';
+import type { JobDetail } from '@codraoss/schema';
+import { reviewSeverities } from '@codraoss/schema/review-limits';
 import { OutlinePill } from './job-chips';
 
-import { safeRehypePlugins } from '@codra/ui/markdown-plugins';
+import { safeRehypePlugins } from '@codraoss/ui/markdown-plugins';
 interface JobReviewOverviewProps {
   job: JobDetail;
 }

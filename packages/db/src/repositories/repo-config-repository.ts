@@ -1,4 +1,4 @@
-import type { RepoConfigStore } from '@codra/core/ports';
+import type { RepoConfigStore } from '@codraoss/core/ports';
 import type { DbEnv } from '../env';
 import { getRepoConfigRecord, syncRepoConfig } from '../repo-configs';
 

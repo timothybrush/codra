@@ -1,2 +1,2 @@
-// Moved to @codra/core/claim-checks; see the note in ./fingerprint.ts.
-export * from '@codra/core/claim-checks';
+// Moved to @codraoss/core/claim-checks; see the note in ./fingerprint.ts.
+export * from '@codraoss/core/claim-checks';

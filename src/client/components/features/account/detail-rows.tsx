@@ -1,6 +1,6 @@
-import { LayerCard, Skeleton, Text } from '@codra/ui';
+import { LayerCard, Skeleton, Text } from '@codraoss/ui';
 import { useState } from 'react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 
 export function DetailGroup({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (

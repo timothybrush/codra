@@ -1,7 +1,7 @@
 import worker from '../../apps/worker/src/index';
-import { claimJobLease, getJobForProcessing, insertJob, markJobContinuationQueued, recoverExpiredJobLeases, releaseJobLease } from '@codra/db/jobs';
-import { getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@codra/db/file-reviews';
-import { getDb } from '@codra/db/client';
+import { claimJobLease, getJobForProcessing, insertJob, markJobContinuationQueued, recoverExpiredJobLeases, releaseJobLease } from '@codraoss/db/jobs';
+import { getFileReviewsForJobs, recordRetryableFileReviewFailure, upsertFileReview } from '@codraoss/db/file-reviews';
+import { getDb } from '@codraoss/db/client';
 import { createTestEnv, dbDescribe, sha, uniqueName } from '../helpers';
 
 

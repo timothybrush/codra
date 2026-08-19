@@ -1,7 +1,7 @@
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import type { ApiEnv } from './ports';
-import type { DashboardSessionUser } from '@codra/core/ports';
+import type { DashboardSessionUser } from '@codraoss/core/ports';
 
 const SESSION_COOKIE_NAME = 'codra_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;

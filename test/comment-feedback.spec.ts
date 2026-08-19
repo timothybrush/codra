@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createApiRouter } from '@codra/api';
+import { createApiRouter } from '@codraoss/api';
 import { createTestEnv } from './helpers';
 import { FormatterService, formatFindingMarker, parseFindingMarker } from '@server/services/formatter';
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 import { signPayload } from './mocks/fixtures';
 

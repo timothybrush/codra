@@ -1,9 +1,9 @@
 import { submitCloudflareBatch, pollCloudflareBatch } from '../providers/cloudflare';
-import { buildFileReviewPrompts, buildReviewResponseSchema } from '@codra/core/prompts/file-review';
-import { parseFileReviewResponse } from '@codra/core/model-output';
-import { truncateFileDiff } from '@codra/core/diff';
-import { logger } from '@codra/core/logger';
-import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
+import { buildFileReviewPrompts, buildReviewResponseSchema, reviewBreadth } from '@codraoss/core/prompts/file-review';
+import { parseFileReviewResponse } from '@codraoss/core/model-output';
+import { truncateFileDiff } from '@codraoss/core/diff';
+import { logger } from '@codraoss/core/logger';
+import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
 import type { ModelResponse } from '../types';
 import { COMPACT_REVIEW_PROMPT_LINE_CAP, type ModelReviewContext } from './model-review-file';
 
@@ -13,8 +13,10 @@ import { COMPACT_REVIEW_PROMPT_LINE_CAP, type ModelReviewContext } from './model
 // Returns null when unusable for the primary model, in which case the caller falls back to synchronous reviewFile.
 export async function submitReviewBatch(ctx: ModelReviewContext, params: {
   file: any;
+  fileContext?: string | null;
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   compactPrompt?: boolean;
@@ -50,7 +52,7 @@ export async function submitReviewBatch(ctx: ModelReviewContext, params: {
       submitCloudflareBatch(
         ctx.aiBinding!,
         resolved.modelName,
-        { systemPrompt, userPrompt, responseSchema: buildReviewResponseSchema(params.config.review.max_comments) },
+        { systemPrompt, userPrompt, responseSchema: buildReviewResponseSchema(reviewBreadth(params.config.review)) },
         ctx.tracker,
       ),
     );

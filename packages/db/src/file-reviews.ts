@@ -1,5 +1,5 @@
 import type { DbEnv } from './env';
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 import { parseJsonColumn, queryRows, queryTransaction } from './client';
 import {
@@ -61,7 +61,10 @@ export async function upsertFileReview(
     confidenceScore?: number | null;
     errorMessage: string | null;
     // Findings dropped in the PARSER have no review_comments row to carry a disposition; without this, "everything was withheld" is indistinguishable from clean.
-    withheldCounts?: { evidence: number; claimDenied: number } | null;
+    withheldCounts?: { evidence: number; claimDenied: number; contextOnly?: number; absenceRefuted?: number } | null;
+    // The call answered, but not cleanly: it ran without a response grammar, or its output was cut off
+    // and salvaged. Persisted rather than logged so "how often did this happen" is a query.
+    degraded?: string | null;
     // Async batch bookkeeping: set on submit to the Workers AI queue, cleared once the batch completes.
     asyncRequestId?: string | null;
     asyncModel?: string | null;
@@ -90,9 +93,10 @@ export async function upsertFileReview(
           async_request_id,
           async_model,
           withheld_counts,
+          degraded,
           batch_size
         )
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text::jsonb, 1)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text::jsonb, $20, 1)
         ON CONFLICT (job_id, file_path) DO UPDATE SET
           file_status = EXCLUDED.file_status,
           model_used = EXCLUDED.model_used,
@@ -111,6 +115,7 @@ export async function upsertFileReview(
           async_request_id = EXCLUDED.async_request_id,
           async_model = EXCLUDED.async_model,
           withheld_counts = EXCLUDED.withheld_counts,
+          degraded = EXCLUDED.degraded,
           batch_size = EXCLUDED.batch_size,
           transient_error_count = 0
         RETURNING id
@@ -136,6 +141,7 @@ export async function upsertFileReview(
         input.asyncModel ?? null,
         // JSON text to ::text::jsonb placeholder prevents string-scalar bugs.
         input.withheldCounts ? JSON.stringify(input.withheldCounts) : null,
+        input.degraded ?? null,
       ],
     );
 

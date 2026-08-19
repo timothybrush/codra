@@ -5,6 +5,8 @@ import {
   BIN_TARGET_DIFF_LINES,
   BIN_MAX_FILES,
   BIN_DIFF_CHAR_BUDGET,
+  FRAGMENTED_HUNK_THRESHOLD,
+  FRAGMENTED_MIN_LINES,
 } from '../constants';
 
 export type ReviewUnit =
@@ -19,6 +21,13 @@ export function unitFiles(unit: ReviewUnit): FileDiff[] {
 
 const measure = (file: FileDiff) => renderFileDiff(file).length;
 
+/** Changes scattered thinly across a file rather than concentrated in one place. */
+export function isFragmented(file: FileDiff): boolean {
+  return file.hunks.length >= FRAGMENTED_HUNK_THRESHOLD
+    && file.lineCount >= FRAGMENTED_MIN_LINES
+    && !file.isNew;
+}
+
 const asBin = (files: FileDiff[]): ReviewUnit => (files.length === 1
   ? { kind: 'single', file: files[0] }
   : {
@@ -28,7 +37,10 @@ const asBin = (files: FileDiff[]): ReviewUnit => (files.length === 1
     diffChars: files.reduce((sum, f) => sum + measure(f), 0),
   });
 
-export function planReviewUnits(files: readonly FileDiff[], opts: { enabled: boolean }): ReviewUnit[] {
+export function planReviewUnits(
+  files: readonly FileDiff[],
+  opts: { enabled: boolean; fullFileContext?: boolean },
+): ReviewUnit[] {
   if (!opts.enabled) return files.map((file) => ({ kind: 'single', file }));
 
   const units: ReviewUnit[] = [];
@@ -45,7 +57,8 @@ export function planReviewUnits(files: readonly FileDiff[], opts: { enabled: boo
 
   for (const file of files) {
     const fileChars = measure(file);
-    if (file.lineCount > PACKABLE_MAX_DIFF_LINES || fileChars > BIN_DIFF_CHAR_BUDGET) {
+    const promoteForContext = opts.fullFileContext === true && isFragmented(file);
+    if (promoteForContext || file.lineCount > PACKABLE_MAX_DIFF_LINES || fileChars > BIN_DIFF_CHAR_BUDGET) {
       close();
       units.push({ kind: 'single', file });
       continue;

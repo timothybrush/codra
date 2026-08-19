@@ -1,6 +1,6 @@
-import { Badge, Button, Switch } from '@codra/ui';
+import { Badge, Button, Switch } from '@codraoss/ui';
 import { Settings2 } from 'lucide-react';
-import type { RepoConfigRecord } from '@codra/schema';
+import type { RepoConfigRecord } from '@codraoss/schema';
 import { describeModelRoute, type ModelOption, type ModelRouteConfig } from '@client/components/features/models/model-route';
 import { getRepoRoute, hasMeaningfulCustomStrategy, formatLastActivity, type GlobalModelConfig } from './repo-route';
 

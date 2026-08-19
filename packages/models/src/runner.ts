@@ -1,15 +1,15 @@
-import type { KvStore, SecretStore } from '@codra/core/ports';
+import type { KvStore, SecretStore } from '@codraoss/core/ports';
 import type { CloudflareAiBinding } from './providers/cloudflare';
 import { reviewWithGoogle } from './providers/google';
 import { reviewWithVertex } from './providers/vertex';
 import { reviewWithCloudflare } from './providers/cloudflare';
 import { reviewWithOpenAI } from './providers/openai';
 import { reviewWithAnthropic } from './providers/anthropic';
-import type { VerifyCandidate } from '@codra/core/prompts/verify';
-import type { RepoConfig, ResolvedModelConfig  } from '@codra/schema';
-import type { TokenTracker } from '@codra/core/token-tracker';
+import type { VerifyCandidate } from '@codraoss/core/prompts/verify';
+import type { RepoConfig, ResolvedModelConfig  } from '@codraoss/schema';
+import type { TokenTracker } from '@codraoss/core/token-tracker';
 import type { ModelInput, ModelResponse } from './types';
-import { logger } from '@codra/core/logger';
+import { logger } from '@codraoss/core/logger';
 import { decryptLlmApiKey } from './llm-crypto';
 import {
   isSchemaDroppedError,
@@ -20,40 +20,36 @@ import { ModelRateLimitBook } from './internal/model-rate-limits';
 import { ModelChainProgressStore } from './internal/model-chain-progress';
 import { type ModelChainContext, generateSummary, verifyFindings } from './internal/model-chain-runner';
 import { type ModelReviewContext, reviewFile, reviewFiles } from './internal/model-review-file';
-// Re-exported so test doubles can be typed against the real batched-review shape.
+// Re-exported so test doubles can be typed against the real shape.
 export type { BatchReviewOutcome } from './internal/model-review-file';
 import { pollReviewBatch, submitReviewBatch } from './internal/model-review-batch';
 
-// Re-exported: core/review.ts and two specs import these from '@codra/models'.
+// Re-exported: core/review.ts and two specs import these.
 export { RetryableModelError, isRetryableModelError, nextChainIndexOf } from './internal/model-support';
 
-// Re-exported so the batch-prompt budget test asserts against these constants, not a copy.
 export { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from './internal/model-support';
-// Re-exported so its unit spec can reach it without a sibling import (no-restricted-imports).
+// Re-exported to avoid a sibling import (no-restricted-imports).
 export { ModelChainProgressStore } from './internal/model-chain-progress';
-// Same reason: the 429-parsing spec asserts against the real implementation, not a copy.
 export { isPlausibleTokenBucket, parseRateLimitFromError } from './internal/model-support';
 
 const PROVIDER_UNAVAILABLE_TTL_SECONDS = 24 * 60 * 60;
 export class ModelRunner {
-  // Caches the in-flight PROMISE (not just the result), so concurrent calls for a model await one request.
+  // Caches the in-flight promise so concurrent calls for a model share one request.
   private readonly resolvedModelCache = new Map<string, Promise<ResolvedModelConfig | null>>();
 
-  // Rate-limit learning plus the connection/token gates, keyed by MODEL, not provider.
-  // Backed by chainProgress so learned cool-offs outlive the invocation; assigned in the constructor
-  // because it depends on it.
+  // Keyed by model, not provider; backed by chainProgress so cool-offs persist across invocations.
   private readonly rateLimits: ModelRateLimitBook;
 
-  // Provider-unavailable markers live in KV and can't flip set-to-unset within one invocation, so cache them per instance.
+  // KV can't flip unavailable to available within one invocation, so cache per instance.
   private readonly providerUnavailableCache = new Map<string, Promise<boolean>>();
 
-  // Models proven this invocation not to support async batching, so later files skip the probe.
+  // Confirmed unsupported for async batching this invocation; skip re-probing.
   private readonly asyncUnsupportedModels = new Set<string>();
 
-  // Same idea for constrained decoding: `(provider, model, grammar)` triples that were refused, keyed by grammar so one oversized bin doesn't disable the single-file grammar too.
+  // Same, for constrained decoding, keyed by grammar so one refusal doesn't disable others.
   private readonly schemaUnsupportedModels = new Set<string>();
 
-  // How far down the chain each file already got, so a deferral resumes instead of replaying.
+  // Per-file progress so a deferral resumes instead of replaying.
   private readonly chainProgress: ModelChainProgressStore;
 
   constructor(
@@ -100,7 +96,6 @@ export class ModelRunner {
     const key = this.providerUnavailableKey(providerId);
     if (!key) return;
 
-    // Keep the in-invocation cache consistent with what we just wrote.
     this.providerUnavailableCache.set(providerId, Promise.resolve(true));
 
     try {
@@ -154,10 +149,10 @@ export class ModelRunner {
     const normalized = normalizeModel(model);
     let pending = this.resolvedModelCache.get(normalized);
     if (!pending) {
-      // Cache the DB answer, including a null "not configured", so it isn't re-queried per file.
+      // Cache the null "not configured" result too, so it isn't requeried.
       pending = this.deps.getConfig(normalized);
       this.resolvedModelCache.set(normalized, pending);
-      // Don't let a transient DB error poison the cache; drop it so the next call retries.
+      // Drop cache entry on error so the next call retries.
       pending.catch(() => this.resolvedModelCache.delete(normalized));
     }
     const resolved = await pending;
@@ -183,10 +178,10 @@ export class ModelRunner {
     config: ResolvedModelConfig,
     input: ModelInput,
     timeoutMs?: number,
-    // Reports queue time so a caller budgeting wall clock can exclude it.
+    // Excludes queue wait from the caller's timing budget.
     onGateWait?: (waitedMs: number) => void,
   ): Promise<ModelResponse> {
-    // Resolve credentials BEFORE taking a gate slot, so slow KV/crypto work never occupies one.
+    // Resolve credentials before the gate slot so slow work doesn't hold one.
     if (config.apiFormat === 'cloudflare-workers-ai') {
       if (!this.deps.aiBinding) {
         throw new Error(`Provider ${config.providerName} requires a Cloudflare AI binding, but none was provided.`);
@@ -202,7 +197,7 @@ export class ModelRunner {
       let response: ModelResponse;
       try {
         response = await this.rateLimits.runGated(config, onGateWait, () => {
-          // Read inside the gate: hoisted, the opening wave would all see "not yet known" and probe.
+          // Read inside the gate: a hoisted read would race the opening wave.
           const gatedInput = this.schemaUnsupportedModels.has(schemaKey)
             ? { ...input, responseSchema: undefined }
             : input;
@@ -214,12 +209,11 @@ export class ModelRunner {
           );
         });
       } catch (error) {
-        // Latch on failure too: the probe already proved the grammar is refused, and without this a
-        // schema-dropped attempt that then 429s re-pays the 400 plus a full prompt on the next call.
+        // Latch failure too, so a schema-dropped retry doesn't repay the 400 and full prompt.
         if (isSchemaDroppedError(error)) this.schemaUnsupportedModels.add(schemaKey);
         throw error;
       }
-      if (response.degraded === 'schema-dropped') {
+      if (response.degraded === 'schema-dropped' || response.degraded === 'schema-dropped-catchall') {
         this.schemaUnsupportedModels.add(schemaKey);
       }
       return response;
@@ -269,7 +263,6 @@ export class ModelRunner {
     return this.callResolvedModel(await this.resolveModel(model), input, timeoutMs);
   }
 
-  // chainCtx() plus the review flow's extra per-invocation state.
   private reviewCtx(): ModelReviewContext {
     return {
       ...this.chainCtx(),
@@ -284,7 +277,7 @@ export class ModelRunner {
     return reviewFile(this.reviewCtx(), params);
   }
 
-  // Several small files in one call; `batch.missing` files must not be recorded as reviewed.
+  // batch.missing files must not be recorded as reviewed.
   async reviewFiles(params: Parameters<typeof reviewFiles>[1]) {
     return reviewFiles(this.reviewCtx(), params);
   }
@@ -297,7 +290,6 @@ export class ModelRunner {
     return pollReviewBatch(this.reviewCtx(), params);
   }
 
-  // Hands the extracted flows the private model-chain surface. Built per call; holds no state.
   private chainCtx(): ModelChainContext {
     return {
       selectModel: (params) => this.selectModel(params),

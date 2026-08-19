@@ -1,16 +1,16 @@
-import type { DashboardSessionUser, SessionStore, ReviewRuntime } from '@codra/core/ports';
+import type { DashboardSessionUser, SessionStore, ReviewRuntime } from '@codraoss/core/ports';
 
 // Type stubs that represent what the API layer requires.
-// By importing types from @codra/db, we avoid a runtime dependency while retaining type safety.
-import type * as dbAccounts from '@codra/db/accounts';
-import type * as dbJobs from '@codra/db/jobs';
-import type * as dbFileReviews from '@codra/db/file-reviews';
-import type * as dbCommentFeedback from '@codra/db/comment-feedback';
-import type * as dbModelConfigs from '@codra/db/model-configs';
-import type * as dbRepoConfigs from '@codra/db/repo-configs';
-import type * as dbAppSettings from '@codra/db/app-settings';
-import type * as dbStats from '@codra/db/stats';
-import type * as dbWebhookDeliveries from '@codra/db/webhook-deliveries';
+// By importing types from @codraoss/db, we avoid a runtime dependency while retaining type safety.
+import type * as dbAccounts from '@codraoss/db/accounts';
+import type * as dbJobs from '@codraoss/db/jobs';
+import type * as dbFileReviews from '@codraoss/db/file-reviews';
+import type * as dbCommentFeedback from '@codraoss/db/comment-feedback';
+import type * as dbModelConfigs from '@codraoss/db/model-configs';
+import type * as dbRepoConfigs from '@codraoss/db/repo-configs';
+import type * as dbAppSettings from '@codraoss/db/app-settings';
+import type * as dbStats from '@codraoss/db/stats';
+import type * as dbWebhookDeliveries from '@codraoss/db/webhook-deliveries';
 
 export interface RepositoriesPort {
   accounts: typeof dbAccounts;

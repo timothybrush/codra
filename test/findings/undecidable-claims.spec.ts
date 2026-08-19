@@ -3,12 +3,8 @@ import { looksLikeExternalVersionClaim, refuteUndecidableClaim } from '@server/c
 import { parseFileReviewResponse } from '@server/core/model-output';
 import type { FileDiff } from '@server/core/diff';
 
-// The fixtures below are the VERBATIM titles and bodies of findings codra posted on its own PR #86.
-// Every one was checked against the repository and every one was false, and each was false for the
-// same reason: it asserted something settled outside the diff -- an installed package's API surface,
-// whether a symbol has consumers, or which runtime the code lands on. All five survived evidence
-// grounding (their quoted lines were real) and the verification pass agreed with all of them, because
-// the verifier shares the generator's knowledge gap. Deterministic refutation is the only gate left.
+// Verbatim PR #86 findings: all false, all asserting facts outside the diff. Evidence grounding
+// and the verifier both passed them, so only deterministic refutation catches this.
 const PR86 = {
   zodApi: {
     title: 'Invalid Zod schema method call',
@@ -33,8 +29,7 @@ const PR86 = {
 } as const;
 
 describe('library-API claims route into the external-version denial', () => {
-  // The pattern list already covered "does not exist"; this claim said "does not expose", so it
-  // sailed through as `other` -- which CLAIM_TYPE_DECIDABILITY marks diff_local -- and posted as a P0.
+  // "does not expose" slipped past the exact-phrase list into `other` (diff_local), posting as P0.
   it('recognises the z.uuid() claim from PR #86', () => {
     expect(looksLikeExternalVersionClaim(PR86.zodApi.title, PR86.zodApi.body)).toBe(true);
   });
@@ -49,7 +44,7 @@ describe('library-API claims route into the external-version denial', () => {
     }
   });
 
-  // The relabel must not swallow ordinary findings that happen to discuss what code does not do.
+  // Must not swallow ordinary findings about what code does not do.
   it('leaves claims about the code in the diff alone', () => {
     for (const body of [
       'The catch block does not rethrow, so the caller sees a success it never got.',
@@ -67,7 +62,6 @@ describe('cross-file breakage claims are undecidable from a diff', () => {
     expect(refuteUndecidableClaim(PR86.removedExportChain)).toBe('cross-file');
   });
 
-  // Two signals are required, so neither half alone suppresses anything.
   it('does not refute on a cross-file mention with no predicted breakage', () => {
     expect(refuteUndecidableClaim({
       title: 'Duplicated helper',
@@ -97,7 +91,6 @@ describe('environment-conditional claims are undecidable from a diff', () => {
   });
 
   it('does not refute a definite statement about a real environment constraint', () => {
-    // No hedge: the claim is that the code as written cannot work here, which the diff can settle.
     expect(refuteUndecidableClaim({
       title: 'Node API used in a Worker',
       body: 'This calls `fs.readFileSync`, which the Workers runtime does not implement at all.',
@@ -106,8 +99,7 @@ describe('environment-conditional claims are undecidable from a diff', () => {
 });
 
 describe('the guards leave genuine findings untouched', () => {
-  // The five defects codra posts most reliably on the benchmark corpus. If any of these start being
-  // refuted, a guard has gone too far.
+  // Five defects codra posts most reliably; if any get refuted, a guard is too aggressive.
   it('passes through the high-confidence defect families', () => {
     for (const fixture of [
       { title: 'SQL injection in findUserByEmail', body: 'The email is interpolated straight into the statement, so a crafted address changes the query.' },
@@ -123,9 +115,8 @@ describe('the guards leave genuine findings untouched', () => {
 });
 
 describe('an empty code_suggestion must not destroy the finding', () => {
-  // Observed 256 times across an 800-review sweep. `codeSuggestion` is z.string().min(1), so a model
-  // that emits `"code_suggestion": ""` used to throw a ZodError inside buildParsedComment and lose the
-  // whole comment as `unverified:unassemblable` -- including real defects.
+  // Hit 256/800 reviews: empty code_suggestion (min length 1) threw a ZodError, dropping the whole
+  // comment as unverified:unassemblable, real defects included.
   const file: FileDiff = {
     path: 'src/auth/session.ts',
     previousPath: null,
@@ -162,7 +153,7 @@ describe('an empty code_suggestion must not destroy the finding', () => {
       expect(parsed.comments).toHaveLength(1);
       expect(parsed.comments[0].title).toBe('Fallback to a hardcoded session secret');
       expect(parsed.comments[0].codeSuggestion).toBeUndefined();
-      // And the empty fence must not reach the posted body either.
+      // Empty fence must not reach the posted body.
       expect(parsed.comments[0].body).not.toContain('```suggestion');
     });
   }
@@ -176,10 +167,8 @@ describe('an empty code_suggestion must not destroy the finding', () => {
 });
 
 describe('claims about a callee handling its own errors are undecidable', () => {
-  // Posted as a P1 on codra's own PR #86 after the first round of guards shipped. `loadCooldowns`
-  // already wraps its only failure path in try/catch -- in another file, with a comment saying "never
-  // fail the review for it" -- so the rejection the claim depends on cannot occur. The verifier
-  // nonetheless marked it `decidable: true`, which is why this needs a deterministic gate too.
+  // loadCooldowns already try/catches its only failure path, in another file; verifier still marked
+  // this decidable.
   const PR86_SECOND_ROUND = {
     title: 'Unhandled promise rejection in async initializer',
     body: 'The `hydrate` method uses an async IIFE to initialize state. If the `this.persistence.loadCooldowns()` call fails (a network call or database query), the resulting promise rejection will be unhandled as it is assigned to `this.hydrated` without a `.catch()` block or internal try/catch. This can lead to unhandled promise rejections and potential process crashes in some environments.',
@@ -198,7 +187,7 @@ describe('claims about a callee handling its own errors are undecidable', () => 
     }
   });
 
-  // The visible-code equivalents must still get through: these are about what the diff itself does.
+  // These describe visible code, not an unseen callee.
   it('leaves claims about error handling in the shown code alone', () => {
     for (const body of [
       'The catch block returns true, so any error during verification authenticates the request.',

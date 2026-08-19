@@ -4,29 +4,31 @@ import {
   buildFileReviewPrompts,
   buildReviewResponseSchema,
   type RejectedExemplar,
-} from '@codra/core/prompts/file-review';
-import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '@codra/core/model-output';
+} from '@codraoss/core/prompts/file-review';
+import { isNonAnswerReview, parseBatchReviewResponse, parseFileReviewResponse, type BatchReviewResult } from '@codraoss/core/model-output';
 import { UnparseableModelResponseError } from '../types';
-import { chunkFileDiff, type FileDiff } from '@codra/core/diff';
+import { chunkFileDiff, type FileDiff } from '@codraoss/core/diff';
 import { adaptiveModelTimeoutMs, reviewOutputBudgetTokens } from '../limits';
-import { generatorFindingCap } from '@codra/core/prompts/file-review';
+import { reviewBreadth } from '@codraoss/core/prompts/file-review';
 import { mergeCounts } from './model-support';
 import { type ModelReviewContext, runModelChain } from './model-review-chain';
-import { logger } from '@codra/core/logger';
-import type { RepoConfig } from '@codra/schema';
+import { logger } from '@codraoss/core/logger';
+import type { RepoConfig } from '@codraoss/schema';
 import type { ModelResponse } from '../types';
 
-// Import from the services/model barrel, not here (four specs vi.mock it).
+// vi.mock targets services/model barrel; import model from there, not here.
 
 export const COMPACT_REVIEW_PROMPT_LINE_CAP = 400;
-// Budget required before a chunk past BASE_CHUNKS runs, so a tail chunk only spends while another whole file still fits.
+// Reserve so tail chunks only run if budget still fits another whole file.
 const EXTRA_CHUNK_BUDGET_RESERVE = 8;
 export type { ModelReviewContext };
 
 export async function reviewFile(ctx: ModelReviewContext, params: {
   file: any;
+  fileContext?: string | null;
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   compactPrompt?: boolean;
@@ -38,10 +40,8 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     : configuredLineCap;
 
   let chunks = chunkFileDiff(params.file, modelLineCap);
-  // Pre-cap count, so wasPromptTruncated doesn't re-run chunkFileDiff.
   const totalChunkCount = chunks.length;
 
-  // Past BASE_CHUNKS is opportunistic, only on spare budget.
   const BASE_CHUNKS = 4;
   const MAX_CHUNKS = 8;
   if (chunks.length > MAX_CHUNKS) {
@@ -56,13 +56,13 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
   const { path: filePath } = params.file;
 
   for (const [chunkIndex, chunk] of chunks.entries()) {
-    // No new chunk when close to the 50-subrequest limit.
+    // isNearLimit guards the ~50-subrequest cap.
     if (results.length > 0 && ctx.tracker?.isNearLimit()) {
       logger.warn(`Stopping chunk processing for ${filePath} early due to subrequest budget limits.`);
       break;
     }
 
-    // Needs spare budget, not merely remaining: isNearLimit() only fires once in-flight files are already starved.
+    // Needs spare budget, not just remaining: isNearLimit only trips once already starved.
     if (chunkIndex >= BASE_CHUNKS) {
       const remaining = ctx.tracker?.remainingSafeBudget() ?? Number.POSITIVE_INFINITY;
       if (remaining < EXTRA_CHUNK_BUDGET_RESERVE) {
@@ -81,7 +81,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
       results.push(res as any);
     } catch (error) {
       if (results.length === 0) {
-        throw error; // First chunk failed, let it defer/fail properly
+        throw error;
       }
       logger.warn(`Chunk review failed for ${filePath}, returning partial results to avoid stalling the job.`, { error: error instanceof Error ? error.message : String(error) });
       break;
@@ -89,7 +89,7 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
   }
 
   const combinedFindings = results.flatMap(r => r.parsed.comments);
-  // Most serious chunk's verdict, not the last: a clean final chunk would mask earlier findings.
+  // Most serious verdict, not last: a clean final chunk would mask earlier findings.
   const primaryResult = results.find(r => r.parsed.verdict === 'comment') ?? results[results.length - 1];
 
   return {
@@ -99,14 +99,14 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     parsed: {
       ...primaryResult.parsed,
       comments: combinedFindings,
-      // Summed across chunks, or a truncated file under-reports the "N claims withheld" note.
       evidenceStats: results.reduce((acc, r) => ({
         total: acc.total + (r.parsed.evidenceStats?.total ?? 0),
         matched: acc.matched + (r.parsed.evidenceStats?.matched ?? 0),
         unmatched: acc.unmatched + (r.parsed.evidenceStats?.unmatched ?? 0),
         weak: acc.weak + (r.parsed.evidenceStats?.weak ?? 0),
         absent: acc.absent + (r.parsed.evidenceStats?.absent ?? 0),
-      }), { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0 }),
+        contextOnly: acc.contextOnly + (r.parsed.evidenceStats?.contextOnly ?? 0),
+      }), { total: 0, matched: 0, unmatched: 0, weak: 0, absent: 0, contextOnly: 0 }),
       claimTypeCounts: mergeCounts(results.map((r) => r.parsed.claimTypeCounts)),
       deniedClaimCounts: mergeCounts(results.map((r) => r.parsed.deniedClaimCounts)),
       absenceCheckStats: results.reduce((acc, r) => ({
@@ -117,15 +117,17 @@ export async function reviewFile(ctx: ModelReviewContext, params: {
     },
     reviewedLineCount: results.reduce((sum, r) => sum + r.reviewedLineCount, 0),
     wasPromptTruncated: chunks.length < totalChunkCount || results.length < chunks.length,
+    degraded: results.find((r) => r.degraded)?.degraded,
   };
 }
 
 
-// Internal to this module: reviewFile fans out to it per chunk.
 async function reviewFileChunk(ctx: ModelReviewContext, params: {
   file: any;
+  fileContext?: string | null;
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   compactPrompt?: boolean;
@@ -138,31 +140,29 @@ async function reviewFileChunk(ctx: ModelReviewContext, params: {
     rejectedExemplars: params.rejectedExemplars,
   });
 
-  // One figure drives three things: the room the answer gets, and now the time it gets to write it.
   const outputBudgetTokens = reviewOutputBudgetTokens({
-    findingCap: generatorFindingCap(params.config.review.max_comments),
+    findingCap: reviewBreadth(params.config.review),
     fileCount: 1,
   });
 
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
-    responseSchema: buildReviewResponseSchema(params.config.review.max_comments),
-    // Scales with the diff the model sees AND the answer it was asked for: small files fail over fast.
+    responseSchema: buildReviewResponseSchema(reviewBreadth(params.config.review)),
     timeoutMs: adaptiveModelTimeoutMs(params.file.lineCount, outputBudgetTokens),
     outputBudgetTokens,
+    // Partial output reads as "no findings left", not truncation; treat as untrusted.
+    truncationIntolerant: true,
     label: params.file.path,
     totalLineCount: params.totalLineCount,
     config: params.config,
     parse: (rawText, { isLastModel }) => {
       const parsed = parseFileReviewResponse(rawText, params.file, {
         deniedClaimTypes: params.config.review.deny_claim_types,
+        fileContent: params.fileContext,
       });
 
-      // A substantive diff waved through in one sentence is not a clean verdict, it is a model declining
-      // to review. Thrown as UnparseableModelResponseError so the chain treats it exactly like any other
-      // useless response and tries the next entry -- and never on the last one, where the alternative to
-      // an unearned "clean" is failing the file, which is worse.
+      // A one-sentence reply to a substantive diff means the model declined; escalate except on the last model, where failing beats an unearned clean.
       if (!isLastModel && isNonAnswerReview({
         rawText,
         file: params.file,
@@ -195,11 +195,12 @@ export type BatchReviewOutcome = ModelResponse & {
   userPrompt: string;
 };
 
-// Caller fans the result out to per-file rows and must not record `batch.missing` as reviewed.
+// Caller must not record batch.missing as reviewed when fanning out to file rows.
 export async function reviewFiles(ctx: ModelReviewContext, params: {
   files: readonly FileDiff[];
   prTitle: string | null;
   prDescription: string | null;
+  changelogExcerpt?: string | null;
   config: RepoConfig;
   totalLineCount: number;
   rejectedExemplars?: readonly RejectedExemplar[];
@@ -208,36 +209,34 @@ export async function reviewFiles(ctx: ModelReviewContext, params: {
     files: params.files,
     prTitle: params.prTitle,
     prDescription: params.prDescription,
+    changelogExcerpt: params.changelogExcerpt,
     config: params.config.review,
     rejectedExemplars: params.rejectedExemplars,
   });
 
-  // The bin's total: a 400-line bin on a small-file timeout dies mid-call and takes all of it down.
+  // Bin's total lines; a small-file timeout on a 400-line bin kills the whole call.
   const binLineCount = params.files.reduce((sum, file) => sum + file.lineCount, 0);
 
-  // The bin's whole response, not one file's: every entry shares one `maxOutputTokens`, and a bin that
-  // overruns it comes back as a repaired prefix with its tail files looking clean. A packed bin is also
-  // the slowest call the system makes, and its diff line count badly under-predicts that, so the same
-  // figure sizes the timeout.
+  // Whole-bin response shares one maxOutputTokens (overrun leaves tail files looking falsely clean); same figure sizes the timeout since a packed bin is the slowest call.
   const outputBudgetTokens = reviewOutputBudgetTokens({
-    findingCap: generatorFindingCap(params.config.review.max_comments),
+    findingCap: reviewBreadth(params.config.review),
     fileCount: params.files.length,
   });
 
   const response = await runModelChain(ctx, {
     systemPrompt,
     userPrompt,
-    responseSchema: buildBatchReviewResponseSchema(params.config.review.max_comments, params.files.length),
+    responseSchema: buildBatchReviewResponseSchema(reviewBreadth(params.config.review), params.files.length),
     timeoutMs: adaptiveModelTimeoutMs(binLineCount, outputBudgetTokens),
     outputBudgetTokens,
+    truncationIntolerant: true,
     label: `${params.files.length} files (${params.files[0]?.path ?? 'unknown'} …)`,
-    // Per file, so progress survives the bin narrowing or exploding into singles.
     progressLabels: params.files.map((file) => file.path),
     totalLineCount: params.totalLineCount,
     config: params.config,
     parse: (rawText) => parseBatchReviewResponse(rawText, params.files, {
       deniedClaimTypes: params.config.review.deny_claim_types,
-      maxCommentsPerFile: params.config.review.max_comments,
+      maxCommentsPerFile: reviewBreadth(params.config.review),
     }),
   });
 

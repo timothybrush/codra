@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 
 export type FileReviewRow = {
@@ -23,7 +23,7 @@ export type FileReviewRow = {
   transient_error_count: number;
   async_request_id: string | null;
   async_model: string | null;
-  withheld_counts: { evidence?: number; claimDenied?: number };
+  withheld_counts: { evidence?: number; claimDenied?: number; contextOnly?: number; absenceRefuted?: number };
   batch_size: number | null;
 };
 
@@ -50,7 +50,10 @@ export type BulkFileReviewInput = {
   overallCorrectness?: string | null;
   confidenceScore?: number | null;
   errorMessage: string | null;
-  withheldCounts?: { evidence: number; claimDenied: number } | null;
+  withheldCounts?: { evidence: number; claimDenied: number; contextOnly?: number; absenceRefuted?: number } | null;
+  // The call answered, but not cleanly: it ran without a response grammar, or its output was cut off
+  // and salvaged. Persisted rather than logged so "how often did this happen" is a query.
+  degraded?: string | null;
   batchSize: number;
 };
 
@@ -72,7 +75,8 @@ export interface FileReviewStore {
     overallCorrectness?: string | null;
     confidenceScore?: number | null;
     errorMessage: string | null;
-    withheldCounts?: { evidence: number; claimDenied: number } | null;
+    withheldCounts?: { evidence: number; claimDenied: number; contextOnly?: number; absenceRefuted?: number } | null;
+    degraded?: string | null;
     asyncRequestId?: string | null;
     asyncModel?: string | null;
   }): Promise<void>;

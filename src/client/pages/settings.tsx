@@ -1,8 +1,8 @@
-import { Alert, Button, LoadError } from '@codra/ui';
+import { Alert, Button, LoadError } from '@codraoss/ui';
 import { useEffect, useState } from 'react';
 import { PageHeader } from '@client/components/layout/page-header';
 import { RefreshCw, Plus, X } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import { AboutSection } from '@client/components/features/settings/about-section';
 import { DefaultModelsSection } from '@client/components/features/settings/default-models-section';
 import { NewProviderForm } from '@client/components/features/settings/new-provider-form';

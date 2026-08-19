@@ -1,0 +1,18 @@
+{
+  "entry": [
+    "src/index.ts",
+    "src/types.ts",
+    "src/runner.ts",
+    "src/providers/cloudflare.ts",
+    "src/providers/google.ts",
+    "src/providers/vertex.ts",
+    "src/providers/anthropic.ts",
+    "src/providers/openai.ts"
+  ],
+  "format": "esm",
+  "dts": true,
+  "splitting": true,
+  "sourcemap": true,
+  "clean": true,
+  "outDir": "dist"
+}

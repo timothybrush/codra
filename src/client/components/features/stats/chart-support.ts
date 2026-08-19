@@ -1,4 +1,4 @@
-import { fmtNumber } from '@codra/ui/utils';
+import { fmtNumber } from '@codraoss/ui/utils';
 import { formatDayLabel } from '@client/lib/timezone';
 
 // Pure and render-free, so the chart components and the grid can share it without Fast Refresh

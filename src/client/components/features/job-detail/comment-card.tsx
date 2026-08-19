@@ -1,16 +1,16 @@
-import { CopyButton } from '@codra/ui';
+import { CopyButton } from '@codraoss/ui';
 import { useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileText, ThumbsDown, ThumbsUp } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import { api } from '@client/lib/api';
-import { preventToggleOnTextSelection } from '@codra/ui/selection';
-import type { ParsedReviewComment } from '@codra/schema';
+import { preventToggleOnTextSelection } from '@codraoss/ui/selection';
+import type { ParsedReviewComment } from '@codraoss/schema';
 import { severityConfig } from './constants';
 import { ContextSnippet } from './context-snippet';
 
-import { safeRehypePlugins } from '@codra/ui/markdown-plugins';
+import { safeRehypePlugins } from '@codraoss/ui/markdown-plugins';
 /** Plain-English reason a finding never reached the pull request. */
 const DISPOSITION_LABEL: Record<string, string> = {
   severity: 'Below the severity threshold for this repository',
@@ -101,6 +101,16 @@ export function CommentCard({ comment, filePath, jobId }: CommentCardProps) {
         {comment.claimType && comment.claimType !== 'other' && (
           <span className="ui-font-mono rounded bg-card/60 px-1.5 py-0.5 text-[11px] text-ui-subtle">
             {comment.claimType.replace(/_/g, ' ')}
+          </span>
+        )}
+        {/* Only when a secondary reviewer is configured, and only as attribution: which reviewer found
+            this says nothing about whether it is right, and must never be read as a confidence signal. */}
+        {comment.reviewerModel && (
+          <span
+            className="ui-font-mono rounded bg-card/60 px-1.5 py-0.5 text-[11px] text-ui-subtle"
+            title={`Found by ${comment.reviewerModel}`}
+          >
+            {comment.reviewerModel.split('/').pop()}
           </span>
         )}
         {/* Say which stage stopped it rather than leaving a filtered finding looking identical to a posted one. */}

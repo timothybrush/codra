@@ -1,11 +1,11 @@
-import { createApiRouter } from '@codra/api';
-import { getJobForProcessing, insertJob } from '@codra/db/jobs';
+import { createApiRouter } from '@codraoss/api';
+import { getJobForProcessing, insertJob } from '@codraoss/db/jobs';
 
-import { getRepoConfigRecord } from '@codra/db/repo-configs';
+import { getRepoConfigRecord } from '@codraoss/db/repo-configs';
 import { loadRepoConfig, updateGlobalConfig } from '@server/core/config';
-import { GitHubClient } from '@codra/provider-github';
+import { GitHubClient } from '@codraoss/provider-github';
 
-import { defaultRepoConfig } from '@codra/schema';
+import { defaultRepoConfig } from '@codraoss/schema';
 import { createTestEnv, uniqueName } from '../helpers';
 import { vi } from 'vitest';
 
@@ -69,10 +69,33 @@ describe('Dashboard API: repositories and repo config', () => {
     });
 
     const client = new GitHubClient(env, '123');
-    const content = await client.getRepoFileOrNull('owner', 'repo', 'src/path with spaces/app.ts');
+    const content = await client.getRepoFile('owner', 'repo', 'src/path with spaces/app.ts');
 
     expect(content).toBe('hello');
     expect(requestedUrl).toBe('https://api.github.com/repos/owner/repo/contents/src/path%20with%20spaces/app.ts');
+  });
+
+  it('pins repo file reads to the requested ref', async () => {
+    const env = createTestEnv();
+    await env.APP_KV.put('install:123', JSON.stringify({
+      token: 'cached-installation-token',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }));
+
+    let requestedUrl = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      requestedUrl = String(input);
+      return Response.json({
+        content: Buffer.from('const greeting = "café — こんにちは";').toString('base64'),
+        encoding: 'base64',
+      });
+    });
+
+    const client = new GitHubClient(env, '123');
+    const content = await client.getRepoFile('owner', 'repo', 'src/app.ts', 'abc123');
+
+    expect(content).toBe('const greeting = "café — こんにちは";');
+    expect(requestedUrl).toBe('https://api.github.com/repos/owner/repo/contents/src/app.ts?ref=abc123');
   });
 
   it('keeps repo model settings inherited when loading global strategy', async () => {

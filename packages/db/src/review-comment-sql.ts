@@ -1,4 +1,4 @@
-import type { ParsedReviewComment } from '@codra/schema';
+import type { ParsedReviewComment } from '@codraoss/schema';
 
 // Shared review_comments field list. Update bulkInheritFileReviews if changed.
 
@@ -6,7 +6,7 @@ import type { ParsedReviewComment } from '@codra/schema';
 export const REVIEW_COMMENT_INSERT_COLUMNS = [
   'path', 'line', 'position', 'severity', 'category', 'title', 'body', 'code_suggestion',
   'confidence_score', 'evidence', 'fingerprint', 'anchor_hash', 'claim_type', 'context_snippet',
-  'disposition', 'fingerprint_v2', 'source', 'rule_id',
+  'disposition', 'fingerprint_v2', 'source', 'rule_id', 'reviewer_model',
 ] as const;
 
 // Generated rather than written out so the cast count can never fall out of step with the column list.
@@ -40,6 +40,7 @@ export function reviewCommentInsertValues(comments: ParsedReviewComment[]) {
     comments.map((c) => c.fingerprintV2 ?? null),
     comments.map((c) => c.source ?? 'llm'),
     comments.map((c) => c.ruleId ?? null),
+    comments.map((c) => c.reviewerModel ?? null),
   ];
 }
 
@@ -68,6 +69,7 @@ export function reviewCommentJsonObject(extraFields = '') {
     `'verifyReason', rc.verify_reason`,
     `'source', rc.source`,
     `'ruleId', rc.rule_id`,
+    `'reviewerModel', rc.reviewer_model`,
   ].join(',\n        ');
 
   return `JSON_BUILD_OBJECT(\n        ${fields}${extraFields ? `,\n        ${extraFields}` : ''}\n      )`;

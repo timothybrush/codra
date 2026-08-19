@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ModelChainProgressStore } from '@codra/models';
+import { ModelChainProgressStore } from '@codraoss/models';
 
-// KV double tracks overlapping puts (KV lacks ordering; late puts with less state can revert progress).
+// KV has no ordering; a late put with less state could revert progress.
 function makeKV() {
   let value: string | null = null;
   let inFlight = 0;
@@ -46,7 +46,6 @@ describe('ModelChainProgressStore', () => {
 
     await Promise.all([store.advance('src/a.ts', 2), store.advance('src/b.ts', 3)]);
 
-    // Order irrelevance: non-overlapping puts ensure the last one is the most complete.
     expect(kv.maxInFlight).toBe(1);
     expect(kv.stored?.files).toEqual({ 'src/a.ts': 2, 'src/b.ts': 3 });
     expect(await store.startIndexFor('src/a.ts')).toBe(2);
@@ -60,7 +59,6 @@ describe('ModelChainProgressStore', () => {
     await Promise.all([1, 2, 3, 4, 5, 6].map((n) => store.advance(`src/f${n}.ts`, n)));
 
     expect(kv.maxInFlight).toBe(1);
-    // Six advances but fewer writes; conserves subrequests.
     expect(kv.writes.length).toBeLessThan(6);
     expect(Object.keys(kv.stored?.files ?? {})).toHaveLength(6);
   });
@@ -88,7 +86,6 @@ describe('ModelChainProgressStore', () => {
     expect(await store.startIndexFor('src/a.ts')).toBe(3);
   });
 
-  // Persisted tally lets the next concurrent wave avoid models the first wave timed out on.
   it('drops a model after a full wave of timeouts, and remembers across invocations', async () => {
     const kv = makeKV();
     const store = new ModelChainProgressStore(kv.kv, 'job-slow');
@@ -101,33 +98,29 @@ describe('ModelChainProgressStore', () => {
     await store.noteTimeout('vertex-ai:gemini-2.5-pro');
     expect(await store.isTimingOut('vertex-ai:gemini-2.5-pro')).toBe(true);
 
-    // Fresh store mimics next invocation.
     const next = new ModelChainProgressStore(kv.kv, 'job-slow');
     expect(await next.isTimingOut('vertex-ai:gemini-2.5-pro')).toBe(true);
-    // Scoped to the failing model.
     expect(await next.isTimingOut('vertex-ai:gemini-2.5-flash')).toBe(false);
   });
 
-  // Tail candidates use a higher strike threshold rather than exemption, to prevent infinite looping.
+  // Tail gets higher strike threshold, not exemption, to avoid infinite looping.
   it('holds the last candidate to a higher strike count before dropping it too', async () => {
     const kv = makeKV();
     const store = new ModelChainProgressStore(kv.kv, 'job-tail');
 
     for (let i = 0; i < 3; i += 1) await store.noteTimeout('cf:glm-4.7-flash');
-    // Drops mid-chain, but preserves the tail.
     expect(await store.isTimingOut('cf:glm-4.7-flash')).toBe(true);
     expect(await store.isTimingOutTerminally('cf:glm-4.7-flash')).toBe(false);
 
     for (let i = 0; i < 3; i += 1) await store.noteTimeout('cf:glm-4.7-flash');
     expect(await store.isTimingOutTerminally('cf:glm-4.7-flash')).toBe(true);
 
-    // Durable across invocations.
     const next = new ModelChainProgressStore(kv.kv, 'job-tail');
     expect(await next.isTimingOutTerminally('cf:glm-4.7-flash')).toBe(true);
   });
 
   describe('noteSuccess', () => {
-    // Resets prevent cumulative tallies from condemning a model for the job's entire 24h life.
+    // Reset prevents lifetime tally from condemning a model for the whole job.
     it('restarts the tally, so a slow patch cannot condemn a working model', async () => {
       const kv = makeKV();
       const store = new ModelChainProgressStore(kv.kv, 'job-recovered');
@@ -139,7 +132,7 @@ describe('ModelChainProgressStore', () => {
       expect(await store.isTimingOut('vertex-ai:gemini-2.5-pro')).toBe(false);
     });
 
-    // writeOnce's max() merge must not resurrect pre-success counts from KV.
+    // max() merge must not resurrect pre-success counts from KV.
     it('survives the merge against what another invocation stored', async () => {
       const kv = makeKV();
       await kv.kv.put('k', JSON.stringify({ timeouts: { 'vertex-ai:gemini-2.5-pro': 5 } }));
@@ -158,7 +151,6 @@ describe('ModelChainProgressStore', () => {
 
       await store.noteSuccess('vertex-ai:gemini-2.5-pro');
 
-      // Healthy paths don't incur KV writes to save subrequests.
       expect(kv.writes).toHaveLength(0);
     });
   });
@@ -187,7 +179,6 @@ describe('ModelChainProgressStore', () => {
     expect(await store.isTimingOut('anything')).toBe(false);
   });
 
-  // Persisted rate-limits prevent continuation jobs from re-paying for known cool-offs.
   describe('rate-limit cool-offs', () => {
     it('carries a learned cool-off and bucket size to the next invocation', async () => {
       const kv = makeKV();
@@ -200,7 +191,6 @@ describe('ModelChainProgressStore', () => {
       const next = new ModelChainProgressStore(kv.kv, 'job-cooldown');
       const loaded = await next.loadCooldowns();
       expect(loaded.get('google:gemini-2.5-flash')).toEqual({ cooldownUntil: until, limitTokens: 16000 });
-      // Cool-offs scope per-model bucket.
       expect(loaded.has('google:gemini-2.5-flash-lite')).toBe(false);
     });
 
@@ -211,7 +201,6 @@ describe('ModelChainProgressStore', () => {
       store.noteRateLimit('google:gemini-2.5-flash', { cooldownUntil: Date.now() + 30_000 });
       expect(kv.writes).toHaveLength(0);
 
-      // Made durable by the subsequent deferral.
       await store.flushPending();
       expect(kv.writes.length).toBeGreaterThan(0);
     });
@@ -230,7 +219,7 @@ describe('ModelChainProgressStore', () => {
       expect(kv.stored?.cooldowns?.['google:m']).toEqual({ until: later, limitTokens: 16000 });
     });
 
-    // Protects against sticky, misparsed request counts crippling the model for 24h.
+    // Guards against misparsed counts crippling the model for 24h.
     it('discards a stored bucket too small to be a token quota', async () => {
       const kv = makeKV();
       const until = Date.now() + 30_000;
@@ -239,7 +228,6 @@ describe('ModelChainProgressStore', () => {
       const store = new ModelChainProgressStore(kv.kv, 'job-poisoned-bucket');
 
       const entry = (await store.loadCooldowns()).get('google:m');
-      // Retains valid cool-off while discarding nonsense bucket size.
       expect(entry?.cooldownUntil).toBe(until);
       expect(entry?.limitTokens).toBeUndefined();
     });

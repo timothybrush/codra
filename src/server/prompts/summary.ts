@@ -1,2 +1,2 @@
-// Moved to @codra/core/prompts/summary; see the note in ../core/fingerprint.ts.
-export * from '@codra/core/prompts/summary';
+// Moved to @codraoss/core/prompts/summary; see the note in ../core/fingerprint.ts.
+export * from '@codraoss/core/prompts/summary';

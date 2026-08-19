@@ -3,8 +3,8 @@ import type {
   WebhookPayload,
   CommentWebhookPayload,
   ChangeRequestWebhookPayload,
-} from '@codra/schema/webhook';
-import type { RepoConfig } from '@codra/schema';
+} from '@codraoss/schema/webhook';
+import type { RepoConfig } from '@codraoss/schema';
 
 function shouldTriggerFromChangeRequest(action: ChangeRequestWebhookPayload['action'], config: RepoConfig['review']) {
   return (config.on as string[]).includes(action);

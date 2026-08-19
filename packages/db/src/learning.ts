@@ -1,6 +1,6 @@
 import type { DbEnv } from './env';
 import { queryRows } from './client';
-import type { ClaimType } from '@codra/schema';
+import type { ClaimType } from '@codraoss/schema';
 
 // Reads over findings a human has already judged: report only over the LABELLED subset, always with n. The absence of a label is not a signal.
 

@@ -1,4 +1,4 @@
-import type { JobSummary } from '@codra/schema';
+import type { JobSummary } from '@codraoss/schema';
 
 interface LiveReviewStepperProps {
   job: JobSummary;

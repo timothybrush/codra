@@ -1,4 +1,4 @@
-import type { JobSummary, RepoConfig } from '@codra/schema';
+import type { JobSummary, RepoConfig } from '@codraoss/schema';
 
 
 export type PersistedReviewJob = JobSummary;

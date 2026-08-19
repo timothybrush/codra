@@ -1,13 +1,13 @@
-import { Skeleton } from '@codra/ui';
+import { Skeleton } from '@codraoss/ui';
 import { Link } from 'react-router-dom';
 import { FolderGit2, GitCommitHorizontal, GitPullRequest } from 'lucide-react';
 
 import { VerdictPill, MetaChip, AuthorAvatar } from '@client/components/features/job-detail/job-chips';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import { formatDateTime } from '@client/lib/timezone';
 import { STATUS_DOT, formatRelativeDate, jobDuration, statusLabel } from '@client/lib/job-format';
 
-import type { JobSummary } from '@codra/schema';
+import type { JobSummary } from '@codraoss/schema';
 
 type Column =
   | 'title'

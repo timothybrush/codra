@@ -1,4 +1,4 @@
-import type { DashboardSessionUser, IdentityProvider, AuthorizationResult } from '@codra/core';
+import type { DashboardSessionUser, IdentityProvider, AuthorizationResult } from '@codraoss/core';
 import type { AppBindingsConfig } from './service';
 
 export type GitHubOAuthProfile = {

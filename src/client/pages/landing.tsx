@@ -1,6 +1,6 @@
-import { Button, GithubMark, LinkButton } from '@codra/ui';
+import { Button, GithubMark, LinkButton } from '@codraoss/ui';
 import { Sun, Moon, ExternalLink } from 'lucide-react';
-import { useTheme } from '@codra/ui/theme';
+import { useTheme } from '@codraoss/ui/theme';
 import codraDark from '@/assets/codra-fullicon-dark.svg';
 import codraLight from '@/assets/codra-fullicon-light.svg';
 

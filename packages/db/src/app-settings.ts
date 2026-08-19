@@ -7,7 +7,7 @@ import {
   CONCURRENCY_LEVELS,
   MAX_COMMENTS_OPTIONS
 } from './constants';
-import { reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@codra/schema';
+import { reviewMaxFilesRange, reviewSettingsSchema, type ReviewSettings } from '@codraoss/schema';
 
 
 

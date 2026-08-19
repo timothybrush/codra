@@ -1,9 +1,9 @@
-import { Button, Input } from '@codra/ui';
+import { Button, Input } from '@codraoss/ui';
 import { useEffect, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { Check, Mail } from 'lucide-react';
 import { api } from '@client/lib/api';
-import type { UpdatesEmailResponse } from '@codra/schema/api';
+import type { UpdatesEmailResponse } from '@codraoss/schema/api';
 
 export function UpdatesEmailPrompt() {
   const [status, setStatus] = useState<UpdatesEmailResponse | null>(null);

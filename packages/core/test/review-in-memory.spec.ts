@@ -51,7 +51,8 @@ describe('runReview end to end on in-memory ports', () => {
     expect(recorded.postedReviews[0].comments).toEqual([
       { path: 'src/retry.ts', body: expect.stringContaining('Hard-coded delay') },
     ]);
-    expect(recorded.postedReviews[0].body).toContain('codra-bot');
+    // The posted body is the formatter's overview, carrying the head sha and the count actually posted.
+    expect(recorded.postedReviews[0].body).toContain(`Reviewed ${'a'.repeat(7)}: 1 posted`);
 
     expect(recorded.checkRuns[0].title).toBe('Review queued');
     expect(recorded.checkRuns.at(-1)).toMatchObject({ status: 'completed' });

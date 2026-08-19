@@ -1,4 +1,4 @@
-import type { DashboardSessionUser, SessionStore, IdentityProvider } from '@codra/core';
+import type { DashboardSessionUser, SessionStore, IdentityProvider } from '@codraoss/core';
 export type { DashboardSessionUser };
 
 export interface AppBindings {

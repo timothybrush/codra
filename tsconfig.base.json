@@ -4,6 +4,7 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@client/*": ["./src/client/*", "../../src/client/*"],
       "@server/*": ["./src/server/*", "../../src/server/*"],

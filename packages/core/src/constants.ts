@@ -3,6 +3,9 @@ export const PACKABLE_MAX_DIFF_LINES = 150;
 export const BIN_TARGET_DIFF_LINES = 300;
 export const BIN_MAX_FILES = 4;
 export const BIN_DIFF_CHAR_BUDGET = 24_000;
+// Files with many scattered hunks get whole-file context; the line floor excludes trivial files.
+export const FRAGMENTED_HUNK_THRESHOLD = 5;
+export const FRAGMENTED_MIN_LINES = 60;
 export const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
 
 // Phase Control & Timers
@@ -37,3 +40,9 @@ export const MAX_RULE_SCAN_ADDED_LINES = 600;
 // Prompts
 export const EXEMPLAR_BLOCK_CHARS = 700;
 export const PR_DESCRIPTION_CHARS = 2_000;
+// Changelog entries are short; keep well under the description budget.
+export const CHANGELOG_EXCERPT_CHARS = 600;
+// Whole-file context budget when full_file_context is on; half the bin diff budget.
+export const FILE_CONTEXT_CHAR_BUDGET = 8_000;
+// Per-chunk window, not a repeated whole-file block, to stay within the budget above.
+export const FILE_CONTEXT_WINDOW_LINES = 120;

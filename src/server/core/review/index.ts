@@ -1,12 +1,12 @@
-import type { ReviewJobMessage } from '@codra/schema';
-import { runReview, type ReviewJobRunResult } from '@codra/core';
+import type { ReviewJobMessage } from '@codraoss/schema';
+import { runReview, type ReviewJobRunResult } from '@codraoss/core';
 import { createReviewRuntime } from '@server/adapters';
 import type { AppBindings } from '@server/env';
 
-// The seam between the Worker and the engine. The engine moved to @codra/core; this converts
+// The seam between the Worker and the engine. The engine moved to @codraoss/core; this converts
 // AppBindings into the ports it takes, and is the ONLY place in production that does.
 //
-// Kept as a module rather than repointing callers at @codra/core because
+// Kept as a module rather than repointing callers at @codraoss/core because
 // test/review/workflow-finalize-fresh-instance.spec.ts partially mocks this specifier -- substituting
 // runReviewJob while keeping FRESH_INVOCATION_YIELD_SECONDS real -- and test/mocks/review-harness.ts
 // types itself as Parameters<typeof runReviewJob>[1]. Sixteen DB-backed review suites reach the
@@ -43,4 +43,4 @@ export {
   type ReviewUnit,
   type VerifyDrop,
   type VerifyOutcome,
-} from '@codra/core';
+} from '@codraoss/core';

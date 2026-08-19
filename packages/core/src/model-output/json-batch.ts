@@ -1,4 +1,4 @@
-import { batchReviewModelOutputSchema, fileReviewModelOutputSchema } from '@codra/schema';
+import { batchReviewModelOutputSchema, fileReviewModelOutputSchema } from '@codraoss/schema';
 import { jsonrepair } from 'jsonrepair';
 import { z } from 'zod';
 import { logger } from '../logger';

@@ -1,16 +1,12 @@
-/**
- * Row vocabulary shared by the job detail page, mirroring the jobs table so the two read as one
- * product: status dot + word + duration, bordered verdict pills, muted icon chips.
- */
+// Row vocabulary shared with the job detail page, mirroring the jobs table.
 import { useState, type ReactNode } from 'react';
 import { CheckCircle2, MessageSquare, type LucideIcon } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 import { STATUS_DOT, jobDuration, statusLabel } from '@client/lib/job-format';
 
-import type { JobDetail, JobSummary } from '@codra/schema';
+import type { JobDetail, JobSummary } from '@codraoss/schema';
 
 
-/** Status dot alone, for rows that render their own label. */
 export function StatusDot({ status, className }: { status: string; className?: string }) {
   return (
     <span
@@ -25,7 +21,7 @@ export function StatusDot({ status, className }: { status: string; className?: s
   );
 }
 
-/** Dot + status word + duration ("● Done  1m 36s") - counterpart to the table's status cell. */
+// Mirrors the jobs table's status cell.
 export function StatusLine({
   status,
   duration,
@@ -48,12 +44,11 @@ export function StatusLine({
   );
 }
 
-/** Status line for a whole job - derives its own wall-clock duration. */
 export function JobStatusLine({ job, className }: { job: JobDetail; className?: string }) {
   return <StatusLine status={job.status} duration={jobDuration(job)} className={className} />;
 }
 
-/** Verdict pill: the border stays neutral so only the leading icon carries colour. */
+// Border stays neutral; only the icon carries colour.
 export function VerdictPill({ verdict }: { verdict: NonNullable<JobSummary['verdict']> }) {
   const approved = verdict === 'approve';
   const Icon = approved ? CheckCircle2 : MessageSquare;
@@ -70,7 +65,6 @@ export function VerdictPill({ verdict }: { verdict: NonNullable<JobSummary['verd
   );
 }
 
-/** A neutral bordered pill for anything that isn't a verdict (e.g. correctness). */
 export function OutlinePill({
   icon: Icon,
   tone,
@@ -88,7 +82,7 @@ export function OutlinePill({
   );
 }
 
-/** Icon-prefixed metadata text - the table's `MetaCell`, usable inline or in a row. */
+// Mirrors the table's MetaCell.
 export function MetaChip({
   icon: Icon,
   children,
@@ -117,11 +111,8 @@ export function MetaChip({
   );
 }
 
-/**
- * Author avatar. Hits avatars.githubusercontent.com directly, since the github.com/<login>.png
- * redirect hop can fail, and falls back to an initial. No `loading="lazy"`: intersection
- * detection is unreliable inside the app's scroll containers.
- */
+// Hits avatars.githubusercontent.com directly: the github.com/<login>.png redirect can fail.
+// No loading="lazy": intersection detection is unreliable in this app's scroll containers.
 export function AuthorAvatar({ login, size = 20 }: { login: string | null; size?: number }) {
   const [failed, setFailed] = useState(false);
   const box = { width: size, height: size };
@@ -166,7 +157,6 @@ export function EmptyValue() {
   return <span className="text-xs leading-none text-ui-subtle">-</span>;
 }
 
-/** File path in the table's mono style: the directory recedes, the basename carries the weight. */
 export function MonoPath({ path, className }: { path: string; className?: string }) {
   const slash = path.lastIndexOf('/');
   const dir = slash === -1 ? '' : path.slice(0, slash + 1);

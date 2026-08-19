@@ -1,8 +1,8 @@
-import { Select } from '@codra/ui';
+import { Select } from '@codraoss/ui';
 import type { CSSProperties } from 'react';
 import { Clock } from 'lucide-react';
 import { DEFAULT_STATS_DAYS } from '@client/hooks/use-stats-range';
-import { cn } from '@codra/ui/utils';
+import { cn } from '@codraoss/ui/utils';
 
 interface TimeRangeSelectProps {
   value: number;

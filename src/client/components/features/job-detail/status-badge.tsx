@@ -1,5 +1,5 @@
-import { Badge } from '@codra/ui';
-import type { JobSummary } from '@codra/schema';
+import { Badge } from '@codraoss/ui';
+import type { JobSummary } from '@codraoss/schema';
 import { LiveReviewStepper } from '@client/components/features/reviews/live-review-stepper';
 
 type BadgeVariant = 'success' | 'info' | 'warning' | 'danger' | 'neutral';

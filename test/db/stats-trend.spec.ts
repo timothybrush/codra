@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { getStats, trendBucketDays } from '@codra/db/stats';
+import { getStats, trendBucketDays } from '@codraoss/db/stats';
 import { createTestEnv, dbDescribe } from '../helpers';
 
 const env = createTestEnv();

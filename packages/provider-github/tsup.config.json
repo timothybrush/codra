@@ -1,0 +1,9 @@
+{
+  "entry": ["src/index.ts", "src/oauth.ts", "src/webhook.ts"],
+  "format": "esm",
+  "dts": true,
+  "splitting": true,
+  "sourcemap": true,
+  "clean": true,
+  "outDir": "dist"
+}

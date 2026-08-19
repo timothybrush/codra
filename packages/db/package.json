@@ -1,27 +1,76 @@
 {
-  "name": "@codra/db",
+  "name": "@codraoss/db",
   "version": "0.9.4",
-  "private": true,
+  "description": "Codra's Postgres persistence layer behind repository interfaces.",
+  "author": "Devarshi Shimpi",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://codra.run",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devarshishimpi/codra.git",
+    "directory": "packages/db"
+  },
+  "bugs": {
+    "url": "https://github.com/devarshishimpi/codra/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./repositories": "./src/repositories/index.ts",
     "./env": "./src/env.ts",
     "./jobs": "./src/jobs.ts",
     "./file-reviews": "./src/file-reviews.ts",
-    "./test/fakes": "./test/fakes/index.ts",
     "./*": "./src/*.ts"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      "./client": {
+        "types": "./dist/client.d.ts",
+        "import": "./dist/client.js"
+      },
+      "./repositories": {
+        "types": "./dist/repositories/index.d.ts",
+        "import": "./dist/repositories/index.js"
+      },
+      "./env": {
+        "types": "./dist/env.d.ts",
+        "import": "./dist/env.js"
+      },
+      "./jobs": {
+        "types": "./dist/jobs.d.ts",
+        "import": "./dist/jobs.js"
+      },
+      "./file-reviews": {
+        "types": "./dist/file-reviews.d.ts",
+        "import": "./dist/file-reviews.js"
+      },
+      "./*": {
+        "types": "./dist/*.d.ts",
+        "import": "./dist/*.js"
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
+    "postpack": "node ../../scripts/swap-publish-exports.mjs restore"
   },
   "dependencies": {
-    "@codra/schema": "*",
+    "@codraoss/schema": "^0.9.4",
+    "@codraoss/core": "^0.9.4",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0"
   }
 }

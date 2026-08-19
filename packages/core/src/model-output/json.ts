@@ -1,4 +1,4 @@
-import { fileReviewModelOutputSchema } from '@codra/schema';
+import { fileReviewModelOutputSchema } from '@codraoss/schema';
 import { jsonrepair } from 'jsonrepair';
 import { z } from 'zod';
 import { logger } from '../logger';

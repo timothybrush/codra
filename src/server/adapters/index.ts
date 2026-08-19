@@ -1,8 +1,8 @@
-import type { ReviewRuntime } from '@codra/core/ports';
-import { TokenTracker } from '@codra/core/token-tracker';
+import type { ReviewRuntime } from '@codraoss/core/ports';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 import type { AppBindings } from '@server/env';
 // Imported for its side effect as well as never: this installs the AsyncLocalStorage-backed logger as
-// the sink @codra/core's logger facade delegates to. Explicit here so engine log lines carry request
+// the sink @codraoss/core's logger facade delegates to. Explicit here so engine log lines carry request
 // context by construction, rather than because some other module happened to be loaded first.
 import '@server/core/logger';
 import { cryptoIds, makeKvStore, makeTelemetrySink, systemClock } from './platform';
@@ -24,7 +24,7 @@ import {
 } from './services';
 
 // The composition root: the one place Cloudflare bindings, Postgres and the GitHub/model services are
-// wired to the engine's ports. @codra/core sees this object and nothing else.
+// wired to the engine's ports. @codraoss/core sees this object and nothing else.
 //
 // Called once per Worker invocation, before the job is known. It only allocates closures, so it is
 // cheap enough to build on the webhook path too.

@@ -1,4 +1,4 @@
-import type { InstanceIdStore } from '@codra/core/ports';
+import type { InstanceIdStore } from '@codraoss/core/ports';
 import type { DbEnv } from '../env';
 import { queryRows } from '../client';
 import { INSTANCE_ID_KEY } from '../constants';

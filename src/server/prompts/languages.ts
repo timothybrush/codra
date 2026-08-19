@@ -1,2 +1,2 @@
-// Moved to @codra/core/prompts/languages; see the note in ../core/fingerprint.ts.
-export * from '@codra/core/prompts/languages';
+// Moved to @codraoss/core/prompts/languages; see the note in ../core/fingerprint.ts.
+export * from '@codraoss/core/prompts/languages';

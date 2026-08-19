@@ -1,9 +1,11 @@
 import { logger } from '../logger';
-import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@codra/schema';
+import { defaultRepoConfig, REVIEW_CONCURRENCY_LIMITS, type ParsedReviewComment, type RepoConfig } from '@codraoss/schema';
 import { budgetAwareFileLimit } from './budget';
 import { narrowUnit, planReviewUnits } from './pack';
 import { reviewAndPersistBin } from './bin-runner';
 import { getDiffFiles } from './diff-cache';
+import { changelogExcerptFromDiff, wantsFileContext } from '../prompts/file-review';
+import { loadFileContext } from './file-context';
 import type { ReviewGitProvider, ReviewModel, ReviewRuntime } from '../ports';
 import { TokenTracker } from '../token-tracker';
 import {
@@ -58,12 +60,16 @@ export async function runReviewPhase(
   const { concurrencyLevel, maxFiles } = await env.settings.getReviewSettings();
   const { files } = await getDiffFiles(env, job, github, config, maxFiles);
   const totalLineCount = files.reduce((sum, file) => sum + file.lineCount, 0);
+  const changelogExcerpt = changelogExcerptFromDiff(files);
   const configuredChunkFileLimit = REVIEW_CONCURRENCY_LIMITS[concurrencyLevel];
   const modelChainLength = 1 + (config.model.fallbacks?.length ?? 0);
   const reviewChunkFileLimit = budgetAwareFileLimit(
     tracker.remainingSafeBudget(),
     configuredChunkFileLimit,
     modelChainLength,
+    config.review.full_file_context,
+    // A second reviewer walks its own chain per file, so fewer files fit in one invocation.
+    Boolean(config.model?.secondary),
   );
   if (reviewChunkFileLimit <= 0) {
     throw new Error('Subrequest budget for this invocation was exhausted before starting the next review chunk.');
@@ -121,7 +127,7 @@ export async function runReviewPhase(
       }];
     }));
 
-    const units = planReviewUnits(files, { enabled: true }).flatMap((unit) => narrowUnit(unit, ledger));
+    const units = planReviewUnits(files, { enabled: true, fullFileContext: config.review.full_file_context }).flatMap((unit) => narrowUnit(unit, ledger));
     const plannedBins = units.filter((unit) => unit.kind === 'bin');
     let binsDispatched = 0;
     let filesDispatchedInBins = 0;
@@ -133,7 +139,7 @@ export async function runReviewPhase(
       const binFiles = unit.kind === 'bin' ? unit.files : [];
       binFiles.forEach((file) => binnedPaths.add(file.path));
       reviewTasks.push((async () => {
-        const terminal = await reviewAndPersistBin(env, job, binFiles, pr, config, totalLineCount, model, resolveFailureModelProvider, rejectedExemplars);
+        const terminal = await reviewAndPersistBin(env, job, binFiles, pr, config, totalLineCount, model, resolveFailureModelProvider, rejectedExemplars, changelogExcerpt);
         terminalProgress += terminal;
       })());
       processedThisChunk += 1;
@@ -166,6 +172,16 @@ export async function runReviewPhase(
     }
 
     const inherited = parentReviews.get(file.path);
+    let fileContextPromise: Promise<string | null> | null = null;
+    const fileContextFor = () => {
+      if (!wantsFileContext(file, config.review.full_file_context, {
+        compactPrompt: (existingReview?.transient_error_count ?? 0) > 0,
+      })) {
+        return Promise.resolve(null);
+      }
+      fileContextPromise ??= loadFileContext(github, job, file, () => tracker.incrementSubrequests(1));
+      return fileContextPromise;
+    };
     const reviewTask = async () => {
       if (awaitingReview) {
         const poll = await model.pollReviewBatch({
@@ -182,7 +198,7 @@ export async function runReviewPhase(
           logger.warn(`Async batch poll failed for ${file.path}; falling back to synchronous review`, {
             error: poll.error instanceof Error ? poll.error.message : String(poll.error),
           });
-          await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
+          await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars, changelogExcerpt, await fileContextFor());
           terminalProgress += 1;
           return;
         }
@@ -194,8 +210,10 @@ export async function runReviewPhase(
       if (!inherited) {
         const submitted = await model.submitReviewBatch({
           file,
+          fileContext: await fileContextFor(),
           prTitle: pr.title ?? null,
           prDescription: pr.body ?? null,
+          changelogExcerpt,
           config,
           totalLineCount,
           compactPrompt: (existingReview?.transient_error_count ?? 0) > 0,
@@ -224,14 +242,14 @@ export async function runReviewPhase(
           awaitingAsync += 1;
           return;
         }
-        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
+        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars, changelogExcerpt, await fileContextFor());
         terminalProgress += 1;
         return;
       }
 
       if (!canInheritParentFileReview(config, inherited)) {
         logger.info(`Ignoring inherited review for ${file.path}; parent model ${inherited.model_used} is not in the current model strategy`);
-        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars);
+        await reviewAndPersistFile(env, job, file, pr, config, totalLineCount, model, resolveFailureModelProvider, existingReview, rejectedExemplars, changelogExcerpt, await fileContextFor());
         terminalProgress += 1;
       } else {
         await env.fileReviews.upsertFileReview(job.id, {

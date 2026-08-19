@@ -1,7 +1,7 @@
 import type { AppBindings } from '@server/env';
-import type { FileReviewStore } from '@codra/core/ports';
-import { makeFileReviewStore as makeDbFileReviewStore } from '@codra/db/repositories';
-import type { DbEnv } from '@codra/db/env';
+import type { FileReviewStore } from '@codraoss/core/ports';
+import { makeFileReviewStore as makeDbFileReviewStore } from '@codraoss/db/repositories';
+import type { DbEnv } from '@codraoss/db/env';
 
 export function makeFileReviewStore(env: AppBindings): FileReviewStore {
   const dbEnv: DbEnv = {

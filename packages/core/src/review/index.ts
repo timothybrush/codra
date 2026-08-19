@@ -1,6 +1,6 @@
 import { logger } from '../logger';
-import { type WebhookPayload, type ChangeRequestWebhookPayload } from '@codra/schema/webhook';
-import { REVIEW_CONCURRENCY_LIMITS, type ReviewJobMessage } from '@codra/schema';
+import { type WebhookPayload, type ChangeRequestWebhookPayload } from '@codraoss/schema/webhook';
+import { REVIEW_CONCURRENCY_LIMITS, type ReviewJobMessage } from '@codraoss/schema';
 import type { ReviewGitProvider, ReviewRuntime } from '../ports';
 import { extractReviewRequest } from './request';
 

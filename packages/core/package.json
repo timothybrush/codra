@@ -1,8 +1,20 @@
 {
-  "name": "@codra/core",
+  "name": "@codraoss/core",
   "version": "0.9.4",
-  "private": true,
+  "description": "The Codra review engine: pure, transport- and platform-agnostic code review logic behind ports.",
+  "author": "Devarshi Shimpi",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://codra.run",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devarshishimpi/codra.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/devarshishimpi/codra/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./ports": "./src/ports/index.ts",
@@ -21,17 +33,98 @@
     "./prompts/summary": "./src/prompts/summary.ts",
     "./prompts/verify": "./src/prompts/verify.ts"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./ports": {
+        "types": "./dist/ports/index.d.ts",
+        "import": "./dist/ports/index.js"
+      },
+      "./logger": {
+        "types": "./dist/logger.d.ts",
+        "import": "./dist/logger.js"
+      },
+      "./diff": {
+        "types": "./dist/diff/index.d.ts",
+        "import": "./dist/diff/index.js"
+      },
+      "./model-output": {
+        "types": "./dist/model-output/index.d.ts",
+        "import": "./dist/model-output/index.js"
+      },
+      "./rules/detect": {
+        "types": "./dist/rules/detect.d.ts",
+        "import": "./dist/rules/detect.js"
+      },
+      "./rules/table": {
+        "types": "./dist/rules/table.d.ts",
+        "import": "./dist/rules/table.js"
+      },
+      "./claim-checks": {
+        "types": "./dist/claim-checks.d.ts",
+        "import": "./dist/claim-checks.js"
+      },
+      "./verify": {
+        "types": "./dist/verify.d.ts",
+        "import": "./dist/verify.js"
+      },
+      "./fingerprint": {
+        "types": "./dist/fingerprint.d.ts",
+        "import": "./dist/fingerprint.js"
+      },
+      "./timeout": {
+        "types": "./dist/timeout.d.ts",
+        "import": "./dist/timeout.js"
+      },
+      "./token-tracker": {
+        "types": "./dist/token-tracker.d.ts",
+        "import": "./dist/token-tracker.js"
+      },
+      "./prompts/file-review": {
+        "types": "./dist/prompts/file-review.d.ts",
+        "import": "./dist/prompts/file-review.js"
+      },
+      "./prompts/languages": {
+        "types": "./dist/prompts/languages.d.ts",
+        "import": "./dist/prompts/languages.js"
+      },
+      "./prompts/summary": {
+        "types": "./dist/prompts/summary.d.ts",
+        "import": "./dist/prompts/summary.js"
+      },
+      "./prompts/verify": {
+        "types": "./dist/prompts/verify.d.ts",
+        "import": "./dist/prompts/verify.js"
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
+    "postpack": "node ../../scripts/swap-publish-exports.mjs restore"
   },
   "dependencies": {
-    "@codra/schema": "*",
+    "@codraoss/schema": "^0.9.4",
     "jsonrepair": "^3.15.0",
     "picomatch": "^4.0.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/picomatch": "^4.0.3"
+    "@types/picomatch": "^4.0.3",
+    "tsup": "^8.0.0"
   }
 }

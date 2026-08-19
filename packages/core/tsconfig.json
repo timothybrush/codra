@@ -9,7 +9,7 @@
     "types": ["node"],
 
     // No emit, and therefore no project reference to ../schema. Packages here have no build step:
-    // @codra/schema is consumed as raw TS source through its `exports` map, exactly as the root
+    // @codraoss/schema is consumed as raw TS source through its `exports` map, exactly as the root
     // program consumes it. Keeping the base's composite/declaration settings would instead demand
     // that schema be built to dist/ first (TS6305) -- a build nothing in this repo performs.
     // This project exists to typecheck the package against a NARROWER lib/types than the root

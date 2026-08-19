@@ -1,13 +1,13 @@
-import type { GitProviderFactory, ModelErrorClassifier, ReviewFormatter, ReviewGitProvider, ReviewModel } from '@codra/core/ports';
-import type { TokenTracker } from '@codra/core/token-tracker';
+import type { GitProviderFactory, ModelErrorClassifier, ReviewFormatter, ReviewGitProvider, ReviewModel } from '@codraoss/core/ports';
+import type { TokenTracker } from '@codraoss/core/token-tracker';
 import type { AppBindings } from '@server/env';
-import { GitHubService } from '@codra/provider-github';
-import { isRetryableModelError, ModelRunner, nextChainIndexOf } from '@codra/models';
+import { GitHubService } from '@codraoss/provider-github';
+import { isRetryableModelError, ModelRunner, nextChainIndexOf } from '@codraoss/models';
 import { FormatterService } from '@server/services/formatter';
-import { getResolvedModelConfig } from '@codra/db/model-configs';
+import { getResolvedModelConfig } from '@codraoss/db/model-configs';
 
 // The only place the four job-scoped collaborators are constructed. Every specifier above is the
-// barrel form on purpose: nine specs vi.mock '@server/services/github' and '@codra/models',
+// barrel form on purpose: nine specs vi.mock '@server/services/github' and '@codraoss/models',
 // and reaching for a sibling here would bypass those mocks while the tests kept passing.
 
 export function makeGitHubFactory(env: AppBindings) {

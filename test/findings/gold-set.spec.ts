@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFileReviewResponse } from '@server/core/model-output';
 import { verifyFindings } from '@server/core/review';
-import { DEFAULT_DENIED_CLAIM_TYPES, defaultRepoConfig } from '@codra/schema';
+import { DEFAULT_DENIED_CLAIM_TYPES, defaultRepoConfig } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
 // The regression wall.

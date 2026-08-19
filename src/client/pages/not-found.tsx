@@ -1,4 +1,4 @@
-import { Button } from '@codra/ui';
+import { Button } from '@codraoss/ui';
 import { Link } from 'react-router-dom';
 import { Ghost, Home, ArrowLeft } from 'lucide-react';
 

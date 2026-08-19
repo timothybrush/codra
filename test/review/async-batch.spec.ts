@@ -1,42 +1,40 @@
 import { runReviewJob } from '@server/core/review';
 import { createTestEnv, dbDescribe, sha, uniqueName, uniqueRepo } from '../helpers';
 import { afterAll, expect, vi } from 'vitest';
-import { findExistingJobForHead, getJobForProcessing } from '@codra/db/jobs';
-import { getFileReviewsForJobs } from '@codra/db/file-reviews';
-import { runWithDb, queryRows } from '@codra/db/client';
+import { findExistingJobForHead, getJobForProcessing } from '@codraoss/db/jobs';
+import { getFileReviewsForJobs } from '@codraoss/db/file-reviews';
+import { runWithDb, queryRows } from '@codraoss/db/client';
 
 
 const { getOtherRunningJobsCountMock } = vi.hoisted(() => ({
   getOtherRunningJobsCountMock: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('@codra/db/jobs', async (importOriginal) => {
+vi.mock('@codraoss/db/jobs', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
 
-// `global_settings` is a singleton, so reading it races the suites that write it once files run in
-// parallel. This suite only needs some fixed concurrency, so pin the schema default.
+// global_settings is a singleton; pin schema default to avoid parallel-suite races.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
-vi.mock('@codra/db/app-settings', async (importOriginal) => {
+vi.mock('@codraoss/db/app-settings', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const { reviewSettingsSchema } = await import('@codra/schema');
+  const { reviewSettingsSchema } = await import('@codraoss/schema');
   getReviewSettingsMock.mockResolvedValue(reviewSettingsSchema.parse({}));
   return { ...mod, getReviewSettings: getReviewSettingsMock };
 });
 
-vi.mock('@codra/provider-github', async (importOriginal) => {
+vi.mock('@codraoss/provider-github', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   const { makeGitHubServiceMock } = await import('../mocks/services');
   return { ...mod, GitHubService: makeGitHubServiceMock() };
 });
 
-// Controllable async-batch model: submit hands back a request_id; the first poll is still
-// pending, the second completes. reviewFile must NOT be called on the async path.
+// Async model mock: pending on first poll, done on second; reviewFile must not be called.
 const pollCalls = { count: 0 };
 const reviewFileSpy = vi.fn();
-vi.mock('@codra/models', async () => {
+vi.mock('@codraoss/models', async () => {
   class MockModelService {
     async submitReviewBatch() {
       return { requestId: 'req-async-1', model: '@cf/moonshotai/kimi-k2.6' };
@@ -66,8 +64,7 @@ vi.mock('@codra/models', async () => {
 
 
 dbDescribe('Async batch review flow', () => {
-  // Tripwire: if runReviewJob ever stops importing getOtherRunningJobsCount from the
-  // @codra/db/jobs barrel, this mock silently stops applying and every test here still passes.
+  // Tripwire: catches runReviewJob silently dropping the getOtherRunningJobsCount import.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();
@@ -75,9 +72,7 @@ dbDescribe('Async batch review flow', () => {
 
   const env = createTestEnv();
 
-  // A delayed reschedule sets last_queue_message_at into the future; claimJobLease refuses to
-  // claim until then (in prod the workflow's step.sleep waits it out). Backdate it to simulate
-  // that scheduled delay having elapsed so the next poll can claim immediately.
+  // Backdates last_queue_message_at so claimJobLease can claim without waiting out the delay.
   async function simulateScheduledDelayElapsed(jobId: string) {
     await queryRows(env, `UPDATE jobs SET last_queue_message_at = now() - interval '1 second' WHERE id = $1`, [jobId]);
   }
@@ -88,14 +83,13 @@ dbDescribe('Async batch review flow', () => {
     const headSha = sha('c');
 
     await runWithDb(env, async () => {
-      // Phase 1: prepare (creates the job, enqueues review).
       const rawPayload = {
         action: 'opened',
         installation: { id: 123 },
         repository: { owner: { login: 'test-owner' }, name: repo },
         pull_request: { number: 1, head: { sha: headSha, ref: 'feature' }, base: { sha: sha('d'), ref: 'main' }, title: 'Test PR', user: { login: 'author' }, draft: false },
       };
-      const { normalizeGitHubWebhook } = await import('@codra/provider-github');
+      const { normalizeGitHubWebhook } = await import('@codraoss/provider-github');
       const normalized = normalizeGitHubWebhook('pull_request', rawPayload);
       const prep = await runReviewJob(env, {
         deliveryId: uniqueName('delivery-async'),
@@ -107,9 +101,7 @@ dbDescribe('Async batch review flow', () => {
       const job = await findExistingJobForHead(env, { owner: 'test-owner', repo, prNumber: 1, commitSha: headSha, trigger: 'auto' });
       const jobId = job!.id;
 
-      // Phase 2: first review invocation -> submits the async batch, persists a 'pending' row.
-      // Prepare enqueues review with FRESH_INVOCATION_YIELD_SECONDS, so this transition is
-      // delay-gated exactly like the polls below and needs the same simulated elapse.
+      // Prepare's enqueue also delay-gates this step, hence the same simulated elapse.
       await simulateScheduledDelayElapsed(jobId);
       const submitResult = await runReviewJob(env, { jobId, phase: 'review' } as any);
       expect(submitResult).toMatchObject({ action: 'next_phase', phase: 'review' });
@@ -118,14 +110,12 @@ dbDescribe('Async batch review flow', () => {
       expect(reviews[0].file_status).toBe('pending');
       expect(reviews[0].async_request_id).toBe('req-async-1');
 
-      // Phase 3: poll returns pending -> stays in review phase.
       await simulateScheduledDelayElapsed(jobId);
       const pollPending = await runReviewJob(env, { jobId, phase: 'review' } as any);
       expect(pollPending).toMatchObject({ action: 'next_phase', phase: 'review' });
       reviews = await getFileReviewsForJobs(env, [jobId]);
       expect(reviews[0].file_status).toBe('pending');
 
-      // Phase 4: poll returns done -> persists 'done', clears async bookkeeping, moves to finalize.
       await simulateScheduledDelayElapsed(jobId);
       const pollDone = await runReviewJob(env, { jobId, phase: 'review' } as any);
       expect(pollDone).toMatchObject({ action: 'next_phase', phase: 'finalize' });
@@ -134,9 +124,7 @@ dbDescribe('Async batch review flow', () => {
       expect(reviews[0].async_request_id).toBeNull();
       expect(reviews[0].model_used).toBe('@cf/moonshotai/kimi-k2.6');
 
-      // The synchronous reviewFile path must never have been used.
       expect(reviewFileSpy).not.toHaveBeenCalled();
-      // Sanity: the batch was polled until it completed.
       expect(pollCalls.count).toBeGreaterThanOrEqual(2);
 
       expect(await getJobForProcessing(env, jobId)).toBeTruthy();

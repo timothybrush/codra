@@ -1,9 +1,9 @@
-import { Badge, Button, GithubMark, Input, LinkButton, Skeleton } from '@codra/ui';
+import { Badge, Button, GithubMark, Input, LinkButton, Skeleton } from '@codraoss/ui';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '@client/lib/api';
 import { ExternalLink, Pencil, Check, X } from 'lucide-react';
-import type { AccountSettings, AuthSessionUser } from '@codra/schema/api';
+import type { AccountSettings, AuthSessionUser } from '@codraoss/schema/api';
 
 export function ProfileCard({
   user,

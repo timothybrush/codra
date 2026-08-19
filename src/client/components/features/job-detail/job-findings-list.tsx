@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { FileText } from 'lucide-react';
-import type { JobDetail } from '@codra/schema';
-import { reviewSeverities } from '@codra/schema/review-limits';
-import { Tabs, TabsList, TabsTrigger } from '@codra/ui/motion';
+import type { JobDetail } from '@codraoss/schema';
+import { reviewSeverities } from '@codraoss/schema/review-limits';
+import { Tabs, TabsList, TabsTrigger } from '@codraoss/ui/motion';
 import { FileFinding } from './file-finding';
 import { CommentCard } from './comment-card';
 import { severityConfig } from './constants';

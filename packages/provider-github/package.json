@@ -1,19 +1,62 @@
 {
-  "name": "@codra/provider-github",
+  "name": "@codraoss/provider-github",
   "version": "0.9.4",
-  "private": true,
+  "description": "GitHub git-provider adapter for Codra: App auth, webhooks, OAuth, and review posting.",
+  "author": "Devarshi Shimpi",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://codra.run",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devarshishimpi/codra.git",
+    "directory": "packages/provider-github"
+  },
+  "bugs": {
+    "url": "https://github.com/devarshishimpi/codra/issues"
+  },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./oauth": "./src/oauth.ts",
     "./webhook": "./src/webhook.ts"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./oauth": {
+        "types": "./dist/oauth.d.ts",
+        "import": "./dist/oauth.js"
+      },
+      "./webhook": {
+        "types": "./dist/webhook.d.ts",
+        "import": "./dist/webhook.js"
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
+    "postpack": "node ../../scripts/swap-publish-exports.mjs restore"
   },
   "dependencies": {
-    "@codra/core": "*",
-    "@codra/schema": "*"
+    "@codraoss/core": "^0.9.4",
+    "@codraoss/schema": "^0.9.4"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0"
   }
 }

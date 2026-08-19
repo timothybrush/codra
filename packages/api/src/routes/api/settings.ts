@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { ApiEnv } from '../../ports';
 import { jsonError } from '../../http';
-import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema } from '@codra/schema';
+import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema } from '@codraoss/schema';
 
 const reviewSettingsPatchSchema = z.strictObject({
   concurrencyLevel: z.enum(reviewConcurrencyLevels).optional(),

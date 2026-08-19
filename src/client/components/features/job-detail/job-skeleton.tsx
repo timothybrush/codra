@@ -1,4 +1,4 @@
-import { LoadError, Skeleton } from '@codra/ui';
+import { LoadError, Skeleton } from '@codraoss/ui';
 import { Link } from 'react-router-dom';
 import { ChevronRight, ClipboardList, FileDiff, Info, ListChecks } from 'lucide-react';
 import { DETAIL_LABEL, DETAIL_ROW } from './job-chip-utils';

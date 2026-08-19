@@ -1,5 +1,5 @@
 import type { AppBindingsConfig } from './service';
-import { withTimeout } from '@codra/core/timeout';
+import { withTimeout } from '@codraoss/core/timeout';
 import {
   GitHubError,
   assertResponseOk,
@@ -19,6 +19,7 @@ import {
 import { fetchCompareDiff, fetchPullRequestDiff } from './diff-fetch';
 import { findBotReviewForCommit, postReview } from './review-post';
 import { addIssueLabels, ensureLabel, listIssueLabels, removeIssueLabel } from './labels';
+import { addIssueReaction } from './reactions';
 import type {
   GitHubInstallation,
   GitHubRepository,
@@ -183,9 +184,12 @@ export class GitHubClient {
     return fetchCompareDiff(this.ctx(), owner, repo, base, head);
   }
 
-  async getRepoFileOrNull(owner: string, repo: string, path: string) {
-    return withRetry(`getRepoFileOrNull ${owner}/${repo}/${path}`, async () => {
-      const response = await this.request(`${repoApiPath(owner, repo)}/contents/${encodeGitHubContentPath(path)}`);
+  // File content at a specific commit; without `ref`, GitHub answers from the default branch instead.
+  // Never retried: a secondary rate limit here would sleep 60-120s, worse than just skipping the context.
+  async getRepoFile(owner: string, repo: string, path: string, ref?: string) {
+    return withRetry(`getRepoFile ${owner}/${repo}/${path}`, async () => {
+      const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+      const response = await this.request(`${repoApiPath(owner, repo)}/contents/${encodeGitHubContentPath(path)}${query}`);
       if (response.status === 404) return null;
       await assertResponseOk(response, path, 'GitHub repo file fetch');
 
@@ -193,9 +197,13 @@ export class GitHubClient {
       if (!data.content) {
         return null;
       }
+      if (data.encoding !== 'base64') return data.content;
 
-      return data.encoding === 'base64' ? atob(data.content.replace(/\n/g, '')) : data.content;
-    });
+      // atob alone yields one code unit per byte, mangling non-ASCII source files; decode as UTF-8 instead.
+      const binary = atob(data.content.replace(/\n/g, ''));
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    }, 0);
   }
 
   async createCheckRun(
@@ -285,6 +293,10 @@ export class GitHubClient {
 
   async addIssueLabels(owner: string, repo: string, issueNumber: number, labels: string[]) {
     return addIssueLabels(this.ctx(), owner, repo, issueNumber, labels);
+  }
+
+  async addIssueReaction(owner: string, repo: string, issueNumber: number, content: '+1') {
+    return addIssueReaction(this.ctx(), owner, repo, issueNumber, content);
   }
 
   async listIssueLabels(owner: string, repo: string, issueNumber: number) {

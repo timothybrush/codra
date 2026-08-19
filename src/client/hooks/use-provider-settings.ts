@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api, type ProviderPayload } from '@client/lib/api';
-import type { LlmProvider, ModelConfig, ReviewSettings } from '@codra/schema';
-import type { ModelConfigsResponse } from '@codra/schema/api';
+import type { LlmProvider, ModelConfig, ReviewSettings } from '@codraoss/schema';
+import type { ModelConfigsResponse } from '@codraoss/schema/api';
 import {
   normalizeModelRoute,
   routesEqual,

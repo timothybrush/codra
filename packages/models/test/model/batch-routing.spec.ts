@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseBatchReviewResponse } from '@codra/core/model-output';
-import type { FileDiff } from '@codra/core/diff';
+import { parseBatchReviewResponse } from '@codraoss/core/model-output';
+import type { FileDiff } from '@codraoss/core/diff';
 
 function file(path: string, contents: string[], previousPath: string | null = null): FileDiff {
   return {
@@ -57,13 +57,12 @@ describe('parseBatchReviewResponse', () => {
     expect(result.reviews.get('src/a.ts')!.comments[0].path).toBe('src/a.ts');
     expect(result.reviews.get('src/b.ts')!.comments[0].path).toBe('src/b.ts');
     expect(result.reviews.get('src/a.ts')!.fileSummary).toContain('Summary for src/a.ts');
-    // Never silently approved: an omitted file has no entry and must surface for re-queueing.
+    // Omitted file must surface for re-queueing, not silently approved.
     expect(result.missing).toEqual(['src/c.ts']);
     expect(result.reviews.has('src/c.ts')).toBe(false);
   });
 
-  // Routing tolerates loose paths, but only when unambiguous. Renames matter because renderFileDiff
-  // shows the old path on the header line.
+  // Renames matter: renderFileDiff shows the old path on the header line.
   it('tolerates path noise and renames, but refuses to guess', () => {
     for (const reported of ['./src/a.ts', 'a/src/a.ts', 'b/src/a.ts', '/src/a.ts', 'a.ts']) {
       const result = parseBatchReviewResponse(
@@ -80,13 +79,12 @@ describe('parseBatchReviewResponse', () => {
     );
     expect(renamed.reviews.get('src/new.ts')!.comments).toHaveLength(1);
 
-    // Two files share a basename: guessing would file findings against code they were never about.
+    // Shared basename: guessing would misattribute findings.
     const siblings = [file('src/a/index.ts', ['const alpha = 1;']), file('src/b/index.ts', ['const bravo = 2;'])];
     const ambiguous = parseBatchReviewResponse(raw([entry('index.ts', 'const alpha = 1;')]), siblings);
     expect(ambiguous.stats.unroutableEntries).toBe(1);
     expect(ambiguous.reviews.size).toBe(0);
 
-    // A duplicate entry is discarded, never re-homed onto a sibling.
     const duplicated = parseBatchReviewResponse(
       raw([entry('src/a/index.ts', 'const alpha = 1;'), entry('src/a/index.ts', 'const alpha = 1;', 'Duplicate')]),
       siblings,
@@ -96,7 +94,7 @@ describe('parseBatchReviewResponse', () => {
     expect(duplicated.missing).toEqual(['src/b/index.ts']);
   });
 
-  // What per-file indexes miss: a misfiled finding whose quote exists in the wrong file too.
+  // Per-file indexes miss quotes shared across files.
   it('withholds only when a shared quote AND a path disagreement coincide', () => {
     const shared = '} catch (error) {';
     const files = [file('src/a.ts', [shared, 'const uniqueToAlpha = 1;']), file('src/b.ts', [shared, 'const bravo = 2;'])];
@@ -118,19 +116,17 @@ describe('parseBatchReviewResponse', () => {
     expect(withheld.stats.ambiguousAcrossBin).toBe(1);
     expect(withheld.reviews.get('src/a.ts')!.comments).toHaveLength(0);
 
-    // Shared quote, agreeing path: ordinary, keep it.
     const agreeing = parseBatchReviewResponse(raw([entry('src/a.ts', shared, 'Swallowed error')]), files);
     expect(agreeing.stats.ambiguousAcrossBin).toBe(0);
     expect(agreeing.reviews.get('src/a.ts')!.comments).toHaveLength(1);
 
-    // Unique quote, disagreeing path: the enclosing entry wins, which is the point of nesting.
+    // Unique quote + wrong path: enclosing entry still wins.
     const mismatch = parseBatchReviewResponse(misfiled('const uniqueToAlpha = 1;', 'src/b.ts'), files);
     expect(mismatch.stats.pathMismatchFindings).toBe(1);
     expect(mismatch.reviews.get('src/a.ts')!.comments[0].path).toBe('src/a.ts');
   });
 
-  // Per file, not a shared pool: a shared ceiling lets one noisy file keep everything while
-  // its bin-mates are trimmed to nothing.
+  // Cap is per-file: a noisy file keeps its own cap while others are untouched.
   it('trims over-cap findings per file and accounts for the drop', () => {
     const lines = Array.from({ length: 30 }, (_, i) => `const value${i} = ${i};`);
     const files = [file('src/a.ts', lines), file('src/b.ts', ['const bravo = 2;'])];
@@ -159,12 +155,10 @@ describe('parseBatchReviewResponse', () => {
     expect(result.reviews.get('src/a.ts')!.comments).toHaveLength(10);
     expect(result.stats.overCap).toBe(20);
     expect(result.reviews.get('src/a.ts')!.fileSummary).toContain('over-cap');
-    // The quiet file keeps everything -- it never competed for a shared budget.
     expect(result.reviews.get('src/b.ts')!.comments).toHaveLength(1);
   });
 
-  // Assembly can reject one finding; under batching an uncontained throw would discard
-  // every other file packed alongside it.
+  // One bad finding must not sink the rest of the batch.
   it('drops an unassemblable finding without losing the rest of the bin', () => {
     const files = [file('src/a.ts', ['const alpha = 1;']), file('src/b.ts', ['const bravo = 2;'])];
 

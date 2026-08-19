@@ -1,7 +1,7 @@
 import type { DbEnv } from './env';
-import { isSupportedTimeZone } from '@codra/schema/timezone';
+import { isSupportedTimeZone } from '@codraoss/schema/timezone';
 import { queryRows } from './client';
-import { statsSchema, jobStatuses, reviewTriggers, reviewSeverities, reviewCategories } from '@codra/schema';
+import { statsSchema, jobStatuses, reviewTriggers, reviewSeverities, reviewCategories } from '@codraoss/schema';
 import { getModelUsageStats } from './file-reviews';
 
 // Guard the zone before it reaches SQL, so an unknown name can't error the query.

@@ -1,10 +1,10 @@
-import { GithubMark } from '@codra/ui';
+import { GithubMark } from '@codraoss/ui';
 import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@client/lib/api';
 import { LogOut, ChevronsUpDown, UserRound } from 'lucide-react';
-import { cn } from '@codra/ui/utils';
-import type { AuthSessionUser } from '@codra/schema/api';
+import { cn } from '@codraoss/ui/utils';
+import type { AuthSessionUser } from '@codraoss/schema/api';
 
 /**
  * Built from scratch (no shared dropdown primitive): a local popover anchored

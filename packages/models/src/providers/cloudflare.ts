@@ -1,6 +1,6 @@
-import { logger } from '@codra/core/logger';
+import { logger } from '@codraoss/core/logger';
 
-import { TimeoutError } from '@codra/core/timeout';
+import { TimeoutError } from '@codraoss/core/timeout';
 import { ProviderRequestError, UnparseableModelResponseError, jsonOnlyPrompts, type ModelInput, type ModelResponse } from '../types';
 import { MODEL_TIMEOUT_MAX_MS, OUTPUT_TOKENS_FLOOR, resolveOutputTokenCeiling } from '../limits';
 

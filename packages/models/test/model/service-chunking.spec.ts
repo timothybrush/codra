@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ModelRunner } from '@codra/models';
+import { ModelRunner } from '@codraoss/models';
 
 
 
 
 
 import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '../../../../test/helpers';
-import { defaultRepoConfig } from '@codra/schema';
-import { TokenTracker } from '@codra/core/token-tracker';
+import { defaultRepoConfig } from '@codraoss/schema';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 import { geminiThinkingBudgetTokens, reviewOutputBudgetTokens } from '../../src/limits';
-import { generatorFindingCap } from '@codra/core/prompts/file-review';
+import { reviewBreadth } from '@codraoss/core/prompts/file-review';
 
 describe('ModelRunner: diff chunking', () => {
   afterEach(() => {
@@ -69,7 +69,7 @@ describe('ModelRunner: diff chunking', () => {
     // 900 lines at the 800-line cap: two chunks, each its own model call.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const answerBudget = reviewOutputBudgetTokens({
-      findingCap: generatorFindingCap(defaultRepoConfig.review.max_comments),
+      findingCap: reviewBreadth(defaultRepoConfig.review),
       fileCount: 1,
     });
     for (const body of requestBodies) {
