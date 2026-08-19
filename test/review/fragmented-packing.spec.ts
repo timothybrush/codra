@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { planReviewUnits, unitFiles } from '@server/core/review';
 import { wantsFileContext } from '@server/prompts/file-review';
 import { filterReviewableFiles } from '@server/core/diff';
-import { defaultRepoConfig } from '@codraoss/schema';
+import { defaultRepoConfig, reviewMaxFilesRange } from '@codraoss/schema';
 import type { FileDiff } from '@server/core/diff';
 
 // Bins deliberately get no whole-file context: they exist to save subrequests, and four extra GitHub
@@ -105,6 +105,16 @@ describe('max_total_diff_chars', () => {
 
     expect(result.files).toHaveLength(3);
     expect(result.skipped).toBe(0);
+  });
+
+  // The default has to clear a full-size review, or it becomes a second, much tighter file limit and
+  // `max_files` stops meaning anything. It cut a real 250-file pull request down to 25 at 150,000.
+  it('defaults high enough that max_files stays the binding limit', () => {
+    const AVERAGE_CHARS_PER_FILE = 7_500;
+    const budget = defaultRepoConfig.review.max_total_diff_chars;
+
+    expect(budget / AVERAGE_CHARS_PER_FILE).toBeGreaterThan(reviewMaxFilesRange.default);
+    expect(budget / AVERAGE_CHARS_PER_FILE).toBeGreaterThan(reviewMaxFilesRange.max);
   });
 
   // A single oversized file is truncated by `max_diff_lines_per_file`, not dropped -- otherwise the
