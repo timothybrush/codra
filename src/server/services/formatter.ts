@@ -1,4 +1,5 @@
 import type { ParsedReviewComment } from '@codraoss/schema';
+import type { ReviewOverviewInput } from '@codraoss/core/ports';
 
 // The third field is OPTIONAL so every comment already on GitHub still parses; requiring it would silently stop recording deletions of historical comments.
 const FINDING_MARKER_PATTERN = /<!--\s*codra-fp:([0-9a-f]+):([0-9a-f]*)(?::([0-9a-f]*))?\s*-->/;
@@ -79,13 +80,35 @@ export class FormatterService {
     return { verdict: 'approve' as const, errors: 0, warnings: 0 };
   }
 
-  formatReviewOverview(commitSha: string, botUsername: string) {
+  formatReviewOverview(input: ReviewOverviewInput) {
+    const { commitSha, postedFindings, filesReviewed, linesReviewed } = input;
     const shortSha = commitSha.slice(0, 10);
+    const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+
+    // A clean review used to say "here are some automated review suggestions" and then list none,
+    // which reads as a failure rather than a pass. Say what was checked and that nothing came of it.
+    const headline = postedFindings === 0
+      ? `✅ **Nothing to flag.** Reviewed ${plural(filesReviewed, 'file')} (${plural(linesReviewed, 'changed line')}) and found no issues worth raising.`
+      : `Found ${plural(postedFindings, 'issue')} worth a look, commented inline below.`;
+
+    const notes: string[] = [];
+    if (input.filesFailed > 0) {
+      notes.push(`${plural(input.filesFailed, 'file')} could not be reviewed, so this pass is incomplete.`);
+    }
+    if (postedFindings === 0 && input.withheldFindings > 0) {
+      // "No issues" is a weaker claim when candidates were dropped for failing to ground themselves,
+      // and every one of them is on the dashboard.
+      notes.push(`${plural(input.withheldFindings, 'candidate')} did not survive the evidence and claim gates — see the [dashboard](${this.baseUrl}) for what was dropped and why.`);
+    }
     
+    const noteBlock = notes.length > 0
+      ? '\n' + notes.map((line) => `> [!NOTE]\n> ${line}`).join('\n\n') + '\n'
+      : '';
+
     return `### Codra Review
 
-Here are some automated review suggestions for this pull request.
-
+${headline}
+${noteBlock}
 **Reviewed commit:** \`${shortSha}\`
 
 <details>
@@ -97,11 +120,8 @@ Here are some automated review suggestions for this pull request.
 
 - **Open** a pull request for review
 - **Mark** a draft as ready
-- **Comment** "@${botUsername} review"
 
-If Codra has suggestions, it will comment; otherwise it will react with 👍.
-
-Codra can also answer questions or update the PR. Try commenting "@${botUsername} address that feedback".
+Every review posts a summary here. A clean pass also gets a 👍 on the pull request itself.
 
 </details>`;
   }

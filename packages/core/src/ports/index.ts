@@ -5,7 +5,7 @@ export type { BulkFileReviewInput, FileReviewRow, FileReviewStore, SuppressedFin
 export type { LearningStore, ModelConfigReader, RepoConfigLoader, ReviewSettingsReader, WebhookDeliveryReader } from './settings';
 export type { GitProviderFactory, ReviewComment, PullRequestRecord, ReviewGitProvider } from './git-provider';
 export type { FileReviewOutcome, ModelErrorClassifier, ModelResponse, ModelResponseSchema, ReviewModel } from './model';
-export type { ReviewFormatter } from './formatter';
+export type { ReviewFormatter, ReviewOverviewInput } from './formatter';
 export type { ReviewTelemetryEvent, TelemetrySink } from './telemetry';
 export type { ReviewRuntime } from './runtime';
 export type { RepoConfigStore } from './repo-config';

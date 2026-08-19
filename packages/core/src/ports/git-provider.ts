@@ -41,6 +41,8 @@ export interface ReviewGitProvider {
   findBotReviewForCommit(owner: string, repo: string, prNumber: number, commitSha: string, botLogin: string): Promise<{ id: number } | null>;
   ensureLabel(owner: string, repo: string, name: string, color: string): Promise<unknown>;
   addIssueLabels(owner: string, repo: string, prNumber: number, labels: string[]): Promise<unknown>;
+  /** Optional: a provider or test double without it simply does not react. */
+  addIssueReaction?(owner: string, repo: string, prNumber: number, content: '+1'): Promise<unknown>;
   removeIssueLabelsIfPresent(owner: string, repo: string, prNumber: number, labels: string[]): Promise<unknown>;
 }
 

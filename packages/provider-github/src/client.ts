@@ -19,6 +19,7 @@ import {
 import { fetchCompareDiff, fetchPullRequestDiff } from './diff-fetch';
 import { findBotReviewForCommit, postReview } from './review-post';
 import { addIssueLabels, ensureLabel, listIssueLabels, removeIssueLabel } from './labels';
+import { addIssueReaction } from './reactions';
 import type {
   GitHubInstallation,
   GitHubRepository,
@@ -292,6 +293,10 @@ export class GitHubClient {
 
   async addIssueLabels(owner: string, repo: string, issueNumber: number, labels: string[]) {
     return addIssueLabels(this.ctx(), owner, repo, issueNumber, labels);
+  }
+
+  async addIssueReaction(owner: string, repo: string, issueNumber: number, content: '+1') {
+    return addIssueReaction(this.ctx(), owner, repo, issueNumber, content);
   }
 
   async listIssueLabels(owner: string, repo: string, issueNumber: number) {

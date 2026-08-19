@@ -151,7 +151,14 @@ export async function runFinalizePhase(
   await env.jobs.updateJobStep(job.id, 'Generating Summary', { status: 'done' });
   await heartbeatAndCheckSuperseded(env, job.id, leaseOwner);
 
-  const formattedSummary = formatter.formatReviewOverview(pr.head.sha, env.botUsername);
+  const formattedSummary = formatter.formatReviewOverview({
+    commitSha: pr.head.sha,
+    postedFindings: finalComments.length,
+    filesReviewed: files.length,
+    linesReviewed: files.reduce((sum, file) => sum + file.lineCount, 0),
+    withheldFindings: withheldByParser + droppedByFilters + droppedByVerification,
+    filesFailed: failedFileCount,
+  });
 
   // Skipped-file counts are dashboard information, not PR content: skips have more than one cause.
   if (filesOverCap > 0) {
@@ -188,6 +195,21 @@ export async function runFinalizePhase(
       .map((index) => finalComments[index]?.fingerprint)
       .filter((fingerprint): fingerprint is string => Boolean(fingerprint));
     await env.fileReviews.markCommentsPosted(job.id, postedFingerprints);
+  }
+
+  // A clean pass also gets a thumbs-up on the pull request's opening post, so the author sees the
+  // outcome without opening the review. Best-effort: reacting is decoration, and losing it must never
+  // fail a job that already posted its review. GitHub returns the existing reaction on a repeat, so a
+  // retried finalize does not duplicate it.
+  if (finalComments.length === 0 && github.addIssueReaction) {
+    try {
+      await github.addIssueReaction(job.owner, job.repo, job.prNumber, '+1');
+    } catch (error) {
+      logger.warn('Could not react to the pull request', {
+        jobId: job.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   try {

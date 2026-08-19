@@ -392,7 +392,8 @@ export function createInMemoryRuntime(
         warnings: comments.length,
       }),
       formatInlineComment: (comment) => `**${comment.title}**\n\n${comment.body}`,
-      formatReviewOverview: (commitSha, botUsername) => `Reviewed ${commitSha.slice(0, 7)} by ${botUsername}`,
+      formatReviewOverview: ({ commitSha, postedFindings }) =>
+        `### Codra Review\nReviewed ${commitSha.slice(0, 7)}: ${postedFindings} posted`,
     }),
 
     githubClients: { forInstallation: () => { throw new Error('webhook resolution is not exercised by these tests'); } },
