@@ -31,11 +31,6 @@ export const reviewConfigSchema = z.object({
   large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
   batch_small_files: z.boolean().default(true),
-  // Pathological-input valve, NOT an operating limit: `max_files` and `max_diff_lines_per_file`
-  // are the controls. This sat in the schema unenforced for a long time, so its 150,000 default was
-  // never sized against a real ceiling; the moment it started dropping files it silently cut a
-  // 250-file pull request down to 25. A 200-file review at ~7.5k chars per file needs ~1.5M.
-  max_total_diff_chars: z.number().int().min(1).max(20_000_000).default(4_000_000),
   // Presentation cap: comments actually posted to the PR. Findings past this are still recorded
   // (disposition 'cap') and shown on the dashboard; nothing upstream of posting should read it.
   max_comments: z.number().int().min(1).max(150).default(10),
