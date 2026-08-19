@@ -1,16 +1,8 @@
 import type { FileDiff, DiffLine } from '@server/core/diff';
 
-// Fixture builders shared by the parser, rule and webhook suites.
-//
-// Most of these existed two or three times over with small gratuitous differences, so a change to a
-// parser field had to be chased across files that were all testing the same thing. `fileFromLines`
-// has one consumer today and lives here because it is the same builder in a different shape.
+// Shared fixture builders, deduped from parser/rule/webhook suites.
 
-// A raw model response wrapping one finding, in the shape the generator grammar produces.
-//
-// `defaults` are per-suite finding fields (each suite has its own title and body); `finding` is the
-// per-test override and wins. Both merge INSIDE the finding, not at the envelope level: spreading
-// them over the envelope silently drops the suite's title and injects stray top-level keys.
+// defaults/finding must merge inside the finding object, not over the envelope, or title is lost.
 export function reviewJson(finding: Record<string, unknown>, defaults: Record<string, unknown> = {}) {
   return JSON.stringify({
     findings: [{
@@ -27,7 +19,6 @@ export function reviewJson(finding: Record<string, unknown>, defaults: Record<st
   });
 }
 
-// A single-hunk diff of added lines, numbered from 1.
 export function addedLinesFile(path: string, added: string[], removed: string[] = []): FileDiff {
   let n = 0;
   return {
@@ -47,7 +38,7 @@ export function addedLinesFile(path: string, added: string[], removed: string[] 
   };
 }
 
-// A diff built from explicit lines, for suites that need `del`/`context` kinds interleaved.
+// for suites needing interleaved del/context kinds
 export function fileFromLines(
   lines: Array<Partial<DiffLine> & { content: string }>,
   path = 'src/stats.ts',
@@ -70,7 +61,7 @@ export function fileFromLines(
   };
 }
 
-// HMAC-SHA256 in GitHub's `sha256=<hex>` webhook signature format.
+// GitHub webhook signature format: sha256=<hex>
 export async function signPayload(secret: string, payload: string) {
   const key = await crypto.subtle.importKey(
     'raw',

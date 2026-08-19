@@ -33,7 +33,7 @@ export function AppShell() {
     return () => { cancelled = true; };
   }, []);
 
-  // Scroll events don't bubble, so listen in the capture phase at the document level and flag whatever scrolled with `data-scrolling` (global CSS keys off it), clearing it ~700ms after scrolling stops.
+  // Scroll doesn't bubble: listen in capture phase, flag scrolled el with data-scrolling for CSS, clear after 700ms idle.
   useEffect(() => {
     const timers = new WeakMap<Element, number>();
     const onScroll = (e: Event) => {
@@ -54,9 +54,7 @@ export function AppShell() {
     <div className="flex h-svh overflow-hidden bg-background">
 
       {mobileMenuOpen && (
-        /* A button so the tap target is a real control, but hidden from the keyboard and the
-           a11y tree: the drawer already has a focusable "Close menu" X, and a full-viewport
-           scrim as a tab stop would be an invisible focus target announced twice. */
+        /* Hidden from a11y tree: drawer's X is the real focusable close; scrim as a tab stop would double-announce. */
         <button
           type="button"
           tabIndex={-1}
@@ -70,11 +68,10 @@ export function AppShell() {
         className={cn(
           'dashboard-sidebar ui-font-sans',
           'fixed bottom-3 left-3 top-3 z-40 flex flex-col',
-          // Mobile: solid floating card.
           'rounded-xl border border-ui-line bg-background text-ui-default',
           'shadow-[0_6px_20px_-8px_oklch(0%_0_0/0.14)]',
           'dark:shadow-[0_8px_24px_-10px_oklch(0%_0_0/0.42)]',
-          // Desktop: flat - the sidebar IS the page background; the content card carries the surface instead.
+          // Desktop: flat since sidebar IS the page background; content card carries the surface instead.
           'lg:rounded-none lg:border-transparent lg:bg-transparent lg:shadow-none',
           'lg:dark:bg-transparent lg:dark:shadow-none',
           'transition-transform duration-300 ease-[var(--ease-out-expo)]',
@@ -86,7 +83,6 @@ export function AppShell() {
         )}
       >
 
-        {/* `pl-4` aligns the logo with the nav rows, section label, and account block below. */}
         <div className="relative flex shrink-0 items-center justify-between px-2 py-4">
 
           <Link
@@ -102,7 +98,6 @@ export function AppShell() {
             />
           </Link>
 
-          {/* Ghost, not boxed: a bordered control would read as a heavy chip on a flat rail. */}
           <div className="ml-auto flex items-center gap-0.5">
             <button
               onClick={toggleTheme}
@@ -126,13 +121,13 @@ export function AppShell() {
             Menu
           </p>
 
-          {/* SidebarNavItem uses hook-based active state (not NavLink render props) since SharedLayoutBg's cloneElement can't wrap a render function. */}
+          {/* Hook-based active state, not NavLink render props: SharedLayoutBg's cloneElement can't wrap a render function. */}
           <SharedLayoutBg
             className="gap-1"
             pillClassName="rounded-md bg-ui-fill/50"
           >
             {links.map(({ to, label, end, icon }) => (
-              /* SharedLayoutBg clones this div to inject the pill + z-10 wrapper. */
+              /* SharedLayoutBg clones this div to inject pill + z-10 wrapper. */
               <div key={to}>
                 <SidebarNavItem
                   to={to}
@@ -146,12 +141,10 @@ export function AppShell() {
           </SharedLayoutBg>
         </nav>
 
-        {/* One inset rule separates navigation from account/meta; the header divider is gone since free-floating hairlines read as stray marks on a transparent rail. */}
         <div className="mx-4 h-px shrink-0 bg-ui-line" />
 
         <div className="shrink-0 space-y-0.5 p-2 pt-2">
 
-          {/* Tertiary: sits a step quieter than navigation and gains an external-link cue on hover. */}
           <a
             href="https://github.com/devarshishimpi/codra"
             target="_blank"
@@ -177,7 +170,7 @@ export function AppShell() {
         </div>
       </aside>
 
-      {/* The shell is fixed-height and never scrolls; the card fills the viewport and hands scrolling to the page inside (the jobs table scrolls its own body, so the card stays put). */}
+      {/* Shell never scrolls; card fills viewport, pages scroll their own body inside it. */}
       <main
         className={cn(
           'app-shell-content',
@@ -190,7 +183,6 @@ export function AppShell() {
         )}
       >
 
-        {/* Same ui-* tokens and control sizing as the sidebar header, so the two read as one system when the drawer is open. */}
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-ui-line px-4 lg:hidden">
           <button
             className="-ml-2 rounded-md p-2 text-ui-default transition-colors hover:bg-ui-fill hover:text-ui-strong"
@@ -208,7 +200,7 @@ export function AppShell() {
           </button>
         </header>
 
-        {/* Full-width so its auto-hiding scrollbar sits at the card's inner edge; pages that fill height (jobs) scroll their own body, shorter pages fall back to scrolling here - always inside the card, never the window. */}
+        {/* Full-width so scrollbar sits at card's inner edge; short pages scroll here, always inside the card, never the window. */}
         <div className="auto-hide-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="mx-auto flex h-full w-full max-w-screen-2xl flex-col px-4 py-6 md:px-6 md:py-8 lg:px-8">
             <Outlet />

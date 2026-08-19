@@ -17,9 +17,7 @@ vi.mock('@codraoss/db/jobs', async (importOriginal) => {
   return { ...mod, getOtherRunningJobsCount: getOtherRunningJobsCountMock };
 });
 
-// `global_settings` is a singleton, so reading it races the suites that write it once files run
-// in parallel, and unique row names can't isolate a single-row table. This suite only needs some
-// fixed concurrency, so pin the schema default; the suites that test the table take a lock.
+// global_settings is a singleton; pin the schema default to avoid racing suites that write it.
 const { getReviewSettingsMock } = vi.hoisted(() => ({ getReviewSettingsMock: vi.fn() }));
 
 vi.mock('@codraoss/db/app-settings', async (importOriginal) => {
@@ -40,10 +38,7 @@ vi.mock('@codraoss/models', async () => {
   return { ModelRunner: makeModelServiceMock(), isRetryableModelError: isRetryableModelErrorMock, nextChainIndexOf: nextChainIndexOfMock };
 });
 
-// Whether the maintenance sweep would pick THIS job up, mirroring its predicate exactly. Asserted
-// against the job's own row rather than by scanning `getTerminalJobsNeedingCheckRunCompletion`:
-// that query is `ORDER BY ... ASC LIMIT n`, so on a shared database a fresh job falls outside the
-// window and fails for a reason unrelated to the behaviour.
+// Mirrors the maintenance sweep's predicate directly; the sweep query's LIMIT can miss a fresh job on a shared DB.
 async function needsCheckRunCompletion(env: Parameters<typeof queryRows>[0], jobId: string) {
   const rows = await queryRows<{ id: string }>(
     env,
@@ -58,9 +53,7 @@ async function needsCheckRunCompletion(env: Parameters<typeof queryRows>[0], job
 }
 
 dbDescribe('Review flow: lifecycle and finalize', () => {
-  // Tripwire: if a refactor rewires runReviewJob to import getOtherRunningJobsCount from a
-  // sibling rather than the @codraoss/db/jobs barrel, the mock stops applying and every test here
-  // still passes while asserting nothing.
+  // Tripwire: catches a barrel-import refactor that would silently break this mock.
   afterAll(() => {
     expect(getOtherRunningJobsCountMock).toHaveBeenCalled();
     expect(getReviewSettingsMock).toHaveBeenCalled();
@@ -167,17 +160,16 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
 
     const queued = await insertJob(env, { ...base, prNumber: 30, prTitle: 'Admission Queued', commitSha: sha('c') });
     const running = await insertJob(env, { ...base, prNumber: 31, prTitle: 'Admission Running', commitSha: sha('d') });
-    // Far over any concurrency limit. Restored afterwards so the module mock doesn't leak.
+    // Far over limit; restored after so the mock doesn't leak.
     vi.mocked(jobsMod.getOtherRunningJobsCount).mockResolvedValue(99);
     try {
-      // A brand-new (queued) job IS gated at the limit -> retry (admission control).
+      // Queued job is gated at the limit -> retry.
       await runWithDb(env, async () => {
         const res = await runReviewJob(env, { jobId: queued.id, deliveryId: 'delivery-adm-queued', phase: 'prepare' });
         expect(res.action).toBe('retry');
       });
 
-      // A 'running' job must NOT be re-gated on its continuations: that is the starvation bug,
-      // where every in-flight job retries forever and gets lease-recovery-failed.
+      // Running job must not be re-gated: that's the starvation bug.
       await runWithDb(env, async () => {
         await queryRows(env, `UPDATE jobs SET status = 'running' WHERE id = $1`, [running.id]);
         const res = await runReviewJob(env, { jobId: running.id, deliveryId: 'delivery-adm-running', phase: 'review' });
@@ -201,7 +193,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
       { filePath: 'src/b.ts', diffLineCount: 20 },
     ], { modelUsed: 'gemini-3.1-flash-lite', errorMessage: 'infra limit' });
 
-    // A second call including an existing path must not duplicate or overwrite it.
+    // Second call must not duplicate or overwrite an existing path.
     await bulkMarkFilesFailed(env, job.id, [
       { filePath: 'src/a.ts', diffLineCount: 10 },
       { filePath: 'src/c.ts', diffLineCount: 5 },
@@ -210,14 +202,13 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
     const reviews = await getFileReviewsForJobs(env, [job.id]);
     expect(reviews).toHaveLength(3);
     expect(reviews.every((r) => r.file_status === 'failed')).toBe(true);
-    // a.ts keeps its first values (not clobbered by the second call).
+    // a.ts keeps first values, not clobbered.
     expect(reviews.find((r) => r.file_path === 'src/a.ts')?.error_msg).toBe('infra limit');
     expect(reviews.find((r) => r.file_path === 'src/c.ts')?.error_msg).toBe('second call');
   });
 
   it('completes the job with the review recorded even if post-review check-run/label updates fail', async () => {
-    // Regression: the review is posted mid-finalize, so if the cosmetic check-run or label calls
-    // throw, the job must still finish 'done' with review_id set rather than stranded 'failed'.
+    // Regression: check-run/label failures mid-finalize must not strand the job as 'failed'.
     const { GitHubService } = await import('@codraoss/provider-github');
     const checkRunSpy = vi.spyOn(GitHubService.prototype, 'updateCheckRun' as any)
       .mockRejectedValue(new Error('Too many subrequests by single Worker invocation'));
@@ -233,7 +224,7 @@ dbDescribe('Review flow: lifecycle and finalize', () => {
     const final = await getJobForProcessing(env, job.id);
     expect(final?.status).toBe('done');
     expect(final?.review_id).not.toBeNull();
-    // The update failed, so it stays pending for the maintenance sweep to finish.
+    // Update failed; stays pending for the maintenance sweep.
     expect(final?.check_run_completed_at).toBeNull();
     expect(await needsCheckRunCompletion(env, job.id)).toBe(true);
     checkRunSpy.mockRestore();

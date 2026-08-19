@@ -2,17 +2,10 @@
 
 @import "tailwindcss";
 
-/* Make `dark:` utilities follow the app's `.dark` class (theme toggle)
-   instead of the OS `prefers-color-scheme` default. */
+/* dark: utilities follow .dark class, not OS prefers-color-scheme. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ─────────────────────────────────────────────────────
-   Surface palette (ui-* tokens).
-   The app's neutral surface scale, defined locally so there's no runtime
-   design-system dependency. Raw values live in :root/.dark (below); the
-   @theme inline block maps them to Tailwind so `bg/text/border/ring/
-   divide-ui-*` utilities generate and flip with the `.dark` class. Brand
-   tracks Codra's lime `--primary`. */
+/* --ui-* : local neutral surface scale (no runtime design-system dep). */
 :root {
   --ui-base:    #ffffff;
   --ui-canvas:  oklch(98.75% 0 0);
@@ -32,66 +25,47 @@
   --ui-strong:  oklch(98.5% 0 0);
 }
 
-/* ─────────────────────────────────────────────────────
-   Easing tokens
-───────────────────────────────────────────────────── */
 :root {
   --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-/* ─────────────────────────────────────────────────────
-   LIGHT MODE  (:root default)
-───────────────────────────────────────────────────── */
+/* LIGHT MODE (:root default) */
 :root {
-  /* Surfaces - Pure & Crisp */
-  /* Surfaces - High-Contrast */
-  --background:         oklch(100%  0     0);     /* #ffffff */
+  --background:         oklch(100%  0     0);
   --foreground:         oklch(12%   0.02  115);
-  --card:               oklch(100%  0     0);     /* #ffffff */
+  --card:               oklch(100%  0     0);
   --card-foreground:    oklch(12%   0.02  115);
   --popover:            oklch(100%  0     0);
   --popover-foreground: oklch(12%   0.02  115);
 
-  /* Signature lime - darkened in light mode for AA accessibility on white */
+  /* Lime darkened for AA contrast on white; .dark restores full brightness. */
   --primary:             oklch(64%   0.24  115);
-  --primary-foreground:  oklch(100%  0     0);   /* White text on the deeper green */
-  /* Brand lime. `--btn-primary-bg` is the solid accent (progress bars, tab
-     underlines, viewed checkboxes) - deepened here to the same AA-accessible
-     tone as `--primary` so it doesn't read as a neon slash on white; .dark
-     overrides it back to the bright lime. Primary BUTTONS use a lime-tinted
-     surface + lime border. Light mode: pale lime fill with near-black text for
-     max readability; .dark overrides below (bright lime text there instead). */
+  --primary-foreground:  oklch(100%  0     0);
   --btn-primary-bg:      oklch(64% 0.24 115);
   --btn-primary-fg:      oklch(20% 0.02 118);
   --btn-primary-border:  oklch(72% 0.17 118);
   --btn-primary-surface: oklch(95% 0.09 118);
   --btn-primary-hover:   oklch(90% 0.13 118);
 
-  /* Secondary / muted - Zinc */
   --secondary:           oklch(96.3% 0.003 286.3);
-  --secondary-foreground:oklch(27.4% 0.006 286.3); /* #27272a */
+  --secondary-foreground:oklch(27.4% 0.006 286.3);
   --muted:               oklch(96.3% 0.003 286.3);
-  --muted-foreground:    oklch(55.1% 0.011 286.3); /* #71717a */
+  --muted-foreground:    oklch(55.1% 0.011 286.3);
 
-  /* Accent - slightly darker zinc for visible hover on white popovers */
-  --accent:              oklch(90.9% 0.004 286.3); /* #e4e4e7 */
-  --accent-foreground:   oklch(20.5% 0.005 286.3); /* #18181b */
+  --accent:              oklch(90.9% 0.004 286.3);
+  --accent-foreground:   oklch(20.5% 0.005 286.3);
 
-  /* Destructive */
   --destructive:         oklch(55%   0.22  25);
   --destructive-foreground: oklch(100% 0 0);
 
-  /* Border / input / ring */
   --border:              oklch(90.9% 0.004 286.3);
   --input:               oklch(90.9% 0.004 286.3);
   --ring:                oklch(72%   0.22  115);
 
-  /* Radius */
   --radius: 0.75rem;
   --sidebar-width: 240px;
 
-  /* Semantic palette */
   --success:        oklch(64%   0.24  115);
   --success-bg:     oklch(98%   0.04  115);
   --success-border: oklch(85%   0.15  115);
@@ -105,30 +79,23 @@
   --info-bg:        oklch(98%   0.04  250);
   --info-border:    oklch(88%   0.12  250);
 
-  /* Premium Shadows */
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.02);
   --shadow-md: 0 1px 4px oklch(0% 0 0 / 0.03), 0 1px 2px oklch(0% 0 0 / 0.02);
   --shadow-lg: 0 4px 16px -4px oklch(0% 0 0 / 0.04), 0 1px 6px -2px oklch(0% 0 0 / 0.03);
 
-  /* Code Blocks (Zinc) */
   --code-bg: oklch(96.3% 0.003 286.3);
   --code-fg: oklch(27.4% 0.006 286.3);
   --code-border: oklch(90.9% 0.004 286.3);
 
-  /* Diff add/del - a true green/red (not the brand lime), tuned per theme so
-     rows are clearly distinguishable and +/- counts read correctly. Light. */
+  /* True green/red, not brand lime, so diff rows/counts stay distinguishable. */
   --diff-add-bg: oklch(95% 0.06 150);
   --diff-add-fg: oklch(48% 0.13 150);
   --diff-del-bg: oklch(95% 0.05 27);
   --diff-del-fg: oklch(52% 0.16 27);
 }
 
-/* ─────────────────────────────────────────────────────
-   DARK MODE  (.dark class on <html>)
-───────────────────────────────────────────────────── */
+/* DARK MODE (.dark class on <html>) */
 .dark {
-  /* Surfaces - Deep & Layered */
-  /* Surfaces - Ultra-Dark */
   --background:          #000000;
   --foreground:          oklch(98%  0.005 115);
   --card:                #09090b;
@@ -136,11 +103,9 @@
   --popover:             #09090b;
   --popover-foreground:  oklch(98%  0.005 115);
 
-  --primary:             oklch(94%  0.23  115); /* #E0FE56 */
+  --primary:             oklch(94%  0.23  115);
   --primary-foreground:  oklch(12%  0.04  115);
 
-  /* Primary buttons: bright lime text/border on a faint lime fill. Solid
-     accent (tab underlines, progress bars) goes back to the bright neon here. */
   --btn-primary-bg:      #CCE800;
   --btn-primary-fg:      #CCE800;
   --btn-primary-border:  color-mix(in oklab, #CCE800 50%, transparent);
@@ -158,7 +123,7 @@
   --destructive:         oklch(60%  0.220 25);
   --destructive-foreground: oklch(10% 0.015 115);
 
-  --border:              oklch(22%  0.02  115); /* #1A1A1A */
+  --border:              oklch(22%  0.02  115);
   --input:               oklch(22%  0.02  115);
   --ring:                oklch(94%  0.23  115);
 
@@ -179,28 +144,22 @@
   --shadow-md: 0 4px 12px oklch(0% 0 0 / 0.45), 0 1px 4px oklch(0% 0 0 / 0.25);
   --shadow-lg: 0 12px 24px -4px oklch(0% 0 0 / 0.5), 0 4px 12px -2px oklch(0% 0 0 / 0.3);
 
-  /* Code Blocks (Zinc) */
   --code-bg: oklch(20.5% 0.005 286.3);
   --code-fg: oklch(86.5% 0.005 286.3);
   --code-border: oklch(27.4% 0.006 286.3);
 
-  /* Diff add/del - green/red bands on the near-black diff panel. Dark. */
   --diff-add-bg: oklch(30% 0.06 150);
   --diff-add-fg: oklch(82% 0.15 150);
   --diff-del-bg: oklch(31% 0.08 27);
   --diff-del-fg: oklch(80% 0.16 27);
 }
 
-/* ─────────────────────────────────────────────────────
-   Tailwind v4 theme tokens  (@theme inline = dynamic)
-───────────────────────────────────────────────────── */
+/* Tailwind v4 theme tokens (@theme inline = dynamic) */
 @theme inline {
   --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
-  /* Surface palette → Tailwind utilities. Reference the raw --ui-* vars
-     (defined per-theme in :root/.dark) so the utilities flip with `.dark`.
-     Brand tracks Codra's lime `--primary`. */
+  /* References raw --ui-* vars so utilities flip with .dark. */
   --color-ui-base:    var(--ui-base);
   --color-ui-canvas:  var(--ui-canvas);
   --color-ui-line:    var(--ui-line);
@@ -246,16 +205,13 @@
   --color-info-bg:        var(--info-bg);
   --color-info-border:    var(--info-border);
 
-  /* Common radius scale - one system across the app. Surfaces (rounded-lg /
-     rounded-xl / `.surface`) match the dashboard stat cards; controls
-     (rounded-md: inputs, buttons, dropdown items) sit a touch tighter. */
-  --radius-sm:  0.3125rem; /* 5px */
-  --radius-md:  0.4375rem; /* 7px  - controls */
-  --radius-lg:  0.6875rem; /* 11px - cards, panels, dropdown menus */
-  --radius-xl:  0.6875rem; /* 11px - large surfaces (`.surface`) */
-  --radius-2xl: 0.875rem;  /* 14px */
+  /* radius-lg == radius-xl intentionally: cards and .surface share one size. */
+  --radius-sm:  0.3125rem;
+  --radius-md:  0.4375rem;
+  --radius-lg:  0.6875rem;
+  --radius-xl:  0.6875rem;
+  --radius-2xl: 0.875rem;
 
-  /* Fluid Typography Scale (Ratio: 1.25) */
   --text-xs:   0.75rem;
   --text-sm:   0.875rem;
   --text-base: 1rem;
@@ -266,7 +222,6 @@
   --text-4xl:  clamp(2.5rem, 10vw, 6rem);
   --text-display: clamp(3rem, 12vw, 9rem);
 
-  /* Spacing Scale (Fluid) */
   --space-xs: clamp(0.5rem, 1vw, 0.75rem);
   --space-sm: clamp(1rem, 2vw, 1.5rem);
   --space-md: clamp(1.5rem, 4vw, 3rem);
@@ -274,9 +229,6 @@
   --space-xl: clamp(6rem, 12vw, 10rem);
 }
 
-/* ─────────────────────────────────────────────────────
-   Base resets
-───────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -305,7 +257,6 @@
                 color 0.3s var(--ease-out-expo);
   }
 
-  /* High-Contrast Background Glows */
   body::before {
     content: '';
     pointer-events: none;
@@ -316,7 +267,6 @@
     transition: opacity 0.4s;
   }
 
-  /* Dark mode: high contrast green glow */
   .dark body::before {
     background:
       radial-gradient(ellipse 60% 45% at 0% 0%,   oklch(20% 0.15 115 / 0.15), transparent 60%),
@@ -328,9 +278,6 @@
   pre, code { font-family: var(--font-mono); }
 }
 
-/* ─────────────────────────────────────────────────────
-   Keyframes
-───────────────────────────────────────────────────── */
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -390,7 +337,6 @@
   to { transform: rotate(360deg); }
 }
 
-/* Radix & UI Animations */
 @utility animate-in {
   animation-duration: 200ms;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -485,9 +431,7 @@
   }
 }
 
-/* ─────────────────────────────────────────────────────
-   Scroll-reveal utility  (toggled by JS IntersectionObserver)
-───────────────────────────────────────────────────── */
+/* Toggled by JS IntersectionObserver. */
 @utility reveal-on-scroll {
   opacity: 0;
   transform: translateY(24px);
@@ -507,30 +451,17 @@
   }
 }
 
-/* Stagger helpers used on siblings */
 @utility reveal-delay-1  { transition-delay: 80ms  !important; }
 @utility reveal-delay-2  { transition-delay: 160ms !important; }
 @utility reveal-delay-3  { transition-delay: 240ms !important; }
 @utility reveal-delay-4  { transition-delay: 320ms !important; }
 
-/* ─────────────────────────────────────────────────────
-   Scrollbars - ONE treatment everywhere.
-   • Neutral (default grey), not the brand colour.
-   • Auto-hiding: the thumb is invisible until the container is actively
-     scrolling. A global scroll listener (app-shell.tsx) sets `data-scrolling`
-     on whatever just scrolled and clears it ~700ms after scrolling stops.
-   • Applied via `*` (Firefox doesn't inherit scrollbar-* ) and the global
-     WebKit pseudo-elements, so every scroll container in the app matches
-     without any per-element opt-in class.
-   Track space is always reserved while an element is scrollable, so revealing
-   the thumb never shifts layout.
-───────────────────────────────────────────────────── */
+/* Scrollbars: neutral grey, auto-hidden via app-shell.tsx toggling data-scrolling. */
 * {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 
-/* Firefox: reveal a neutral thumb only while scrolling. */
 [data-scrolling] {
   scrollbar-color: oklch(0% 0 0 / 0.32) transparent;
 }
@@ -538,8 +469,7 @@
   scrollbar-color: oklch(100% 0 0 / 0.3) transparent;
 }
 
-/* WebKit (Chrome, Safari, Edge). Transparent border + padding-box clip insets
-   the visible thumb so it reads as a slim rounded bar. */
+/* Transparent border + padding-box clip insets the thumb into a slim bar. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -567,9 +497,6 @@
   background-color: oklch(100% 0 0 / 0.45);
 }
 
-/* ─────────────────────────────────────────────────────
-   Reduced Motion: global safety net
-───────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -581,9 +508,6 @@
   }
 }
 
-/* ─────────────────────────────────────────────────────
-   Surface & Utilities
-───────────────────────────────────────────────────── */
 @utility surface {
   @apply bg-card border border-border rounded-xl;
   box-shadow: var(--shadow-md);
@@ -631,8 +555,7 @@
   @apply animate-[shimmer_1.8s_linear_infinite] rounded-sm;
 }
 
-/* Unlayered `.skeleton` shimmer, kept at this specificity so it can't be
-   beaten by any later utility. */
+/* Unlayered, kept at this specificity so no later utility can beat it. */
 .skeleton {
   background:
     linear-gradient(
@@ -645,8 +568,7 @@
   animation: shimmer 1.8s linear infinite !important;
 }
 
-/* Recolour a <Meter> indicator to the info/blue token (model-call bars),
-   overriding the default lime brand fill. */
+/* Model-call bars: override default lime fill with info/blue. */
 .meter-indicator-info {
   background-image: none !important;
   background-color: var(--info) !important;
@@ -707,9 +629,6 @@
   @apply w-[7px] h-[7px] rounded-full bg-info inline-block;
 }
 
-/* ─────────────────────────────────────────────────────
-   Recharts overrides
-───────────────────────────────────────────────────── */
 .recharts-default-tooltip {
   background: var(--card) !important;
   border: 1px solid var(--border) !important;
@@ -721,23 +640,18 @@
   box-shadow: 0 8px 32px oklch(0% 0 0 / 0.5) !important;
 }
 
-/* Sidebar is flat against the page canvas; its chrome (nav rows, controls,
-   text) is styled with the app's ui-* / --primary tokens via Tailwind classes
-   in app-shell.tsx, so it reads as the same system as the rest of the UI. */
-
 .app-shell-content {
-  --background: oklch(97.8% 0.002 286.3); /* lighter zinc - between zinc-100 and white */
-  --card: oklch(100% 0 0); /* #ffffff */
-  --muted: oklch(90.9% 0.004 286.3); /* #e4e4e7 */
+  --background: oklch(97.8% 0.002 286.3);
+  --card: oklch(100% 0 0);
+  --muted: oklch(90.9% 0.004 286.3);
   --popover: oklch(100% 0 0);
-  --secondary: oklch(88.5% 0.004 286.3); /* #e2e2e6 */
-  --border: oklch(90.9% 0.004 286.3); /* #e4e4e7 */
-  --input: oklch(90.9% 0.004 286.3); /* #e4e4e7 */
+  --secondary: oklch(88.5% 0.004 286.3);
+  --border: oklch(90.9% 0.004 286.3);
+  --input: oklch(90.9% 0.004 286.3);
 }
 
 .dark .app-shell-content {
-  /* Zinc, matching the light block's hue: a cool neutral (hue 286.3, low
-     chroma) rather than the warm olive cast that hue 115 gave the card. */
+  /* Cool neutral hue 286.3, not hue 115 which gave the card a warm olive cast. */
   --background: oklch(18% 0.006 286.3);
   --card: oklch(18% 0.006 286.3);
   --muted: oklch(22% 0.006 286.3);
@@ -747,17 +661,14 @@
   --input: oklch(22% 0.006 286.3);
 }
 
-/* Sidebar rows: the SharedLayoutBg pill is the sole hover affordance - the
-   row itself never transforms on hover/focus/active. Active rows paint their
-   own neutral fill (Tailwind classes in app-shell.tsx). */
+/* SharedLayoutBg pill is the sole hover affordance; row itself never transforms. */
 .dashboard-sidebar-action:hover,
 .dashboard-sidebar-action:focus-visible,
 .dashboard-sidebar-action:active {
   transform: none !important;
 }
 
-/* Skimmer shine on the selected row: a light beam parked off-screen that
-   sweeps across once when the active row is hovered/focused. */
+/* Light beam parked off-screen, sweeps across once on hover/focus. */
 .dashboard-sidebar-shine {
   transform: skew(-13deg) translateX(-130%);
   transition: transform 0ms linear;
@@ -791,9 +702,7 @@
   @apply text-2xl md:text-3xl lg:text-[2.25rem] font-bold tracking-[-0.04em] leading-none text-foreground tabular-nums;
 }
 
-/* Fonts for the KPI-card surface. Geist for the sans (same family as
-   Geist Mono), scoped here because the global @theme sets --font-sans /
-   --font-mono to the app's default families. */
+/* Geist, scoped locally since global @theme sets --font-sans/mono to app defaults. */
 .ui-font-sans {
   font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
 }
@@ -802,10 +711,7 @@
   font-feature-settings: 'tnum' 1;
 }
 
-/* Shared panel chrome matching the dashboard stat cards: white/black surface,
-   ui-line border (deeper in dark), Geist, 11px radius. Use for table cards and
-   section panels so everything reads as one system. `.ui-well` is the matching
-   recessed strip (table header rows, footers) - the stat cards' inner panel. */
+/* Matches dashboard stat-card chrome; .ui-well is its recessed inner panel. */
 .ui-panel {
   font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
   border-radius: var(--radius-lg);
@@ -817,17 +723,14 @@
   border-color: oklch(0.27 0 0);
 }
 .ui-well {
-  /* Slightly lighter + warmer than pure gray so recessed panels (table
-     headers, stat-card inner wells) read as a soft tint, not a flat slab. */
   background: oklch(97.8% 0.002 286.3);
 }
 .dark .ui-well {
   background: oklch(19% 0 0);
 }
 
-/* Diff-viewer syntax tokens (sugar-high, see src/client/lib/highlight.tsx). Muted,
-   theme-aware hues so highlighted code stays readable on the add/del tints.
-   sugar-high emits `color: var(--sh-<token type>)` per token. */
+/* Syntax tokens for sugar-high (src/client/lib/highlight.tsx); it emits
+   color: var(--sh-<token type>) per token. */
 :root {
   --sh-keyword:     oklch(48% 0.19 305);
   --sh-string:      oklch(46% 0.12 150);
@@ -851,13 +754,11 @@
 }
 .sh__token--comment { font-style: italic; }
 
-/* Diff row tints + add/del number colors (theme vars set above). */
 .diff-add    { background-color: var(--diff-add-bg); }
 .diff-del    { background-color: var(--diff-del-bg); }
 .diff-add-fg { color: var(--diff-add-fg); }
 .diff-del-fg { color: var(--diff-del-fg); }
 
-/* Late-arriving header/meta content eases in instead of popping. */
 @keyframes ui-fade-in {
   from { opacity: 0; transform: translateY(2px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -866,15 +767,12 @@
   animation: ui-fade-in 0.25s ease-out both;
 }
 
-/* Diff-viewer file tree: indent guide lines + connector ticks on nested
-   levels, and an animated expand/collapse (grid-rows 0fr ↔ 1fr). */
 .diff-tree ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .diff-tree ul ul {
-  /* Tight per-level indent (18px) so deeply nested paths keep usable width. */
   margin-left: 10px;
   padding-left: 8px;
   border-left: 1px solid var(--ui-line);
@@ -894,8 +792,7 @@
 }
 .diff-tree-children {
   display: grid;
-  /* The implicit column would size to content (auto), leaving nested rows narrow;
-     pin it to full width so file rows stretch edge-to-edge like the top level. */
+  /* Implicit column would size to content (auto); pin full width so rows stretch edge-to-edge. */
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 1fr;
   transition: grid-template-rows 0.25s ease-in-out;
@@ -908,14 +805,9 @@
   min-width: 0;
 }
 
-/* `.thin-scroll` and `.auto-hide-scroll` are retained as no-op aliases: the
-   neutral, auto-hiding treatment is now global (see the Scrollbars block
-   above), so these classes need no rules of their own. Existing markup that
-   references them keeps working and matches everything else. */
+/* .thin-scroll / .auto-hide-scroll kept as no-op aliases: the treatment is
+   now global (Scrollbars block above); existing markup referencing them still works. */
 
-/* The diff-tree scroller only needs its functional traits; colour + auto-hide
-   come from the global rules. `scrollbar-gutter: stable` keeps it clear of the
-   panel's rounded corners. */
 .diff-tree-scroll {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -959,18 +851,14 @@
   & hr { @apply border-border my-[1.5em]; }
 }
 
-/* ─────────────────────────────────────────────────────
-   Sonner Toast - Premium overrides
-───────────────────────────────────────────────────── */
+/* Sonner toast overrides */
 
-/* ── Outer list / viewport ───────────────────────── */
 [data-sonner-toaster] {
   --offset: 1.25rem !important;
   --width: min(22rem, calc(100vw - 2rem)) !important;
   font-family: var(--font-sans) !important;
 }
 
-/* ── Base toast shell ─────────────────────────────── */
 .codra-toast {
   display:         flex !important;
   align-items:     flex-start !important;
@@ -986,11 +874,9 @@
     0 1px  4px oklch(0% 0 0 / 0.06),
     inset 0 1px 0 oklch(100% 0 0 / 0.05) !important;
 
-  /* light defaults (overridden per-variant below) */
   background: oklch(99.5% 0.004 115) !important;
   color: oklch(15% 0.02 115) !important;
 
-  /* smooth entrance */
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
@@ -1003,7 +889,6 @@
     inset 0 1px 0 oklch(100% 0 0 / 0.04) !important;
 }
 
-/* ── Title ────────────────────────────────────────── */
 .codra-toast-title {
   font-size:   0.8125rem !important;
   font-weight: 600 !important;
@@ -1011,7 +896,6 @@
   line-height: 1.35 !important;
 }
 
-/* ── Description ──────────────────────────────────── */
 .codra-toast-description {
   font-size:   0.74rem !important;
   font-weight: 400 !important;
@@ -1020,13 +904,11 @@
   line-height: 1.5 !important;
 }
 
-/* ── Icon wrapper ─────────────────────────────────── */
 .codra-toast-icon {
   margin-top: 0.05rem !important;
   flex-shrink: 0 !important;
 }
 
-/* ── Close button ─────────────────────────────────── */
 .codra-toast-close {
   top:    0.55rem !important;
   right:  0.55rem !important;
@@ -1054,16 +936,11 @@
   background: oklch(28% 0.022 115) !important;
 }
 
-/* ── SUCCESS / ERROR / LOADING ─────────────────────
-   Use the default toast text color instead of a
-   status tint (icon color already conveys status). */
-
-/* spinner inherits accent color */
+/* Status color comes from the icon; text stays the default toast color. */
 .codra-toast-loader svg {
   color: var(--primary) !important;
 }
 
-/* ── WARNING ─────────────────────────────────────── */
 .codra-toast-warning {
   color: oklch(35%   0.12  65) !important;
 }
@@ -1072,7 +949,6 @@
   color: oklch(82%  0.14  65) !important;
 }
 
-/* ── INFO ────────────────────────────────────────── */
 .codra-toast-info {
   color: oklch(30%   0.12 250) !important;
 }

@@ -3,19 +3,16 @@ import type { KvStore } from '@codraoss/core/ports';
 import type { TokenTracker } from '@codraoss/core/token-tracker';
 import { isPlausibleTokenBucket } from './model-support';
 
-// Stores where each label got to in its model chain so deferred reviews resume properly.
-// Stored as a single KV value per job to minimize subrequest budget overhead.
-
-// Outlives job continuations; key is job-scoped and dies with the job.
+// One KV value per job to limit subrequests.
 const CHAIN_PROGRESS_TTL_SECONDS = 24 * 60 * 60;
 
-// Allowed timeouts per model before dropping it from the job (3 = one full wave).
+// 3 = one full wave.
 const MODEL_TIMEOUT_STRIKES = 3;
 
-// Strikes before dropping the LAST chain candidate. Finite (6) to avoid infinite retries on dead models.
+// Finite to avoid infinite retries on dead models.
 const LAST_CANDIDATE_TIMEOUT_STRIKES = 6;
 
-// Max persisted cool-off (5 mins) protects against mis-parsed long delays.
+// Caps mis-parsed long delays.
 const MAX_PERSISTED_COOLDOWN_MS = 5 * 60 * 1000;
 
 export interface ModelCooldown {
@@ -39,7 +36,7 @@ function positiveInts(source: Record<string, unknown> | undefined): Map<string, 
   return kept;
 }
 
-// Absolute epoch-ms deadline prevents stale reads from over-suppressing models.
+// Absolute deadline caps stale reads over-suppressing models.
 function parseCooldowns(source: Record<string, StoredCooldown> | undefined): Map<string, ModelCooldown> {
   const kept = new Map<string, ModelCooldown>();
   if (!source || typeof source !== 'object') return kept;
@@ -48,7 +45,7 @@ function parseCooldowns(source: Record<string, StoredCooldown> | undefined): Map
   for (const [model, value] of Object.entries(source)) {
     if (!value || typeof value !== 'object') continue;
     const until = typeof value.until === 'number' && Number.isFinite(value.until) ? value.until : 0;
-    // Drops implausible limit sizes to prevent indefinite model suppression.
+    // Drop implausible limits; avoids indefinite suppression.
     const limitTokens =
       typeof value.limitTokens === 'number' && isPlausibleTokenBucket(value.limitTokens)
         ? value.limitTokens
@@ -61,26 +58,21 @@ function parseCooldowns(source: Record<string, StoredCooldown> | undefined): Map
 
 function mergeCooldown(a: ModelCooldown | undefined, b: ModelCooldown): ModelCooldown {
   return {
-    // Idempotent max() merge for advancing deadlines.
     cooldownUntil: Math.max(a?.cooldownUntil ?? 0, b.cooldownUntil),
-    // Sticky limit retention on subsequent 429s.
+    // Sticky across repeated 429s.
     limitTokens: a?.limitTokens ?? b.limitTokens,
   };
 }
 
 export class ModelChainProgressStore {
   private loaded: Promise<Map<string, number>> | null = null;
-
-  // Per-model timeouts stored alongside chain progress to save subrequests.
   private timeouts = new Map<string, number>();
 
-  // Cleared strikes in this invocation, preventing max() merges from resurrecting them.
+  // Prevents max() merge from resurrecting cleared strikes.
   private clearedTimeouts = new Set<string>();
-
-  // Persisted rate-limits to avoid re-paying 429 prompts across invocations.
   private cooldowns = new Map<string, ModelCooldown>();
 
-  // Single-flight writer prevents overlapping KV puts from dropping concurrent updates.
+  // Single-flight write; concurrent KV puts must not drop updates.
   private inFlightWrite: Promise<void> | null = null;
   private dirty = false;
 
@@ -94,7 +86,6 @@ export class ModelChainProgressStore {
     return this.jobId ? `jobs:${this.jobId}:chain-progress` : null;
   }
 
-  // Job-less reviews return 0 (nothing to resume).
   private load(): Promise<Map<string, number>> {
     if (this.loaded) return this.loaded;
 
@@ -107,12 +98,11 @@ export class ModelChainProgressStore {
         const raw = rawString ? JSON.parse(rawString) : null;
         if (!raw || typeof raw !== 'object') return new Map<string, number>();
 
-        // Legacy support: reads bare label->index maps as files for smooth deploys.
+        // Legacy: bare label->index maps read as files.
         const stored = raw as StoredShape;
         const isNewShape =
           stored.files !== undefined || stored.timeouts !== undefined || stored.cooldowns !== undefined;
         this.timeouts = positiveInts(isNewShape ? stored.timeouts : undefined);
-        // Merge sync noteRateLimit calls.
         for (const [model, value] of parseCooldowns(isNewShape ? stored.cooldowns : undefined)) {
           this.cooldowns.set(model, mergeCooldown(this.cooldowns.get(model), value));
         }
@@ -137,7 +127,6 @@ export class ModelChainProgressStore {
     if (!this.key || nextIndex <= 0) return;
 
     const progress = await this.load();
-    // Monotonic advance only.
     if ((progress.get(label) ?? 0) >= nextIndex) return;
     progress.set(label, nextIndex);
     this.dirty = true;
@@ -145,14 +134,11 @@ export class ModelChainProgressStore {
     return this.flush();
   }
 
-  // Ensure progress durability before deferring.
   private flush(): Promise<void> {
-    // Join in-flight writes.
     if (this.inFlightWrite) return this.inFlightWrite;
 
     this.inFlightWrite = (async () => {
       try {
-        // Process mid-put advances.
         while (this.dirty) {
           this.dirty = false;
           await this.writeOnce();
@@ -171,7 +157,7 @@ export class ModelChainProgressStore {
 
     const progress = await this.load();
     try {
-      // Merge against remote KV state using max() to prevent concurrent invocations from dropping labels.
+      // Merge via max() so concurrent invocations don't drop labels.
       this.tracker?.incrementSubrequests(1);
       const rawString = await this.kv.get(key);
       const raw = rawString ? JSON.parse(rawString) : null;
@@ -215,13 +201,11 @@ export class ModelChainProgressStore {
     }
   }
 
-  // Clears terminal labels for clean retries.
   async clear(label: string): Promise<void> {
     const progress = await this.load();
     progress.delete(label);
   }
 
-  // Persist timeouts so subsequent waves can skip failing models.
   async noteTimeout(modelId: string): Promise<void> {
     if (!this.key) return;
     await this.load();
@@ -230,11 +214,9 @@ export class ModelChainProgressStore {
     return this.flush();
   }
 
-  // Reset tallies on success to avoid false permanent bans.
   async noteSuccess(modelId: string): Promise<void> {
     if (!this.key) return;
     await this.load();
-    // No-op for healthy models to save subrequests.
     if (!this.timeouts.has(modelId)) return;
     this.timeouts.delete(modelId);
     this.clearedTimeouts.add(modelId);
@@ -247,26 +229,24 @@ export class ModelChainProgressStore {
     return (this.timeouts.get(modelId) ?? 0) >= MODEL_TIMEOUT_STRIKES;
   }
 
-  // For chain tails with no fallback.
+  // Chain tails have no fallback.
   async isTimingOutTerminally(modelId: string): Promise<boolean> {
     await this.load();
     return (this.timeouts.get(modelId) ?? 0) >= LAST_CANDIDATE_TIMEOUT_STRIKES;
   }
 
-  // Share load() promise to save KV reads.
   async loadCooldowns(): Promise<Map<string, ModelCooldown>> {
     await this.load();
     return new Map(this.cooldowns);
   }
 
-  // Sync/non-flushing. Deferrals call flushPending() to coalesce writes.
+  // Sync; flushPending() coalesces writes.
   noteRateLimit(modelId: string, entry: ModelCooldown): void {
     if (!this.key) return;
     this.cooldowns.set(modelId, mergeCooldown(this.cooldowns.get(modelId), entry));
     this.dirty = true;
   }
 
-  // Flush mutations without advancing progress (e.g. quota deferrals).
   flushPending(): Promise<void> {
     if (!this.key || !this.dirty) return Promise.resolve();
     return this.flush();

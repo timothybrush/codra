@@ -1,17 +1,5 @@
-/**
- * Outdated Rate: the share of flagged lines a developer actually modified afterwards.
- *
- *   npx vite-node scripts/outdated-rate.ts -- --repo devarshishimpi/codra
- *
- * Chosen over precision because it needs ZERO human annotation. It is also the retirement signal: a
- * rule that is right but never acted on is a rule worth deleting.
- *
- * For a job A that posted findings, find the next job B on the same PR at a DIFFERENT commit, diff
- * the two heads, and check whether a changed line hashes to one of A's anchor hashes.
- *
- * Deliberately NOT the pure-SQL alternative ("did B re-derive the same fingerprint_v2?"): that
- * cannot separate "the line was fixed" from "the model was flaky".
- */
+/** Outdated Rate: share of flagged lines later modified. No annotation needed; a retirement
+ *  signal for unacted rules.  npx vite-node scripts/outdated-rate.ts -- --repo devarshishimpi/codra */
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
 import { buildUnifiedDiffFromFiles, parseUnifiedDiff } from '@server/core/diff';
@@ -35,8 +23,8 @@ type Candidate = {
   rule_ids: (string | null)[];
 };
 
-/** Unauthenticated compare, same as the fixture recorder. Rebuilt from the JSON file list because
- *  the unified-diff media type 406s past 20,000 lines. */
+// Diffs job A vs next job B on same PR (not pure SQL: can't tell fixed from flaky). Rebuilt from
+// JSON file list since unified-diff media type 406s past 20,000 lines.
 async function changedLineHashes(base: string, head: string): Promise<Set<string>> {
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/compare/${base}...${head}`, {
     headers: { accept: 'application/vnd.github+json' },
@@ -50,7 +38,6 @@ async function changedLineHashes(base: string, head: string): Promise<Set<string
   for (const file of parseUnifiedDiff(raw)) {
     for (const hunk of file.hunks) {
       for (const line of hunk.lines) {
-        // A REMOVED line that matches an anchor is the signal: that exact line no longer exists.
         if (line.kind === 'del') hashes.add(buildAnchorHash(line.content));
       }
     }
@@ -104,7 +91,7 @@ async function main() {
     try {
       changed = await changedLineHashes(candidate.base_sha, candidate.head_sha);
     } catch (error) {
-      // A force-push breaks the compare. Skipping is correct: the pair is unmeasurable, not zero.
+      // force-push breaks compare; skip, don't count as zero
       console.warn(`skipped job ${candidate.job_id.slice(0, 8)}: ${(error as Error).message}`);
       continue;
     }
@@ -134,7 +121,7 @@ async function main() {
     console.log(`  ${ruleId.padEnd(22)} ${String(entry.acted).padStart(3)}/${String(entry.flagged).padEnd(3)}  ${ruleRate}%`);
   }
 
-  // n is stated because it is the whole caveat: at n=12 this number is a hint, not a measurement.
+  // low n = directional only
   console.log(`\nn = ${flagged}. Below ~50 findings treat this as directional only.`);
   await sql.end();
 }

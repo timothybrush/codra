@@ -6,12 +6,9 @@ import { upsertFileReview } from '@codraoss/db/file-reviews';
 import { syncRepoConfig, upsertRepoConfig } from '@codraoss/db/repo-configs';
 import { createTestEnv } from './helpers';
 
-// `JSON.stringify(x)` bound to `$n::jsonb` stores a jsonb STRING SCALAR, so every SQL JSON operator
-// silently reads nothing while the TypeScript path keeps working (`parseJsonColumn` tolerates both
-// shapes) -- that's how the bug reached five columns and 1,215 production rows. These tests assert
-// on the STORED SHAPE, in SQL, the only place the difference shows. Fix idiom: `$n::text::jsonb`.
-// Do not "simplify" to binding the raw value -- that breaks arrays, which normalizeParam turns into
-// a Postgres array literal.
+// JSON.stringify bound to $n::jsonb stores a jsonb string scalar; SQL JSON operators then read
+// nothing, though parseJsonColumn tolerates both shapes (bug reached 1,215 rows). Fix: $n::text::jsonb.
+// Do not bind raw values; normalizeParam turns arrays into Postgres array literals.
 describe('jsonb columns are stored as jsonb, not as string scalars', () => {
   const env = createTestEnv();
   const unique = () => `jsonb-enc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -37,8 +34,7 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
     const where = `repository_id = (SELECT id FROM repositories WHERE owner = $1 AND repo = $2)`;
     expect(await shapeOf('repo_configs', 'parsed_json', where, ['jsonb-owner', repo])).toBe('object');
 
-    // The operator that returned NULL for every row before the fix. This is the actual regression:
-    // the shape assertion above could be satisfied while the nesting was still wrong.
+    // Regression check: shape alone could pass while nesting was still wrong.
     const [row] = await queryRows<{ severity: string | null }>(
       env,
       `SELECT parsed_json->'review'->>'min_severity' AS severity FROM repo_configs WHERE ${where}`,
@@ -47,9 +43,7 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
     expect(row?.severity).toBe(defaultRepoConfig.review.min_severity);
   });
 
-  // Arrays are the case where binding the raw value instead of JSON text goes wrong, so they get
-  // their own assertion: `@>` containment is what migrate.mjs uses to find deprecated models, and it
-  // never matches a string scalar.
+  // Arrays are where raw binding breaks; @> containment (used by migrate.mjs) never matches a string scalar.
   it('stores the repo_configs model arrays so containment matches', async () => {
     const repo = unique();
     await upsertRepoConfig(env, {
@@ -74,7 +68,7 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
   });
 
   it('stores repo_configs.parsed_json as an object on the sync path too', async () => {
-    // syncRepoConfig is a separate INSERT, and it is the path that created every production row.
+    // syncRepoConfig is a separate insert path that wrote every production row.
     const repo = unique();
     await syncRepoConfig(env, { installationId: '900001', owner: 'jsonb-owner', repo });
 
@@ -134,7 +128,7 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
       withheldCounts: { evidence: 5, claimDenied: 2 },
     });
 
-    // The exact read that reported zero for a review that had withheld five findings.
+    // This exact read reported zero despite five withheld findings.
     const [row] = await queryRows<{ evidence: string | null }>(
       env,
       `SELECT withheld_counts->>'evidence' AS evidence FROM file_reviews WHERE job_id = $1::uuid`,
@@ -143,8 +137,7 @@ describe('jsonb columns are stored as jsonb, not as string scalars', () => {
     expect(row?.evidence).toBe('5');
   });
 
-  // The sweep. Catches a NEW write site added with the wrong cast, which the per-helper tests above
-  // cannot - they only cover the helpers that exist today.
+  // Sweep: catches new write sites the per-helper tests above don't cover.
   it('leaves no string-encoded row in any jsonb column', async () => {
     const columns: Array<[string, string]> = [
       ['repo_configs', 'parsed_json'],

@@ -84,18 +84,16 @@ dbDescribe('bulkUpsertFileReviews', () => {
       expect(row.file_summary).toBe(`Summary for ${path}`);
       expect(row.batch_size).toBe(3);
       expect(row.parsed_comments).toHaveLength(1);
-      // The hazard: RETURNING order is not input order, so comments joined positionally would land
-      // on the wrong file's review.
+      // RETURNING order isn't input order; a positional join would mismatch files.
       expect(row.parsed_comments[0].title).toBe(`Finding in ${path}`);
       expect(row.parsed_comments[0].path).toBe(path);
-      // Without the ::jsonb cast this stores a JSON scalar and `->>'evidence'` reads NULL.
+      // Without ::jsonb cast this reads as NULL via ->>'evidence'.
       expect(typeof row.withheld_counts).toBe('object');
       expect(row.withheld_counts).toEqual({ evidence: 5, claimDenied: 2 });
     }
   });
 
-  // The dashboard's only signal that a row's tokens are a share of a shared call rather than its own
-  // cost. Dropping it from either the SQL projection or the zod record silently reverts the feature.
+  // batch_size marks tokens as a shared-call share, not the file's own cost.
   it('surfaces batch_size through getJobDetail', async () => {
     const job = await newJob('bulk-detail');
 
@@ -107,21 +105,18 @@ dbDescribe('bulkUpsertFileReviews', () => {
     const detail = await getJobDetail(env, job.id);
     expect(detail!.files.find((f) => f.filePath === 'src/batched.ts')!.batchSize).toBe(4);
     expect(detail!.files.find((f) => f.filePath === 'src/alone.ts')!.batchSize).toBe(1);
-    // The logs view reads this to separate "found nothing" from "withheld everything".
+    // Distinguishes no findings from findings withheld.
     expect(detail!.files.find((f) => f.filePath === 'src/batched.ts')!.withheldCounts)
       .toEqual({ evidence: 5, claimDenied: 2 });
   });
 
-  // A deferred bin inserts without a resolved provider, so model_provider is NULL. When the record
-  // schema only allowed `undefined`, that one row threw for the whole query and every job-detail
-  // request 500'd for the rest of the job's life -- observed in production on a six-file bin.
+  // A null provider once threw for the whole query and 500'd job-detail for the job's life.
   it('reads back a row whose provider was never resolved', async () => {
     const job = await newJob('null-provider');
 
     await bulkRecordRetryableFileReviewFailures(env, job.id, [
       { filePath: 'src/deferred.ts', modelUsed: 'gemini-2.5-pro', diffLineCount: 9, errorMessage: 'retrying later' },
     ]);
-    // A healthy row alongside it: the failure mode is one bad row poisoning the whole parse.
     await bulkUpsertFileReviews(env, job.id, [review('src/ok.ts')]);
 
     const detail = await getJobDetail(env, job.id);
@@ -147,7 +142,7 @@ dbDescribe('bulkRecordRetryableFileReviewFailures', () => {
     expect(second.map((r) => r.transientErrorCount).sort()).toEqual([2, 2]);
     expect(second.map((r) => r.filePath).sort()).toEqual(['src/a.ts', 'src/b.ts']);
 
-    // Stale comments would let finalize post findings from a review since marked failed.
+    // Stale comments would let finalize post findings from a failed review.
     await bulkUpsertFileReviews(env, job.id, [review('src/a.ts')]);
     await bulkRecordRetryableFileReviewFailures(env, job.id, [inputs[0]]);
     const [row] = (await getFileReviewsForJobs(env, [job.id])).filter((r) => r.file_path === 'src/a.ts');
@@ -156,7 +151,7 @@ dbDescribe('bulkRecordRetryableFileReviewFailures', () => {
 
 
 
-  // Usage stats group by model_used, which this overwrites, and withheld_counts is summed unfiltered.
+  // model_used is overwritten; withheld_counts is summed unfiltered downstream.
   it('clears the previous attempt success columns', async () => {
     const job = await newJob('bulk-retry-clears-columns');
 
@@ -189,7 +184,7 @@ dbDescribe('bulkRecordRetryableFileReviewFailures', () => {
 });
 
 dbDescribe('bulkInheritFileReviews', () => {
-  // The column list is hand-written, so a missing `withheld_counts` reads as "found nothing".
+  // Column list is hand-written; a missing withheld_counts silently reads as empty.
   it('carries withheld_counts and batch_size onto the inheriting job', async () => {
     const parent = await newJob('inherit-parent');
     const child = await newJob('inherit-child');
@@ -210,7 +205,7 @@ dbDescribe('bulkInheritFileReviews', () => {
     expect(row.batch_size).toBe(4);
     expect(row.withheld_counts).toEqual({ evidence: 3, claimDenied: 1 });
     expect(row.file_status).toBe('done');
-    // Identity carries, but `posted` means "this job showed it", which the child has not.
+    // posted is per-job; the child hasn't shown it yet.
     expect(row.parsed_comments).toHaveLength(1);
     expect(row.parsed_comments[0].posted).toBe(false);
     expect(row.parsed_comments[0].source).toBe('llm');

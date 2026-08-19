@@ -55,14 +55,11 @@ describe('verifyFindings orchestrator', () => {
     expect(result.dropped).toHaveLength(1);
     expect(result.dropped[0].disposition).toBe('verify');
     expect(result.dropped[0].reason).toBe('line does not do that');
-    // Reasons are captured for KEPT findings too -- that is the half that explains what survived.
+    // Reasons are recorded for kept findings too.
     expect(result.reasons.size).toBeGreaterThanOrEqual(0);
   });
 
-  // The failure this exists for: on codra's own PR #86 the verifier confirmed five findings whose
-  // consequences lay outside the window it was shown ("this breaks importers", "this throws under SSR")
-  // because it could only check that the quoted line was real. `decidable` is the field that lets it
-  // say so, and an explicit `false` has to cost the finding or the field is decoration.
+  // decidable:false must drop a finding, or the field is decoration (regression from PR #86).
   it('drops a finding the verifier says it cannot settle, whatever verdict it gave', async () => {
     const comments = [comment({ title: 'Checkable' }), comment({ title: 'Needs the importers' })];
     const model = fakeModel('{"results":['
@@ -78,7 +75,7 @@ describe('verifyFindings orchestrator', () => {
     expect(result.dropped[0].reason).toBe('would need the importers of this module');
   });
 
-  // A model that ignores the new field must not have every finding read as undecidable.
+  // Omitting decidable must not make every finding undecidable.
   it('keeps findings when the verifier omits decidable entirely', async () => {
     const comments = [comment({ title: 'Kept' }), comment({ title: 'Also kept' })];
     const model = fakeModel('{"results":[{"index":0,"verdict":"keep"},{"index":1,"verdict":"keep"}]}');
@@ -98,8 +95,7 @@ describe('verifyFindings orchestrator', () => {
 
 
 
-  // Verdicts are read from a sparse map keyed on the model's own `index` field, so a scrambled
-  // result order must still land on the finding actually judged, not read positionally.
+  // Verdicts map by index, not result array order.
   it('applies verdicts by index, not by arrival order', async () => {
     const comments = [comment({ title: 'A' }), comment({ title: 'B' }), comment({ title: 'C' })];
     const model = fakeModel('{"results":[{"index":2,"verdict":"drop"},{"index":0,"verdict":"keep"},{"index":1,"verdict":"keep"}]}');
@@ -107,8 +103,7 @@ describe('verifyFindings orchestrator', () => {
     expect(result.comments.map((c) => c.title)).toEqual(['A', 'B']);
   });
 
-  // Above the answer-ratio floor, an index the model never addressed fails CLOSED -- but with its own
-  // disposition, because an unanswered finding is our defect, not the model's judgement.
+  // An unanswered index fails closed as verify_unanswered, not a model verdict.
   it('drops an unanswered index as verify_unanswered when most indices were answered', async () => {
     const comments = ['A', 'B', 'C', 'D', 'E'].map((title) => comment({ title }));
     const model = fakeModel(
@@ -120,8 +115,7 @@ describe('verifyFindings orchestrator', () => {
     expect(result.dropped).toHaveLength(1);
   });
 
-  // Below the floor the model did not do the task. Failing closed there would be a mass deletion
-  // dressed up as judgement -- and truncated output truncates the TAIL, i.e. the low-severity end.
+  // Below the answer floor, keep everything: failing closed would mass-delete the truncated tail.
   it('keeps everything when the verifier answers too few indices', async () => {
     const comments = ['A', 'B', 'C', 'D', 'E'].map((title) => comment({ title }));
     const model = fakeModel('{"results":[{"index":0,"verdict":"drop"},{"index":1,"verdict":"drop"}]}');
@@ -132,8 +126,7 @@ describe('verifyFindings orchestrator', () => {
 
 
 
-  // A candidate with no snippet AND no evidence cannot be judged at all, so it is passed through
-  // unjudged rather than dropped: failing it closed lets one path mismatch delete a whole file.
+  // No snippet or evidence means unjudgeable; pass through rather than drop.
   it('passes through a candidate with no diff context rather than dropping it', async () => {
     const comments = [
       comment({ title: 'A' }),
@@ -149,7 +142,7 @@ describe('verifyFindings orchestrator', () => {
     expect(result.comments.map((c) => c.title)).toEqual(['A', 'B', 'C', 'Orphan']);
   });
 
-  // The wholesale case: a path normalization mismatch must never read as a wall of model verdicts.
+  // A path mismatch on most findings must not read as a wall of model verdicts.
   it('keeps every finding when almost none of them can be rendered', async () => {
     const comments = [
       comment({ title: 'A' }),
@@ -167,12 +160,10 @@ describe('verifyFindings orchestrator', () => {
     const result = await verifyFindings({ ...base, comments, model });
     expect(result.comments).toHaveLength(4);
     expect(result.dropped).toHaveLength(0);
-    // One candidate was renderable, so the model is still asked about it.
     expect(called).toBe(true);
   });
 
-  // Regression: this pass used to return [...kept, ...unverifiable, ...passthrough], reordering the
-  // array before max_comments sliced it, so the cap cut from a list no longer sorted by severity.
+  // Regression: must return a strict subsequence, not reordered before the cap slices it.
   it('returns a strict subsequence of its input', async () => {
     const comments = ['A', 'B', 'C', 'D', 'E'].map((title) => comment({ title }));
     const model = fakeModel(

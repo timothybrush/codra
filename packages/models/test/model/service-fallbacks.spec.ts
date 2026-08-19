@@ -6,8 +6,7 @@ import { createTestEnv, saveTestProviderApiKey, createTestModelRunner } from '..
 import { defaultRepoConfig } from '@codraoss/schema';
 import { TokenTracker } from '@codraoss/core/token-tracker';
 
-// Walking the model chain: fallback, the two subrequest-budget breakers, and marking a provider
-// unavailable. The inline retry ladder lives in service-retries.spec.ts.
+// Chain fallback, budget breakers, provider availability. Inline retry ladder: service-retries.spec.ts.
 describe('ModelRunner: chain fallback, budget breakers and provider availability', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -20,7 +19,7 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
         JSON.stringify({ error: { code: 500, message: 'Internal error encountered.', status: 'INTERNAL' } }),
         { status: 500, headers: { 'content-type': 'application/json' } },
       );
-    // The primary makes 3 attempts before failing over; the fallback succeeds on the 4th call.
+    // Primary fails 3x, fallback succeeds on the 4th call.
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(gemini500())
       .mockResolvedValueOnce(gemini500())
@@ -85,7 +84,7 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     expect(response.modelUsed).toBe('gemini-2.5-pro');
   });
 
-  // Parse lives inside the per-model try: an unreadable 200 is that model's failure.
+  // Unparseable 200 counts as that model's own failure (parse is inside the per-model try).
   it('falls through to the next model when the primary returns an unparseable body', async () => {
     const geminiText = (text: string) => new Response(
       JSON.stringify({
@@ -117,8 +116,7 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     expect(response.modelUsed).toBe('gemini-2.5-pro');
   });
 
-  // Three `continue` paths can leave the loop with `lastError` undefined, which matches no retry
-  // predicate and fails the file permanently.
+  // Three `continue` paths can leave `lastError` undefined, matching no retry predicate.
   it('defers rather than throwing undefined when every model is skipped', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const env = createTestEnv();
@@ -143,15 +141,13 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // Regression: the tail of the chain used to be exempt from the timeout breaker entirely, so a model
-  // that had never once answered on a job still cost every unit a full per-call budget -- 20 batches
-  // and 15 minutes of wall clock in production, all of it spent to re-learn the tally's verdict.
+  // Regression: the tail used to be exempt from the timeout breaker, wasting a full budget per unit.
   it('drops even the last candidate once it has never answered on this job', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
 
-    // Six strikes: past the tail's higher bar, which a merely-slow model does not reach.
+    // Six strikes exceeds the tail's higher bar.
     await env.APP_KV.put(
       'jobs:job-tail-drop:chain-progress',
       JSON.stringify({ timeouts: { 'gemini-3.1-pro-preview': 6, 'gemini-2.5-pro': 6 } }),
@@ -169,15 +165,12 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
       totalLineCount: 1,
     });
 
-    // Deferred, and the message says which of the two skip reasons applied.
     await expect(promise).rejects.toThrow(/No configured review model was attempted.*repeated timeouts/);
     await promise.catch((error) => expect(isRetryableModelError(error)).toBe(true));
-    // The whole point: not one call was paid for.
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // The other side of the same rule: a merely-slow tail still gets its shot, because deferring with no
-  // model attempted is the worse outcome when the model does sometimes answer.
+  // Same rule, other side: a merely-slow tail still gets its shot since deferring untried is worse.
   it('still tries the last candidate when it is only mid-chain slow', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
@@ -209,7 +202,6 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
       totalLineCount: 1,
     });
 
-    // The struck primary is skipped, the tail is attempted anyway, and it answers.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain('/models/gemini-2.5-pro:generateContent');
     expect(response.modelUsed).toBe('gemini-2.5-pro');
@@ -248,7 +240,7 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
     const tracker = new TokenTracker();
-    tracker.incrementSubrequests(40); // above the near-limit threshold (MAX_SUBREQUESTS 50 - SAFE_MARGIN 25)
+    tracker.incrementSubrequests(40); // above near-limit threshold (50 - 25 margin)
     const service = createTestModelRunner(env, tracker);
 
     const response = await service.reviewFile({
@@ -278,9 +270,7 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     expect(response.modelUsed).toBe('gemini-3.1-pro-preview');
   });
 
-  // The counterpart to the test above: the primary gets its shot at a merely-tight budget, but not at
-  // one that cannot cover the call. Previously it transmitted the prompt regardless and the runtime
-  // refused it, losing the unit AND the prompt -- three files' worth in one observed invocation.
+  // Counterpart: primary is skipped only when budget truly can't cover the call, not merely tight.
   it('will not commit a prompt when the budget cannot cover the call', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const env = createTestEnv();
@@ -304,13 +294,11 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     // Deferred, not failed: a fresh invocation has a fresh budget.
     await expect(promise).rejects.toThrow(/retrying later/);
     await promise.catch((error) => expect(isRetryableModelError(error)).toBe(true));
-    // The whole point -- nothing went over the wire.
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('skips remaining fallback models (instead of spending more of the shared budget) once near the subrequest limit', async () => {
-    // The primary retries internally, so return a fresh Response per call (a body reads once).
-    // 503, not 500: only a genuinely transient failure produces a retryable deferral.
+    // Fresh Response per call (body reads once); 503 not 500 keeps the failure retryable.
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(
         JSON.stringify({ error: { code: 503, message: 'The model is overloaded and currently unavailable.', status: 'UNAVAILABLE' } }),
@@ -320,7 +308,7 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
     const env = createTestEnv();
     await saveTestProviderApiKey(env);
     const tracker = new TokenTracker();
-    tracker.incrementSubrequests(40); // above the near-limit threshold (MAX_SUBREQUESTS 50 - SAFE_MARGIN 25)
+    tracker.incrementSubrequests(40); // above near-limit threshold (50 - 25 margin)
     const service = createTestModelRunner(env, tracker);
 
     await expect(
@@ -348,8 +336,6 @@ describe('ModelRunner: chain fallback, budget breakers and provider availability
       }),
     ).rejects.toSatisfy(isRetryableModelError);
 
-    // Only the primary model was attempted; the fallback was skipped rather than risking tipping
-    // the shared invocation over Cloudflare's subrequest cap, deferring the file for a later retry.
     expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
     for (const call of fetchMock.mock.calls) {
       expect(String(call[0])).toContain('/models/gemini-3.1-pro-preview:generateContent');
