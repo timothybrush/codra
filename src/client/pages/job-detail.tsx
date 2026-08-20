@@ -6,6 +6,7 @@ import { ClipboardList, FileDiff } from 'lucide-react';
 import { useJobDetail } from '@client/hooks/use-job-detail';
 import { JobHeader } from '@client/components/features/job-detail/job-header';
 import { JobProgress } from '@client/components/features/job-detail/job-progress';
+import { JobStatusNotice } from '@client/components/features/job-detail/job-status-notice';
 import { JobMetaCards } from '@client/components/features/job-detail/job-meta-cards';
 import { JobReviewOverview } from '@client/components/features/job-detail/job-review-overview';
 import { JobFindingsList } from '@client/components/features/job-detail/job-findings-list';
@@ -59,6 +60,9 @@ export function JobDetailPage() {
       {error && <LoadError title="Something went wrong" detail={error} />}
 
       <JobProgress job={job} />
+
+      {/* Terminal outcome (failed / superseded / stopped / partial) gets its own banner above the tabs. */}
+      <JobStatusNotice job={job} />
 
       {/* domMax, not domAnimation: the underline uses `layoutId`, which needs the layout feature. */}
       <LazyMotion features={domMax}>

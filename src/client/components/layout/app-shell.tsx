@@ -200,8 +200,11 @@ export function AppShell() {
           </button>
         </header>
 
-        {/* Full-width so scrollbar sits at card's inner edge; short pages scroll here, always inside the card, never the window. */}
-        <div className="auto-hide-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* Full-width so scrollbar sits at card's inner edge; short pages scroll here, always inside
+            the card, never the window. `scrollbar-gutter: stable` keeps the gutter reserved whether
+            or not the bar is showing: otherwise gaining a scrollbar narrows the content, which can
+            rewrap text and shift every measurement taken against this box. */}
+        <div className="auto-hide-scroll flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
           <div className="mx-auto flex h-full w-full max-w-screen-2xl flex-col px-4 py-6 md:px-6 md:py-8 lg:px-8">
             <Outlet />
           </div>

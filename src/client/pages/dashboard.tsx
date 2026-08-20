@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 
 import { PageHeader } from '@client/components/layout/page-header';
 import { OverviewStats } from '@client/components/features/stats/overview-stats';
+import { useFitRows } from '@client/hooks/use-fit-rows';
 import { usePolling } from '@client/hooks/use-polling';
 import { useStatsRange } from '@client/hooks/use-stats-range';
 
@@ -21,6 +22,10 @@ export function DashboardPage() {
 
   const [days, setDays] = useStatsRange();
 
+  // Ask for exactly as many recent jobs as fit under the stats cards, so the panel fills the
+  // viewport without spilling into a page scroll. `null` until the first measurement lands.
+  const { ref: tableRef, rows } = useFitRows({ min: 4, max: 30 });
+
   // Clears stats to show skeletons while the new range loads; recent-jobs is range-independent and keeps its data.
   const changeDays = (next: number) => {
     setStats(null);
@@ -28,11 +33,12 @@ export function DashboardPage() {
   };
 
   const load = async (manual = false) => {
+    if (rows === null) return;
     if (manual) setRefreshing(true);
     try {
       const [statsRes, jobsRes] = await Promise.all([
         api.getStats(days),
-        api.getJobs({ limit: 10 }),
+        api.getJobs({ limit: rows }),
       ]);
       setStats(statsRes.stats);
       setRecentJobs(jobsRes.jobs);
@@ -45,7 +51,7 @@ export function DashboardPage() {
     }
   };
 
-  usePolling(load, 15_000, [days]);
+  usePolling(load, 15_000, [days, rows]);
 
 
   return (
@@ -92,9 +98,13 @@ export function DashboardPage() {
           </Link>
         </div>
 
-        <div className="min-w-0">
-          {(loading || recentJobs.length > 0) && (
-            <JobsTable jobs={recentJobs} loading={loading} />
+        <div ref={tableRef} className="min-w-0">
+          {/* Nothing renders until the measurement lands. JobsTable falls back to 8 skeleton rows
+              when `skeletonRows` is undefined, so rendering it early painted a too-long table that
+              then shrank to the fitted count. `useFitRows` measures in a layout effect, so `rows`
+              is set before the first paint - this costs no visible delay. */}
+          {rows !== null && (loading || recentJobs.length > 0) && (
+            <JobsTable jobs={recentJobs} loading={loading} skeletonRows={rows} />
           )}
 
           {!loading && recentJobs.length === 0 && (

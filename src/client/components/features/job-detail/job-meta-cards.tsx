@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AtSign, ExternalLink, Info, ListChecks, RotateCcw, Zap } from 'lucide-react';
+import { AtSign, Info, ListChecks, RotateCcw, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn, formatPreciseDuration } from '@codraoss/ui/utils';
 import type { JobDetail, JobStep } from '@codraoss/schema';
@@ -42,12 +42,13 @@ function MetaPanel({
   children: ReactNode;
 }) {
   return (
-    <div className="ui-panel min-w-0 overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-ui-line px-4 py-3 sm:px-5">
+    <div className="ui-panel flex min-w-0 flex-col overflow-hidden p-3.5">
+      <div className="flex items-center gap-2 px-0.5">
         <Icon size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
-        <h2 className="text-[13px] font-medium text-ui-default">{title}</h2>
+        <h2 className="truncate text-[13px] font-medium text-ui-default">{title}</h2>
       </div>
-      <div className="px-4 py-1.5 sm:px-5">{children}</div>
+      {/* Recessed inner panel, same as the dashboard stat cards. */}
+      <div className="ui-well mt-3 flex-1 rounded-md px-4 py-1.5">{children}</div>
     </div>
   );
 }
@@ -97,7 +98,6 @@ function StepRow({ step }: { step: JobStep }) {
 }
 
 export function JobMetaCards({ job }: JobMetaCardsProps) {
-  const isPartialReview = job.status === 'done' && job.errorMessage?.startsWith('Partial review:');
   const steps = job.steps ?? [];
   const TriggerIcon = TRIGGER_ICON[job.trigger] ?? Zap;
 
@@ -134,19 +134,6 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
             </span>
           </DetailRow>
 
-          {job.reviewId && (
-            <DetailRow label="Review">
-              <a
-                href={`https://github.com/${job.owner}/${job.repo}/pull/${job.prNumber}#pullrequestreview-${job.reviewId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs leading-none text-ui-default transition-colors hover:text-primary dark:text-ui-subtle"
-              >
-                GitHub <ExternalLink size={11} className="shrink-0 text-ui-subtle" />
-              </a>
-            </DetailRow>
-          )}
-
           {job.retryOfJobId && (
             <DetailRow label="Retry of">
               <Link
@@ -160,34 +147,11 @@ export function JobMetaCards({ job }: JobMetaCardsProps) {
           )}
         </dl>
 
-        {job.errorMessage && (
-          <div
-            className={cn(
-              'mb-3 mt-1.5 rounded-md border px-3 py-2.5',
-              isPartialReview
-                ? 'border-warning-border bg-warning-bg'
-                : 'border-danger-border bg-danger-bg',
-            )}
-          >
-            <p
-              className={cn(
-                'mb-1 flex items-center gap-1.5 text-[11px] font-medium leading-none',
-                isPartialReview ? 'text-warning' : 'text-danger',
-              )}
-            >
-              <StatusDot status={isPartialReview ? 'queued' : 'failed'} />
-              {isPartialReview ? 'Partial review' : 'Error'}
-            </p>
-            <p className={cn('text-xs leading-relaxed', isPartialReview ? 'text-warning' : 'text-danger')}>
-              {job.errorMessage}
-            </p>
-          </div>
-        )}
       </MetaPanel>
 
       <MetaPanel icon={ListChecks} title="Progress steps">
         {steps.length === 0 ? (
-          <p className="py-3 text-xs text-ui-default dark:text-ui-subtle">No steps recorded yet.</p>
+          <p className="py-2.5 text-xs text-ui-default dark:text-ui-subtle">No steps recorded yet.</p>
         ) : (
           steps.map((step) => <StepRow key={step.name} step={step} />)
         )}

@@ -94,7 +94,9 @@ function StatFooter({
 }) {
   if (loading) {
     return (
-      <div className="flex items-center justify-between px-0.5 pt-3">
+      // h-7 == pt-3 + the loaded row's 16px text-xs line box. Without it the card is 4px shorter
+      // while loading, shifting everything below it (and the dashboard's row-fitting measurement).
+      <div className="flex h-7 items-center justify-between px-0.5 pt-3">
         <Skeleton height={12} width={110} />
         <Skeleton height={12} width={80} />
       </div>
@@ -112,7 +114,7 @@ function StatFooter({
   const label = flat ? `${prefix} unchanged` : `${prefix} ${up ? 'Increased' : 'Decreased'} by`;
 
   return (
-    <div className="flex items-center justify-between gap-2 px-0.5 pt-3 text-xs">
+    <div className="flex h-7 items-center justify-between gap-2 px-0.5 pt-3 text-xs">
       <span className="truncate text-ui-subtle">{label}</span>
       <span className="flex shrink-0 items-baseline gap-1.5">
         {!flat && (

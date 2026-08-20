@@ -24,8 +24,8 @@ export function JobProgress({ job }: JobProgressProps) {
     : null;
 
   return (
-    <div className="ui-panel ui-font-sans overflow-hidden">
-      <div className="flex items-baseline justify-between gap-4 border-b border-ui-line px-4 py-3 sm:px-5">
+    <div className="ui-panel ui-font-sans overflow-hidden p-3.5">
+      <div className="flex items-baseline justify-between gap-4 px-0.5">
         <div className="flex items-center gap-2">
           {isQueued
             ? <Hourglass size={14} className="shrink-0 text-ui-default" />
@@ -40,7 +40,8 @@ export function JobProgress({ job }: JobProgressProps) {
         </span>
       </div>
 
-      <div className="px-4 py-4 sm:px-5">
+      {/* Recessed inner panel, same as the dashboard stat cards. */}
+      <div className="ui-well mt-3 rounded-md px-4 py-4">
         <div
           className="h-1.5 overflow-hidden rounded-full bg-ui-fill"
           role="progressbar"

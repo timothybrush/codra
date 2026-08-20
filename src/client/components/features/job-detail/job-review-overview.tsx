@@ -39,8 +39,8 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
   };
 
   return (
-    <div className="ui-panel ui-font-sans min-w-0 overflow-hidden">
-      <div className="flex flex-col items-start justify-between gap-3 border-b border-ui-line px-4 py-3 sm:flex-row sm:items-center sm:gap-0 sm:px-5">
+    <div className="ui-panel ui-font-sans min-w-0 overflow-hidden p-3.5">
+      <div className="flex flex-col items-start justify-between gap-3 px-0.5 sm:flex-row sm:items-center sm:gap-0">
         <div className="flex items-center gap-2">
           <ClipboardList size={15} strokeWidth={2} className="shrink-0 text-ui-default" />
           <h2 className="text-[13px] font-medium text-ui-default">Review overview</h2>
@@ -69,8 +69,9 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
         </div>
       </div>
 
-      {/* Markdown's own leading/trailing block margins are zeroed so the card padding alone controls the gap. */}
-      <div className="px-4 pb-4 pt-3 sm:px-5">
+      {/* Recessed inner panel (same as the dashboard stat cards); markdown's own leading/trailing
+          block margins are zeroed so the well padding alone controls the gap. */}
+      <div className="ui-well mt-3 rounded-md px-5 py-4.5">
         <div className="prose max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={safeRehypePlugins}>
             {renderSummary()}
@@ -78,7 +79,8 @@ export function JobReviewOverview({ job }: JobReviewOverviewProps) {
         </div>
       </div>
 
-      <div className="ui-well border-t border-ui-line px-4 py-3 sm:px-5">
+      {/* Footer sits on the card face, mirroring the stat cards' delta row. */}
+      <div className="px-0.5 pt-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p className="text-xs leading-none text-ui-default dark:text-ui-subtle">Priority triage</p>
           {reviewSeverities.map((sev) => {

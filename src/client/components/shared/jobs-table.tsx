@@ -26,6 +26,8 @@ interface JobsTableProps {
   columns?: Column[];
   /** Fill the parent's height and scroll the body internally, instead of growing to fit all rows. */
   fill?: boolean;
+  /** Placeholder rows drawn while loading. Match the expected result count to avoid a layout jump. */
+  skeletonRows?: number;
 }
 
 const DEFAULT_COLUMNS: Column[] = [
@@ -128,7 +130,7 @@ const CELL = 'h-12 border-t border-ui-line px-2.5 align-middle';
    table without changing row height. */
 const ROW_DIVIDERS = 'first:[&>td]:border-transparent';
 
-export function JobsTable({ jobs, loading, columns, fill = false }: JobsTableProps) {
+export function JobsTable({ jobs, loading, columns, fill = false, skeletonRows }: JobsTableProps) {
   const cols: Column[] = columns ?? DEFAULT_COLUMNS;
   const show = (column: Column) => cols.includes(column);
 
@@ -141,7 +143,7 @@ export function JobsTable({ jobs, loading, columns, fill = false }: JobsTablePro
     >
       <div className={cn('sm:hidden', fill && 'auto-hide-scroll min-h-0 flex-1 overflow-y-auto')}>
         {loading && jobs.length === 0
-          ? Array.from({ length: 6 }).map((_, i) => (
+          ? Array.from({ length: skeletonRows ?? 6 }).map((_, i) => (
               <div key={i} className="border-b border-ui-line px-4 py-3.5 last:border-b-0">
                 <Skeleton width="70%" height={14} />
                 <div className="mt-3 flex gap-3">
@@ -166,7 +168,7 @@ export function JobsTable({ jobs, loading, columns, fill = false }: JobsTablePro
         <table className="w-full min-w-[560px] table-fixed border-separate border-spacing-0 text-sm">
           <tbody>
             {loading && jobs.length === 0
-              ? Array.from({ length: 8 }).map((_, i) => (
+              ? Array.from({ length: skeletonRows ?? 8 }).map((_, i) => (
                   <tr key={i} className={ROW_DIVIDERS}>
                     {show('title') && (
                       <td className={cn(CELL, COLUMN_CLASSES.title)}>

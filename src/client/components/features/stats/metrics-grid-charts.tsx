@@ -15,7 +15,8 @@ import {
 import { Activity, Boxes, Coins, FolderGit2, ShieldCheck } from 'lucide-react';
 import type { StatsPayload } from '@codraoss/schema';
 import { 
-  ChartTooltip
+  ChartTooltip,
+  type SeriesMarkers
 } from './chart-primitives';
 import { 
   GraphShell, 
@@ -85,28 +86,40 @@ export function MetricsGridCharts({
   };
   const statusTotal = Math.max(stats.statuses.reduce((sum, s) => sum + s.count, 0), 1);
 
+  // One description per series, feeding both the legend chip and the tooltip swatch, so the two
+  // can't drift apart. Keyed by `dataKey`, which is what Recharts reports back on hover.
+  const flowMarkers: SeriesMarkers = {
+    jobs: { color: amber },
+    comments: { color: dashColor, dashed: true },
+  };
+  const tokenMarkers: SeriesMarkers = {
+    outputTokens: { color: CHART.blue },
+    inputTokens: { hatched: true },
+  };
+
   return (
-    <div className="flex flex-col gap-4 sm:gap-6">
+    // Rows only: `MetricsGrid` owns the outer wrapper. See the note there.
+    <>
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
         <GraphShell
           title="Review Flow"
           icon={<Activity size={14} strokeWidth={2} />}
           legend={
             <>
-              <LegendChip color={amber} label="Reviews" />
-              <LegendChip color={dashColor} dashed label="Comments" />
+              <LegendChip {...flowMarkers.jobs} label="Reviews" />
+              <LegendChip {...flowMarkers.comments} label="Comments" />
               {bucketNote}
             </>
           }
         >
-          <div className="h-64 px-2 pb-4 pt-3 sm:h-80 sm:px-3 sm:pb-5">
+          <div className="h-64 px-1.5 pb-3 pt-3 sm:h-80 sm:px-2 sm:pb-4">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
                 <ChartDefs isDark={isDark} />
                 <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
                 <XAxis {...axisProps} {...X_AXIS_PROPS} />
                 <YAxis {...axisProps} width={34} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: amber, strokeDasharray: '4 4' }} />
+                <Tooltip content={<ChartTooltip markers={flowMarkers} />} cursor={{ stroke: amber, strokeDasharray: '4 4' }} />
                 <Area
                   type="stepAfter"
                   dataKey="jobs"
@@ -138,20 +151,20 @@ export function MetricsGridCharts({
           icon={<Coins size={14} strokeWidth={2} />}
           legend={
             <>
-              <LegendChip color="#3b82f6" label="Output tokens" />
-              <LegendChip hatched label="Input tokens" />
+              <LegendChip {...tokenMarkers.outputTokens} label="Output tokens" />
+              <LegendChip {...tokenMarkers.inputTokens} label="Input tokens" />
               {bucketNote}
             </>
           }
         >
-          <div className="h-64 px-2 pb-4 pt-3 sm:h-80 sm:px-3 sm:pb-5">
+          <div className="h-64 px-1.5 pb-3 pt-3 sm:h-80 sm:px-2 sm:pb-4">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <BarChart data={stats.trend} margin={{ left: 4, right: 8, top: 8, bottom: 4 }} barCategoryGap="28%">
                 <ChartDefs isDark={isDark} />
                 <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
                 <XAxis {...axisProps} {...X_AXIS_PROPS} />
                 <YAxis {...axisProps} width={46} tickFormatter={formatCompact} />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: cursorColor }} />
+                <Tooltip content={<ChartTooltip markers={tokenMarkers} />} cursor={{ fill: cursorColor }} />
                 {/* Capped so a short range (or a heavily bucketed one) doesn't render a handful of slab-wide bars. */}
                 <Bar dataKey="outputTokens" name="output" stackId="tokens" fill="url(#blueBar)" radius={[2, 2, 2, 2]} maxBarSize={44} />
                 <Bar dataKey="inputTokens" name="input" stackId="tokens" fill="url(#hatchGray)" radius={[4, 4, 0, 0]} maxBarSize={44} />
@@ -163,7 +176,7 @@ export function MetricsGridCharts({
 
       <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
         <GraphShell title="Job Health" icon={<ShieldCheck size={14} strokeWidth={2} />}>
-          <div className="flex flex-1 items-center gap-5 px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+          <div className="flex flex-1 items-center gap-5 px-3.5 py-4 sm:px-4 sm:py-4.5">
             <div className="relative h-36 w-36 shrink-0">
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <PieChart>
@@ -242,6 +255,6 @@ export function MetricsGridCharts({
           </MeterList>
         </GraphShell>
       </div>
-    </div>
+    </>
   );
 }

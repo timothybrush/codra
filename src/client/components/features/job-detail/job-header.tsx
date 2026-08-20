@@ -2,21 +2,10 @@ import { Button, ConfirmDialog } from '@codraoss/ui';
 import { useState } from 'react';
 import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  ChevronRight,
-  ExternalLink,
-  FolderGit2,
-  GitBranch,
-  GitCommitHorizontal,
-  GitPullRequest,
-  Loader2,
-  RotateCcw,
-  Terminal,
-  Trash2,
-} from 'lucide-react';
+import { ChevronRight, ExternalLink, Loader2, RotateCcw, Terminal, Trash2 } from 'lucide-react';
 import type { ButtonProps } from '@codraoss/ui';
 import { UpdatesEmailPrompt } from '@client/components/features/dashboard/updates-email-prompt';
-import { AuthorChip, JobStatusLine, MetaChip, VerdictPill } from './job-chips';
+import { AuthorChip, VerdictPill } from './job-chips';
 import { formatAbsoluteDate, formatRelativeDate } from './job-chip-utils';
 import type { JobDetail } from '@codraoss/schema';
 
@@ -79,6 +68,15 @@ function JobActionButton({
   );
 }
 
+/** `·` inside a group of related facts, `|` between groups. */
+function Dot() {
+  return <span className="shrink-0 text-ui-subtle/60">·</span>;
+}
+
+function Pipe() {
+  return <span className="shrink-0 text-ui-line">|</span>;
+}
+
 interface JobHeaderProps {
   job: JobDetail;
   isRerunning: boolean;
@@ -105,106 +103,111 @@ export function JobHeader({
 
   return (
     <>
-      {/* The header is the detail page's version of a table row: same vocabulary as the jobs table. */}
-      <header className="ui-font-sans flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="min-w-0 w-full">
-          {/* Deliberately thin: the repo and PR live in the chip row below, so this only carries the way back and the job id. */}
-          <div className="flex min-w-0 items-center gap-1 text-[11px] text-ui-default dark:text-ui-subtle">
-            <Link to="/jobs" className="transition-colors hover:text-ui-strong">
+      {/* Full-bleed header: a hairline rule under the breadcrumb bar, then the title and the PR's
+          coordinates. No card - the panels below are the cards, and framing this too would nest a
+          surface inside a surface. Status, token counts and the step list live in those panels. */}
+      <header className="ui-font-sans min-w-0">
+        <div className="flex min-w-0 items-center justify-between gap-4 border-b border-ui-line pb-3">
+          <div className="flex min-w-0 items-center gap-1.5 text-[13px]">
+            <Link to="/jobs" className="shrink-0 text-ui-subtle transition-colors hover:text-ui-strong">
               Jobs
             </Link>
-            <ChevronRight size={12} className="shrink-0 text-ui-subtle opacity-60" />
-            <span className="ui-font-mono cursor-default truncate text-ui-subtle" title={job.id}>
+            <ChevronRight size={13} className="shrink-0 text-ui-subtle opacity-60" />
+            <span
+              className="ui-font-mono cursor-default truncate font-medium text-ui-strong"
+              title={job.id}
+            >
               {job.id.slice(0, 8)}
             </span>
           </div>
 
-          <h1 className="mt-1.5 min-w-0 text-xl font-bold text-foreground" style={{ letterSpacing: '-0.02em' }}>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button variant="secondary" size="sm" asChild className="gap-1.5 rounded-[7px]">
+              <Link to={`/jobs/${job.id}/logs`}>
+                <Terminal size={13} />
+                <span className="hidden sm:inline">Raw Logs</span>
+              </Link>
+            </Button>
+
+            <JobActionButton
+              icon={StopIcon}
+              label="Stop review"
+              busy={isStopping}
+              disabled={!canStop || isStopping}
+              onClick={() => setStopOpen(true)}
+            />
+
+            {/* Always restarts the review from the beginning (every file), regardless of the job's current status. */}
+            <JobActionButton
+              icon={RotateCcw}
+              label={job.status === 'failed' ? 'Retry job' : 'Re-run job'}
+              busy={isRerunning}
+              onClick={onRerun}
+            />
+
+            <JobActionButton
+              icon={Trash2}
+              label="Delete job"
+              busy={isDeleting}
+              variant="destructive-outline"
+              className="rounded-[7px] shadow-none"
+              onClick={() => setDeleteOpen(true)}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 min-w-0">
+          <h1
+            className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-[1.35rem] font-bold leading-tight text-foreground"
+            style={{ letterSpacing: '-0.02em' }}
+          >
             <a
               href={`https://github.com/${job.owner}/${job.repo}/pull/${job.prNumber}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex max-w-full items-center gap-2 transition-colors hover:text-primary"
+              className="inline-flex min-w-0 max-w-full items-center gap-2 transition-colors hover:text-primary"
             >
               <span className="min-w-0 break-words">{job.prTitle ?? 'Untitled pull request'}</span>
-              <ExternalLink size={15} className="mt-0.5 shrink-0 text-ui-subtle" />
+              <ExternalLink size={14} className="mt-0.5 shrink-0 text-ui-subtle" />
             </a>
+            {job.verdict && <VerdictPill verdict={job.verdict} />}
           </h1>
 
-          <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-            <JobStatusLine job={job} />
-
-            {job.verdict && <VerdictPill verdict={job.verdict} />}
-
-            <MetaChip icon={FolderGit2} title={`${job.owner}/${job.repo}`}>
+          {/* Coordinates, in one readable line rather than a row of chips. */}
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs leading-none text-ui-default dark:text-ui-subtle">
+            <span className="truncate">
               {job.owner}/{job.repo}
-            </MetaChip>
-
-            <MetaChip icon={GitPullRequest} mono>
-              #{job.prNumber}
-            </MetaChip>
-
+            </span>
+            <Dot />
+            <span className="ui-font-mono shrink-0 tabular-nums">#{job.prNumber}</span>
             {job.commitSha && (
-              <MetaChip icon={GitCommitHorizontal} mono title={job.commitSha}>
-                {job.commitSha.slice(0, 7)}
-              </MetaChip>
+              <>
+                <Dot />
+                <span className="ui-font-mono shrink-0" title={job.commitSha}>
+                  {job.commitSha.slice(0, 7)}
+                </span>
+              </>
             )}
 
-            {/* Branch pair is the widest and least essential chip, so it is capped and drops off first. */}
             {job.baseRef && job.headRef && (
-              <MetaChip
-                icon={GitBranch}
-                mono
-                title={`${job.headRef} → ${job.baseRef}`}
-                className="hidden max-w-[15rem] 2xl:flex"
-              >
-                {job.baseRef} ← {job.headRef}
-              </MetaChip>
+              <>
+                <Pipe />
+                <span
+                  className="ui-font-mono hidden max-w-[22rem] truncate md:inline"
+                  title={`${job.headRef} → ${job.baseRef}`}
+                >
+                  {job.baseRef} ← {job.headRef}
+                </span>
+              </>
             )}
 
+            <Pipe />
             <AuthorChip login={job.prAuthor} />
-
-            <span
-              className="shrink-0 text-xs leading-none text-ui-default dark:text-ui-subtle"
-              title={formatAbsoluteDate(job.createdAt)}
-            >
+            <Dot />
+            <span className="shrink-0" title={formatAbsoluteDate(job.createdAt)}>
               {formatRelativeDate(job.createdAt)}
             </span>
           </div>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Button variant="secondary" size="sm" asChild className="gap-1.5 rounded-[7px]">
-            <Link to={`/jobs/${job.id}/logs`}>
-              <Terminal size={13} />
-              Raw Logs
-            </Link>
-          </Button>
-
-          <JobActionButton
-            icon={StopIcon}
-            label="Stop review"
-            busy={isStopping}
-            disabled={!canStop || isStopping}
-            onClick={() => setStopOpen(true)}
-          />
-
-          {/* Always restarts the review from the beginning (every file), regardless of the job's current status. */}
-          <JobActionButton
-            icon={RotateCcw}
-            label={job.status === 'failed' ? 'Retry job' : 'Re-run job'}
-            busy={isRerunning}
-            onClick={onRerun}
-          />
-
-          <JobActionButton
-            icon={Trash2}
-            label="Delete job"
-            busy={isDeleting}
-            variant="destructive-outline"
-            className="rounded-[7px] shadow-none"
-            onClick={() => setDeleteOpen(true)}
-          />
         </div>
       </header>
 

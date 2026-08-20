@@ -148,9 +148,9 @@
   --code-fg: oklch(86.5% 0.005 286.3);
   --code-border: oklch(27.4% 0.006 286.3);
 
-  --diff-add-bg: oklch(30% 0.06 150);
+  --diff-add-bg: oklch(24% 0.055 150);
   --diff-add-fg: oklch(82% 0.15 150);
-  --diff-del-bg: oklch(31% 0.08 27);
+  --diff-del-bg: oklch(25% 0.075 27);
   --diff-del-fg: oklch(80% 0.16 27);
 }
 
@@ -724,9 +724,13 @@
 }
 .ui-well {
   background: oklch(97.8% 0.002 286.3);
+  /* On the recessed face the neutral-500 subtle tone reads washed out in light mode,
+     so step it down to zinc-600. Dark mode already has enough separation. */
+  --ui-subtle: oklch(44.2% 0.017 285.8);
 }
 .dark .ui-well {
   background: oklch(19% 0 0);
+  --ui-subtle: oklch(70.8% 0 0);
 }
 
 /* Syntax tokens for sugar-high (src/client/lib/highlight.tsx); it emits

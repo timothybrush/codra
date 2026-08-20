@@ -25,7 +25,7 @@
     "deploy": "npm run build && npm run migrate && cd apps/worker && wrangler deploy",
     "dev": "concurrently -k -n CLIENT,WORKER -c cyan,green \"npm:dev:client\" \"npm:dev:worker\"",
     "dev:client": "vite build --watch --mode development",
-    "dev:worker": "cd apps/worker && wrangler dev --local",
+    "dev:worker": "cd apps/worker && wrangler dev --local --env-file ../../.dev.vars",
     "lint": "eslint src test scripts packages apps",
     "lint:all": "npm run lint --workspaces --if-present",
     "start": "npm run dev",

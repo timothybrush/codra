@@ -9,10 +9,8 @@ import { api } from '@client/lib/api';
 import type { StatsPayload } from '@codraoss/schema';
 
 
-import { MetricsGridSkeleton } from '@client/components/features/stats/chart-primitives';
 import { MetricsGrid } from '@client/components/features/stats/metrics-grid';
 import { prefetchMetricsCharts } from '@client/components/features/stats/metrics-grid-prefetch';
-// Skeletons reuse GraphShell so the card chrome (border, title, icon) stays put; only the chart body is skeletoned.
 
 
 export function StatsPage() {
@@ -70,11 +68,8 @@ export function StatsPage() {
         />
       )}
 
-      {stats ? (
-        <MetricsGrid stats={stats} isDark={isDark} />
-      ) : (
-        <MetricsGridSkeleton />
-      )}
+      {/* MetricsGrid owns the skeleton too: branching here as well would mount a second one. */}
+      <MetricsGrid stats={stats} isDark={isDark} />
     </section>
   );
 }
