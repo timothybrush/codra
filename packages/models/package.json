@@ -1,6 +1,6 @@
 {
   "name": "@codraoss/models",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "LLM provider adapters and model catalog for the Codra review engine.",
   "author": "Devarshi Shimpi",
   "license": "AGPL-3.0-only",

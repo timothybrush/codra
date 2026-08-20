@@ -9,11 +9,14 @@ describe('toGeminiResponseJsonSchema', () => {
   const reviewSchema = () => buildReviewResponseSchema(10).schema;
   const findingProps = (out: any) => out.properties.findings.items.properties;
 
-  it('adapts both review grammars: ordering stated, code_location union collapsed', () => {
+  it('adapts both review grammars: ordering by declaration, code_location union collapsed', () => {
     const out = toGeminiResponseJsonSchema(reviewSchema()) as any;
     const expected = ['evidence', 'code_location', 'claim_type', 'title', 'body', 'priority', 'code_suggestion'];
     expect(Object.keys(findingProps(out))).toEqual(expected);
-    expect(out.properties.findings.items.propertyOrdering).toEqual(expected);
+    // `propertyOrdering` is an OpenAPI `responseSchema` keyword; inside `responseJsonSchema` Gemini
+    // 400s on it, which silently disabled constrained decoding for every review. Declaration order
+    // above carries the ordering; the keyword must never reach the wire.
+    expect(out.properties.findings.items.propertyOrdering).toBeUndefined();
 
     const location = findingProps(out).code_location;
     expect(location.anyOf).toBeUndefined();
@@ -24,7 +27,8 @@ describe('toGeminiResponseJsonSchema', () => {
     const verify = toGeminiResponseJsonSchema(VERIFY_RESPONSE_SCHEMA.schema as Record<string, unknown>) as any;
     // `reason` then `decidable`, both before `verdict`: the verifier justifies, and states whether the
     // window it was given can settle the claim at all, before it is allowed to emit a decision token.
-    expect(verify.properties.results.items.propertyOrdering).toEqual(['index', 'reason', 'decidable', 'verdict', 'confidence']);
+    expect(Object.keys(verify.properties.results.items.properties)).toEqual(['index', 'reason', 'decidable', 'verdict', 'confidence']);
+    expect(verify.properties.results.items.propertyOrdering).toBeUndefined();
 
     // The batch grammar nests one level deeper; the same transforms must reach it.
     const batch = toGeminiResponseJsonSchema(buildBatchReviewResponseSchema(10, 4).schema) as any;

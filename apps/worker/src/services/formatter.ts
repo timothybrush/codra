@@ -87,9 +87,10 @@ export class FormatterService {
 
     // A clean review used to say "here are some automated review suggestions" and then list none,
     // which reads as a failure rather than a pass. Say what was checked and that nothing came of it.
+    // With findings the original wording stays.
     const headline = postedFindings === 0
       ? `✅ **Nothing to flag.** Reviewed ${plural(filesReviewed, 'file')} (${plural(linesReviewed, 'changed line')}) and found no issues worth raising.`
-      : `Found ${plural(postedFindings, 'issue')} worth a look, commented inline below.`;
+      : 'Here are some automated review suggestions for this pull request.';
 
     const notes: string[] = [];
     if (input.filesFailed > 0) {
@@ -104,6 +105,10 @@ export class FormatterService {
     const noteBlock = notes.length > 0
       ? '\n' + notes.map((line) => `> [!NOTE]\n> ${line}`).join('\n\n') + '\n'
       : '';
+
+    const aboutOutcome = postedFindings === 0
+      ? 'Every review posts a summary here. A clean pass also gets a 👍 on the pull request itself.'
+      : 'If Codra has suggestions, it will comment; otherwise it will react with 👍.';
 
     return `### Codra Review
 
@@ -121,7 +126,7 @@ ${noteBlock}
 - **Open** a pull request for review
 - **Mark** a draft as ready
 
-Every review posts a summary here. A clean pass also gets a 👍 on the pull request itself.
+${aboutOutcome}
 
 </details>`;
   }

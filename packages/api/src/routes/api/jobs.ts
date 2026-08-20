@@ -17,6 +17,14 @@ function jobEtag(input: { id: string; status: string; updatedAt: string; fileCou
   return `"job-${input.id}-${input.status}-${input.fileCount}-${input.commentCount}-${new Date(input.updatedAt).getTime()}"`;
 }
 
+// Cloudflare's edge rewrites strong ETags to weak (W/"...") when it compresses the response, so the
+// client echoes back a weak validator; compare weakly or the 304 path never fires in production.
+function etagMatches(header: string | undefined, etag: string) {
+  if (!header) return false;
+  const bare = etag.replace(/^W\//, '');
+  return header.split(',').some((candidate) => candidate.trim().replace(/^W\//, '') === bare);
+}
+
 function getExecutionContext(c: Context<ApiEnv>) {
   try {
     return c.executionCtx;
@@ -52,7 +60,7 @@ export function createJobsRouter() {
 
     const etag = jobEtag(job);
     const lastModified = new Date(job.updatedAt).toUTCString();
-    if (c.req.header('if-none-match') === etag) {
+    if (etagMatches(c.req.header('if-none-match'), etag)) {
       return new Response(null, {
         status: 304,
         headers: {

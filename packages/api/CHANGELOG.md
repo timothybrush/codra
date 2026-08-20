@@ -1,5 +1,13 @@
 # @codraoss/api
 
+## 0.9.6
+
+### Patch Changes
+
+- Compare `If-None-Match` on `GET /api/jobs/:id` as a weak validator. Cloudflare's edge rewrites strong ETags to `W/"..."` when it compresses the response, so a strict equality check never matched and the 304 path never fired in production; every poll re-serialized the full job detail and could exhaust the CPU limit on a large running job.
+- Updated dependencies
+  - @codraoss/models@0.9.6
+
 ## 0.9.5
 
 ### Patch Changes
