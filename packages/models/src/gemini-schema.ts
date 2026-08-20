@@ -33,8 +33,10 @@ function adapt(node: unknown): unknown {
     }
   }
 
-  // Declaration order is the mechanism (`evidence` first); `propertyOrdering` states it outright.
-  out.propertyOrdering ??= Object.keys(out.properties);
+  // `propertyOrdering` belongs to the legacy OpenAPI `responseSchema`; inside `responseJsonSchema`
+  // Gemini rejects it with a bare 400 "invalid argument". Declaration order (`evidence` first)
+  // already carries the ordering, so drop the keyword rather than send it.
+  delete out.propertyOrdering;
   return out;
 }
 

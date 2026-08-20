@@ -6,6 +6,12 @@ export const BIN_DIFF_CHAR_BUDGET = 24_000;
 // Files with many scattered hunks get whole-file context; the line floor excludes trivial files.
 export const FRAGMENTED_HUNK_THRESHOLD = 5;
 export const FRAGMENTED_MIN_LINES = 60;
+// Whole-job input ceiling: a pathological-input valve, NOT an operating limit -- `max_files` and
+// `max_diff_lines_per_file` are the controls. Deliberately a constant and not repo config: it was a
+// config field with no UI and no file source, so every stored config carried a value nobody chose,
+// and raising the schema default left those rows untouched. A 500-file review at ~7.5k chars per
+// file needs ~3.8M, so this clears the largest review `max_files` permits.
+export const MAX_TOTAL_DIFF_CHARS = 4_000_000;
 export const DIFF_CACHE_TTL_SECONDS = 6 * 60 * 60;
 
 // Phase Control & Timers

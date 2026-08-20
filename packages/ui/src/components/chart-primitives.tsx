@@ -1,5 +1,4 @@
 import { Children, type ReactNode } from 'react';
-import { LayerCard } from './layer-card';
 import { cn } from '../lib/utils';
 
 export function CardDots() {
@@ -29,21 +28,73 @@ export function GraphShell({
   className?: string;
 }) {
   return (
-    <LayerCard className={cn('relative flex flex-col overflow-hidden', className)}>
-      <CardDots />
-      <div className="relative flex items-center gap-2 px-4 pt-4 sm:px-5 sm:pt-5">
+    // Same chrome as the dashboard stat cards: card face carries the title, the chart itself sits
+    // in a recessed inner panel.
+    <div
+      className={cn(
+        'flex flex-col rounded-lg border border-ui-line bg-white p-3.5 dark:border-[oklch(0.27_0_0)] dark:bg-black',
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 px-0.5">
         {icon && <span className="shrink-0 text-ui-subtle">{icon}</span>}
         <h3 className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-ui-default">
           {title}
         </h3>
       </div>
-      {legend && (
-        <div className="relative flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 pt-3 sm:px-5">
-          {legend}
-        </div>
-      )}
-      <div className="relative flex flex-1 flex-col">{children}</div>
-    </LayerCard>
+
+      <div className="ui-well relative mt-3 flex flex-1 flex-col overflow-hidden rounded-md">
+        {/* Dot texture lives on the recessed face, where the chart reads against it. */}
+        <CardDots />
+        {legend && (
+          <div className="relative flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3.5 pt-3.5">
+            {legend}
+          </div>
+        )}
+        <div className="relative flex flex-1 flex-col">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export interface SeriesMarkerProps {
+  /** Flat CSS colour. Ignored when `hatched` is set, which paints its own fill. */
+  color?: string;
+  /** The cross-hatched fill used for the input-token series. */
+  hatched?: boolean;
+  /** A dashed rule instead of a swatch, for series drawn as a dashed line. */
+  dashed?: boolean;
+}
+
+/**
+ * The swatch that identifies a series. Shared by the legend and the tooltip so a series looks the
+ * same in both - a tooltip dot that doesn't match its legend chip reads as a different series.
+ */
+export function SeriesMarker({ color, hatched, dashed }: SeriesMarkerProps) {
+  if (dashed) {
+    return (
+      <span
+        aria-hidden
+        className="h-0 w-3.5 shrink-0 border-t-2 border-dashed"
+        style={{ borderColor: color }}
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden
+      className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+      style={
+        hatched
+          ? {
+              backgroundImage:
+                'repeating-linear-gradient(45deg, var(--ui-subtle) 0 1.5px, transparent 1.5px 3.5px)',
+              backgroundColor: 'color-mix(in oklch, var(--ui-fill) 60%, transparent)',
+            }
+          : { backgroundColor: color }
+      }
+    />
   );
 }
 
@@ -52,33 +103,10 @@ export function LegendChip({
   hatched,
   dashed,
   label,
-}: {
-  color?: string;
-  hatched?: boolean;
-  dashed?: boolean;
-  label: string;
-}) {
+}: SeriesMarkerProps & { label: string }) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-ui-subtle">
-      {dashed ? (
-        <span
-          className="h-0 w-3.5 shrink-0 border-t-2 border-dashed"
-          style={{ borderColor: color }}
-        />
-      ) : (
-        <span
-          className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-          style={
-            hatched
-              ? {
-                  backgroundImage:
-                    'repeating-linear-gradient(45deg, var(--ui-subtle) 0 1.5px, transparent 1.5px 3.5px)',
-                  backgroundColor: 'color-mix(in oklch, var(--ui-fill) 60%, transparent)',
-                }
-              : { backgroundColor: color }
-          }
-        />
-      )}
+      <SeriesMarker color={color} hatched={hatched} dashed={dashed} />
       {label}
     </span>
   );
@@ -114,7 +142,7 @@ export function MeterList({ visible, children }: { visible: number; children: Re
   const scrolls = Children.count(children) > visible;
 
   return (
-    <div className="px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-5">
+    <div className="px-3.5 py-4 sm:px-4 sm:py-4.5">
       <div
         className={cn('space-y-3.5', scrolls && 'overflow-y-auto pr-3')}
         style={scrolls ? { maxHeight: visible * METER_ROW_PX + (visible - 1) * METER_GAP_PX } : undefined}

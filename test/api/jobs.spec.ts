@@ -47,6 +47,33 @@ describe('Dashboard API: jobs, stats and queue messages', () => {
     return match ? match[1] : '';
   }
 
+  it('answers 304 to a matching If-None-Match, including the weak validator the edge rewrites it to', async () => {
+    const env = createTestEnv();
+    const token = await getAuthCookie(env);
+    const job = await insertJob(env, {
+      installationId: '123', owner: 'api-test-owner', repo: uniqueName('etag'), prNumber: 1,
+      prTitle: 'Etag', prAuthor: 'author', commitSha: 'a'.repeat(40), baseSha: 'b'.repeat(40),
+      trigger: 'auto', headRef: 'feature', baseRef: 'main',
+    });
+    const headers = { Cookie: `codra_session=${token}`, 'x-requested-with': 'XMLHttpRequest' };
+
+    const first = await app.request(`/api/jobs/${job.id}`, { headers }, env);
+    expect(first.status).toBe(200);
+    const etag = first.headers.get('etag');
+    expect(etag).toBeTruthy();
+
+    const strong = await app.request(`/api/jobs/${job.id}`, { headers: { ...headers, 'if-none-match': etag! } }, env);
+    expect(strong.status).toBe(304);
+
+    // Cloudflare compresses responses at the edge and rewrites strong ETags to weak ones,
+    // so browsers echo back W/"..."; that must still short-circuit to 304.
+    const weak = await app.request(`/api/jobs/${job.id}`, { headers: { ...headers, 'if-none-match': `W/${etag}` } }, env);
+    expect(weak.status).toBe(304);
+
+    const stale = await app.request(`/api/jobs/${job.id}`, { headers: { ...headers, 'if-none-match': '"job-other"' } }, env);
+    expect(stale.status).toBe(200);
+  });
+
   it('reruns a job from start: creates a fresh job that does NOT inherit the parent (no retryOfJobId)', async () => {
     const env = createTestEnv();
     const token = await getAuthCookie(env);

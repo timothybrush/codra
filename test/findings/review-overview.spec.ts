@@ -26,10 +26,10 @@ describe('formatReviewOverview', () => {
     expect(body).not.toContain('automated review suggestions');
   });
 
-  it('reports the count when findings were posted', () => {
+  it('keeps the original suggestions wording when findings were posted', () => {
     const body = overview({ postedFindings: 5 });
 
-    expect(body).toContain('Found 5 issues');
+    expect(body).toContain('Here are some automated review suggestions for this pull request.');
     expect(body).not.toContain('Nothing to flag');
   });
 
@@ -51,12 +51,18 @@ describe('formatReviewOverview', () => {
     }
   });
 
-  it('describes the thumbs-up as accompanying the summary, not replacing it', () => {
+  it('describes the thumbs-up as accompanying the summary on a clean pass', () => {
     const body = overview();
 
     expect(body).toContain('👍');
     // The old wording made comment and reaction alternatives; a clean pass now does both.
     expect(body).not.toContain('otherwise it will react');
+  });
+
+  it('keeps the original comment-or-react wording when findings were posted', () => {
+    const body = overview({ postedFindings: 2 });
+
+    expect(body).toContain('If Codra has suggestions, it will comment; otherwise it will react with 👍.');
   });
 
   // "No issues" is a weaker claim when candidates were dropped for failing to ground themselves.
@@ -81,11 +87,11 @@ describe('formatReviewOverview', () => {
   });
 
   it('gets singular and plural right', () => {
-    const one = overview({ postedFindings: 1, filesReviewed: 1, linesReviewed: 1, filesFailed: 1 });
+    const one = overview({ filesReviewed: 1, linesReviewed: 1, filesFailed: 1 });
 
-    expect(one).toContain('Found 1 issue worth');
+    expect(one).toContain('Reviewed 1 file (1 changed line)');
     expect(one).toContain('1 file could not be reviewed');
-    expect(one).not.toContain('1 issues');
     expect(one).not.toContain('1 files');
+    expect(one).not.toContain('1 changed lines');
   });
 });

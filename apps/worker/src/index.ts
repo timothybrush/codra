@@ -3,11 +3,11 @@ import { createApiRouterDeps } from './api-deps';
 import { ReviewWorkflow } from './workflows/review';
 import type { AppBindings } from './env';
 import { reviewJobMessageSchema } from '@codraoss/schema';
-import { logger } from '@server/core/logger';
-import { disposeRpc } from '@server/core/rpc';
+import { logger } from './core/logger';
+import { disposeRpc } from './core/rpc';
 import { runWithDb } from '@codraoss/db/client';
 import { failJob, hasPendingMaintenanceWork, clearSystemActive } from '@codraoss/db/jobs';
-import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
+import { runBestEffortJobMaintenance } from './core/job-recovery';
 
 const app = createApiRouter();
 

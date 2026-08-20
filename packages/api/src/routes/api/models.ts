@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { jsonError } from '../../http';
 import { llmApiFormats } from '@codraoss/schema';
 import type { ApiEnv } from '../../ports';
+import { requirePermission, requireQuota } from '../../middleware/authorize';
 
 const apiFormatSchema = z.enum(llmApiFormats);
 const positiveIntegerSchema = z.number().int().positive().finite();
@@ -59,6 +60,8 @@ export function createModelsRouter() {
   const app = new Hono<ApiEnv>();
 
   app.get('/', async (c) => {
+    const denied = await requirePermission(c, 'models.read');
+    if (denied) return denied;
     const modelConfigsRepo = c.env.deps.repositories.modelConfigs;
     const [providers, configs] = await Promise.all([
       modelConfigsRepo.listLlmProviders(c.env as any),
@@ -68,6 +71,8 @@ export function createModelsRouter() {
   });
 
   app.post('/sync', async (c) => {
+    const denied = await requirePermission(c, 'models.sync');
+    if (denied) return denied;
     const modelConfigsRepo = c.env.deps.repositories.modelConfigs;
     const syncErrors = await c.env.deps.modelRunner.syncProviderModelCatalog();
     const [providers, configs] = await Promise.all([
@@ -78,11 +83,15 @@ export function createModelsRouter() {
   });
 
   app.get('/global', async (c) => {
+    const denied = await requirePermission(c, 'models.read');
+    if (denied) return denied;
     const config = await c.env.deps.config.getGlobalConfig();
     return c.json({ config });
   });
 
   app.patch('/global', async (c) => {
+    const denied = await requirePermission(c, 'models.global.write');
+    if (denied) return denied;
     const body = await c.req.json();
     const parsed = globalModelConfigSchema.safeParse(body);
     if (!parsed.success) {
@@ -94,6 +103,8 @@ export function createModelsRouter() {
   });
 
   app.post('/providers', async (c) => {
+    const denied = await requirePermission(c, 'models.provider.create');
+    if (denied) return denied;
     const parsed = providerCreateSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return jsonError('Invalid provider config.', 400);
@@ -123,6 +134,8 @@ export function createModelsRouter() {
   });
 
   app.patch('/providers/:id', async (c) => {
+    const denied = await requirePermission(c, 'models.provider.update', { type: 'llmProvider', id: c.req.param('id') });
+    if (denied) return denied;
     const id = c.req.param('id');
     if (!providerIdSchema.safeParse(id).success) {
       return jsonError('Invalid provider id.', 400);
@@ -158,6 +171,8 @@ export function createModelsRouter() {
   });
 
   app.delete('/providers/:id', async (c) => {
+    const denied = await requirePermission(c, 'models.provider.delete', { type: 'llmProvider', id: c.req.param('id') });
+    if (denied) return denied;
     const id = c.req.param('id');
     if (!providerIdSchema.safeParse(id).success) {
       return jsonError('Invalid provider id.', 400);
@@ -171,6 +186,10 @@ export function createModelsRouter() {
   });
 
   app.post('/:id/test', async (c) => {
+    const denied = await requirePermission(c, 'models.test', { type: 'modelConfig', id: c.req.param('id') });
+    if (denied) return denied;
+    const throttled = await requireQuota(c, { action: 'models.test' });
+    if (throttled) return throttled;
     const modelId = readModelIdParam(c.req.param('id'));
     const parsedModelId = modelIdSchema.safeParse(modelId);
     if (!parsedModelId.success) {
@@ -193,6 +212,8 @@ export function createModelsRouter() {
   });
 
   app.post('/:id', async (c) => {
+    const denied = await requirePermission(c, 'models.mapping.write', { type: 'modelConfig', id: c.req.param('id') });
+    if (denied) return denied;
     const modelId = readModelIdParam(c.req.param('id'));
     const parsedModelId = modelIdSchema.safeParse(modelId);
     if (!parsedModelId.success) {
@@ -216,6 +237,8 @@ export function createModelsRouter() {
   });
 
   app.delete('/:id', async (c) => {
+    const denied = await requirePermission(c, 'models.mapping.write', { type: 'modelConfig', id: c.req.param('id') });
+    if (denied) return denied;
     const modelId = readModelIdParam(c.req.param('id'));
     const parsedModelId = modelIdSchema.safeParse(modelId);
     if (!parsedModelId.success) {

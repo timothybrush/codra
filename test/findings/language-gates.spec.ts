@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commentSyntaxFor, stripCommentsAndStrings } from '@server/core/claim-checks';
+import { commentSyntaxFor, stripCommentsAndStrings } from '@codraoss/core/claim-checks';
 
 // Precision varies 5.8x by language in the measured corpus (Go 0.52, Python 0.09) while every gate was
 // global, and the comment-syntax table sent everything outside six extensions to the JavaScript

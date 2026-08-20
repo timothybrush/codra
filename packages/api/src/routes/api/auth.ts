@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { jsonError } from '../../http';
 import type { ApiEnv } from '../../ports';
+import { requirePermission } from '../../middleware/authorize';
 
 const emailSchema = z.strictObject({
   email: z.string().trim().email().max(254),
@@ -28,7 +29,10 @@ export function createAuthApiRouter() {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    return c.json({ user: sessionUser });
+    // Omitted when nothing is restricted, which the dashboard reads as "every action allowed".
+    const permissions = await c.env.deps.authz?.listPermissions?.(sessionUser);
+
+    return c.json(permissions ? { user: sessionUser, permissions } : { user: sessionUser });
   });
 
   app.get('/account', async (c) => {
@@ -55,6 +59,8 @@ export function createAuthApiRouter() {
   });
 
   app.patch('/account', async (c) => {
+    const denied = await requirePermission(c, 'account.write');
+    if (denied) return denied;
     const sessionUser = c.get('sessionUser');
     if (!sessionUser) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
@@ -107,6 +113,8 @@ export function createAuthApiRouter() {
   });
 
   app.post('/updates-email', async (c) => {
+    const denied = await requirePermission(c, 'account.updatesEmail.write');
+    if (denied) return denied;
     const sessionUser = c.get('sessionUser');
     if (!sessionUser) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

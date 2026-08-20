@@ -19,4 +19,5 @@ export { GithubMark } from './components/github-mark';
 export { LoadError } from './components/load-error';
 
 // Chart primitives
-export { GraphShell, LegendChip, ChartDefs, MeterList, TickMeter, CardDots } from './components/chart-primitives';
+export { GraphShell, LegendChip, SeriesMarker, ChartDefs, MeterList, TickMeter, CardDots } from './components/chart-primitives';
+export type { SeriesMarkerProps } from './components/chart-primitives';

@@ -1,4 +1,4 @@
-import type { FileDiff, DiffLine } from '@server/core/diff';
+import type { FileDiff, DiffLine } from '@codraoss/core/diff';
 
 // Shared fixture builders, deduped from parser/rule/webhook suites.
 

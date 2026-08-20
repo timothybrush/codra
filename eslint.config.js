@@ -55,7 +55,7 @@ export default tseslint.config(
   },
 
   {
-    files: ['src/client/**/*.{ts,tsx}'],
+    files: ['apps/dashboard/**/*.{ts,tsx}'],
     rules: {
       'react-hooks/rules-of-hooks': 'error',
 
@@ -63,8 +63,8 @@ export default tseslint.config(
       'import-x/no-restricted-paths': ['error', {
         zones: [
           {
-            target: 'src/client/**/*',
-            from: ['packages/core/**/*', 'src/server/**/*'],
+            target: 'apps/dashboard/**/*',
+            from: ['packages/core/**/*', 'apps/worker/**/*'],
             message: 'The review engine and the Worker tree are server-only. Importing either pulls zod/jsonrepair/picomatch into the browser bundle -- exactly what the `vite build` CI step exists to catch. (@codraoss/schema/review-limits is the sanctioned client-side import.)'
           }
         ]
@@ -74,14 +74,14 @@ export default tseslint.config(
 
   {
     // vi.mock() intercepts these specifiers by string; list both `@alias/...` and `**/dir/...` forms since sibling imports and tsconfig-alias imports otherwise bypass it.
-    files: ['src/**/*.{ts,tsx}', 'test/**/*.{ts,tsx}'],
+    files: ['apps/**/*.{ts,tsx}', 'test/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
-          { group: ['**/db/jobs-*', '@server/db/jobs-*'], message: 'Import from @server/db/jobs, not a sibling. Eight specs vi.mock that specifier; a direct sibling import silently bypasses the mock.' },
-          { group: ['**/db/file-reviews-*', '@server/db/file-reviews-*'], message: 'Import from @server/db/file-reviews, not a sibling. (No spec mocks this one today; the rule keeps the barrel the single entry point.)' },
+          { group: ['**/db/jobs-*', '@codraoss/db/jobs-*'], message: 'Import from @codraoss/db/jobs, not a sibling. Eight specs vi.mock that specifier; a direct sibling import silently bypasses the mock.' },
+          { group: ['**/db/file-reviews-*', '@codraoss/db/file-reviews-*'], message: 'Import from @codraoss/db/file-reviews, not a sibling. (No spec mocks this one today; the rule keeps the barrel the single entry point.)' },
           { group: ['**/services/model-review-*', '**/services/model-rate-limits', '**/services/model-chain-runner', '**/services/model-support', '@codraoss/models-*'], message: 'Import from @codraoss/models, not a sibling. Four specs vi.mock that specifier.' },
-          { group: ['**/core/github/http', '**/core/github/app-auth', '**/core/github/types', '**/core/github/diff-fetch', '**/core/github/review-post', '**/core/github/labels', '@server/core/github/http', '@server/core/github/app-auth', '@server/core/github/types', '@server/core/github/diff-fetch', '@server/core/github/review-post', '@server/core/github/labels'], message: 'Import from @server/core/github, not a sibling. One spec vi.mocks that specifier. (core/github/oauth is deliberately NOT listed: it is the dashboard OAuth flow, not part of the GitHubClient barrel, and routes/auth.ts imports it directly.)' },
+          { group: ['**/provider-github/src/http', '**/provider-github/src/app-auth', '**/provider-github/src/types', '**/provider-github/src/diff-fetch', '**/provider-github/src/review-post', '**/provider-github/src/labels'], message: 'Import from @codraoss/provider-github, not a sibling module. One spec vi.mocks that specifier. (oauth is deliberately NOT listed: it is the dashboard OAuth flow, not part of the GitHubClient barrel.)' },
           { group: ['**/core/review/*', '@server/core/review/*', '@codraoss/core/review/*'], message: 'Import from @server/core/review, not a sibling. One spec vi.mocks that specifier and workflows/review.ts imports only runReviewJob from it.' },
           { group: ['**/core/model-output/*', '@server/core/model-output/*', '@codraoss/core/model-output/*'], message: 'Import from @codraoss/core/model-output, not a sibling. (The package exports map already refuses to resolve these; the lint rule gives the error at edit time.)' },
           { group: ['**/core/diff/position', '@server/core/diff/position', '@codraoss/core/diff/position'], message: 'Import from @codraoss/core/diff, not a sibling.' },
@@ -100,10 +100,6 @@ export default tseslint.config(
 
   {
     files: [
-      'src/server/db/jobs.ts',
-      'src/server/db/file-reviews.ts',
-      'src/server/services/model.ts',
-      'src/server/core/github/index.ts',
       'packages/schema/src/schema.ts',
     ],
     rules: {
@@ -135,11 +131,11 @@ export default tseslint.config(
           {
             // `src/**` in `from` catches a moved file that kept its old `@server/*` import (re-coupling).
             target: 'packages/schema/**/*',
-            from: ['src/**/*', 'test/**/*', 'scripts/**/*', 'packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+            from: ['test/**/*', 'scripts/**/*', 'packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
           },
           {
             target: 'packages/core/**/*',
-            from: ['src/**/*', 'test/**/*', 'scripts/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+            from: ['test/**/*', 'scripts/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'packages/ui/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
           },
           {
             target: 'packages/db/**/*',
@@ -159,7 +155,7 @@ export default tseslint.config(
           },
           {
             target: 'packages/ui/**/*',
-            from: ['src/**/*', 'packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
+            from: ['packages/core/**/*', 'packages/provider-github/**/*', 'packages/db/**/*', 'packages/models/**/*', 'packages/api/**/*', 'apps/worker/**/*', 'apps/dashboard/**/*']
           },
           {
             target: 'apps/dashboard/**/*',

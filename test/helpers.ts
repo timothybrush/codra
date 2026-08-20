@@ -6,6 +6,7 @@ import { queryRows } from '@codraoss/db/client';
 import { getResolvedModelConfig } from '@codraoss/db/model-configs';
 import type { TokenTracker } from '@codraoss/core/token-tracker';
 import { createApiRouterDeps } from '../apps/worker/src/api-deps';
+import type { ApiRouterDeps } from '@codraoss/api';
 
 export class MemoryKV {
   private readonly store = new Map<string, string>();
@@ -44,7 +45,6 @@ export class MemoryKV {
   }
 }
 
-// Strict in the two ways a forgiving mock let production outages ship green: throws on a detached `fetch` call, and 307s an explicit /index.html.
 export class MockAssets {
   private readonly self = 'mock-assets';
 
@@ -119,7 +119,10 @@ export function hasConfiguredTestDatabaseUrl() {
 
 import { FakeIdentityProvider } from '../packages/core/test/fakes/identity-provider';
 
-export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings {
+export function createTestEnv(
+  overrides: Partial<AppBindings> = {},
+  depsOverrides: Partial<ApiRouterDeps> = {},
+): AppBindings {
   const env = {
     AI: {
       async run() {
@@ -151,7 +154,7 @@ export function createTestEnv(overrides: Partial<AppBindings> = {}): AppBindings
     get CF_ACCOUNT_ID() { return unusedEnv('CF_ACCOUNT_ID'); },
     ...overrides,
   } as AppBindings;
-  (env as any).deps = createApiRouterDeps(env, {} as any);
+  (env as any).deps = Object.assign(createApiRouterDeps(env, {} as any), depsOverrides);
   return env;
 }
 
@@ -166,10 +169,7 @@ export function createTestModelRunner(env: AppBindings, tracker?: TokenTracker, 
   });
 }
 
-// These Gemini fixtures are NOT real catalog entries -- only Cloudflare models are seeded by
-// ensureModelCatalog -- so tests must create them here, or they'd pass locally and fail on a fresh
-// CI database. gemini-3.1-flash-lite lets a test assert fall-through to a model that actually
-// ANSWERS, not just that the metered models were skipped.
+// ensureModelCatalog seeds only Cloudflare models, so these Gemini fixtures must be created here or a fresh CI database fails.
 const GOOGLE_TEST_MODEL_IDS = ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-3.1-flash-lite'];
 
 export async function saveTestProviderApiKey(env: AppBindings, providerName = 'Google', apiKey = 'test-key') {
@@ -240,16 +240,10 @@ export function createMockPRWebhook(overrides: any = {}) {
   };
 }
 
-// The `.slice(0, 40)` is load-bearing: without it, `seed.repeat(40)` produces an 80-character string
-// for any two-character seed, and nothing validates the length so the bug never surfaces as a failure.
 export const sha = (seed: string) => seed.repeat(40).slice(0, 40);
 
-// `describe` that skips when TEST_DATABASE_URL is unset, so the suite still runs without Postgres.
 export const dbDescribe = hasConfiguredTestDatabaseUrl() ? describe : describe.skip;
 
-// DB-backed suites isolate themselves by repo name rather than truncating tables, which is what lets
-// them run in parallel. `Date.now()` alone collides when two workers start in the same millisecond,
-// so the counter and random block are both needed to make a collision impossible.
 let nameSeq = 0;
 export function uniqueName(prefix: string) {
   nameSeq += 1;

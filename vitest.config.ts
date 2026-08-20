@@ -6,9 +6,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@server': resolve(__dirname, './src/server'),
-      '@client': resolve(__dirname, './src/client'),
-      '@': resolve(__dirname, './src/client'),
+      '@server': resolve(__dirname, './apps/worker/src'),
+      '@client': resolve(__dirname, './apps/dashboard/src'),
+      '@': resolve(__dirname, './apps/dashboard/src'),
       'cloudflare:workers': resolve(__dirname, './test/mocks/cloudflare-workers.ts'),
     },
   },

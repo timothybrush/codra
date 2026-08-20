@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { budgetAwareFileLimit, estimatedSubrequestsPerFile } from '@server/core/review';
-import { TokenTracker } from '@server/core/token-tracker';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 import { REVIEW_CONCURRENCY_LIMITS, reviewConcurrencyLevels } from '@codraoss/schema';
 
 // Regression guard for "concurrency slider is dead above medium": the per-chunk budget cap must

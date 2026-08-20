@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { ApiEnv } from '../../ports';
+import { requirePermission } from '../../middleware/authorize';
 import { jsonError } from '../../http';
 import { reviewConcurrencyLevels, reviewMaxCommentsOptions, reviewMaxFilesRange, reviewSettingsSchema } from '@codraoss/schema';
 
@@ -20,11 +21,15 @@ export function createSettingsRouter() {
   const app = new Hono<ApiEnv>();
 
   app.get('/', async (c) => {
+    const denied = await requirePermission(c, 'settings.read');
+    if (denied) return denied;
     const settings = await c.env.deps.repositories.appSettings.getReviewSettings(c.env as any);
     return c.json({ settings });
   });
 
   app.patch('/', async (c) => {
+    const denied = await requirePermission(c, 'settings.write');
+    if (denied) return denied;
     const body = await c.req.json().catch(() => null);
     const parsed = reviewSettingsPatchSchema.safeParse(body);
     if (!parsed.success) {

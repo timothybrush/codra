@@ -1,6 +1,6 @@
 import { verifyFindings } from '@server/core/review';
 import { defaultRepoConfig, type ParsedReviewComment } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 const files: FileDiff[] = [
   {

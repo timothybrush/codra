@@ -1,5 +1,7 @@
 import type { ReviewJobMessage } from '@codraoss/schema';
-import type { DashboardSessionUser, SessionStore } from '@codraoss/core';
+import type { DashboardSessionUser, SessionStore, IdentityProvider } from '@codraoss/core';
+
+export type { DashboardSessionUser };
 
 export interface WorkersAiBinding {
   run(model: string, input: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<any>;
@@ -19,7 +21,7 @@ export interface HyperdriveBinding {
 
 export interface AppBindings {
   SESSION_STORE: SessionStore;
-  IDENTITY_PROVIDER: any; // Type 'any' used to avoid importing from core yet
+  IDENTITY_PROVIDER: IdentityProvider;
   AI: WorkersAiBinding;
   APP_KV: KVNamespace;
   REVIEW_QUEUE: QueueProducer<ReviewJobMessage>;

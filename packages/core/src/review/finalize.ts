@@ -12,6 +12,31 @@ import { FRESH_INVOCATION_YIELD_SECONDS } from '../constants';
 import { sendReviewTelemetry } from './telemetry';
 import { applyFindingGates } from './gate-pipeline';
 
+/**
+ * Why a completed review is less than the whole pull request, for the job record the dashboard reads.
+ *
+ * Files dropped by the limits count as partial too. They used to be reported only in the PR comment,
+ * which no longer carries that line, so without this a truncated run reports plain success -- which is
+ * how a 250-file pull request reviewed 25 files and said nothing.
+ */
+export function partialReviewMessage(input: {
+  failedFileCount: number;
+  reviewedFileCount: number;
+  filesOverCap: number;
+}): string | null {
+  const plural = (n: number) => (n === 1 ? '' : 's');
+  const reasons: string[] = [];
+
+  if (input.failedFileCount > 0) {
+    reasons.push(`${input.failedFileCount} of ${input.reviewedFileCount} file${plural(input.reviewedFileCount)} could not be reviewed`);
+  }
+  if (input.filesOverCap > 0) {
+    reasons.push(`${input.filesOverCap} file${plural(input.filesOverCap)} left out by the file and diff-size limits`);
+  }
+
+  return reasons.length > 0 ? `Partial review: ${reasons.join('; ')}.` : null;
+}
+
 export async function runFinalizePhase(
   env: ReviewRuntime,
   job: PersistedReviewJob,
@@ -237,9 +262,11 @@ export async function runFinalizePhase(
     severityDistribution[sev] = (severityDistribution[sev] || 0) + 1;
   }
 
-  const partialErrorMessage = hasFailures
-    ? `Partial review: ${failedFileCount} of ${files.length} file${files.length === 1 ? '' : 's'} could not be reviewed.`
-    : null;
+  const partialErrorMessage = partialReviewMessage({
+    failedFileCount: hasFailures ? failedFileCount : 0,
+    reviewedFileCount: files.length,
+    filesOverCap,
+  });
   await env.jobs.completeJob(job.id, {
     verdict: verdictSummary.verdict,
     fileCount: files.length,

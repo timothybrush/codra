@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { reviewAndPersistFile } from '../../packages/core/src/review/file-runner';
 import { budgetAwareFileLimit, estimatedSubrequestsPerFile } from '@server/core/review';
 import { defaultRepoConfig, type RepoConfig } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 // Two reviewers, unioned. The measured gain (F1 0.200 against 0.149 for the best single model) is
 // entirely coverage, so the rules that matter are: never drop what only one reviewer found, never

@@ -4,11 +4,11 @@ import {
   buildBatchReviewResponseSchema,
   buildReviewResponseSchema,
   reviewBreadth,
-} from '@server/prompts/file-review';
+} from '@codraoss/core/prompts/file-review';
 import { BIN_DIFF_CHAR_BUDGET, BIN_MAX_FILES } from '@server/core/review';
 import { PROMPT_FIT_SAFETY_FACTOR, estimatePromptTokens } from '@codraoss/models';
 import { defaultRepoConfig } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 function file(path: string, lines: string[]): FileDiff {
   return {

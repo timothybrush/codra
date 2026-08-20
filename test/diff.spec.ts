@@ -6,7 +6,7 @@ import {
   parseDiffHeaderPath,
   parseUnifiedDiff,
   truncateFileDiff,
-} from '@server/core/diff';
+} from '@codraoss/core/diff';
 import { defaultRepoConfig } from '@codraoss/schema';
 
 describe('Diff Engine Deep Dive', () => {

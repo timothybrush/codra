@@ -14,7 +14,7 @@ Before we can merge your pull request, you must sign our Contributor License Agr
 
 ## 📦 Repository Layout
 
-Codra is migrating to an npm workspace monorepo. The repository is structured into `apps/` (deployable entrypoints) and `packages/` (reusable modules):
+Codra is an npm workspace monorepo. The repository is structured into `apps/` (deployable entrypoints) and `packages/` (reusable modules):
 
 ```text
 packages/
@@ -31,7 +31,7 @@ apps/
 └── dashboard/          # React SPA frontend (depends on ui, schema)
 ```
 
-**Note:** We are incrementally migrating code from the legacy `src/` directory into this workspace structure. New logic should be placed in the appropriate `packages/` or `apps/` directory when possible.
+**Note:** The `packages/*` modules are published to npm as `@codraoss/*`; the workspace consumes them as TypeScript source and only the published tarballs carry compiled output. Reusable logic belongs in a package, deployment wiring in `apps/worker`, and UI in `apps/dashboard`.
 
 ---
 
@@ -95,10 +95,14 @@ npm run typecheck
 
 ## 🚀 Pull Request Process
 
-1.  **Fork & Branch**: Create a feature branch from `main`.
+Contributions are merged into `dev` first and reach `main` when a release is cut, so `main` always
+reflects what is deployed and published. Pull requests opened against `main` will be asked to
+retarget to `dev`.
+
+1.  **Fork & Branch**: Create a feature branch from `dev`.
 2.  **Atomic Commits**: Keep your commits focused and descriptive.
-3.  **Sync**: Ensure your branch is up to date with `main`.
-4.  **Target Branch**: Open pull requests against `main`.
+3.  **Sync**: Ensure your branch is up to date with `dev`.
+4.  **Target Branch**: Open pull requests against `dev`.
 5.  **PR Description**: Use the provided template (if available) or clearly explain the *what* and *why* of your changes.
 6.  **CLA Check**: Once you open the PR, an automated check will verify your CLA status. If you haven't signed yet, follow the link in the check output.
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildPresenceIndex, checkAbsenceClaim, stripCommentsAndStrings } from '@server/core/claim-checks';
-import type { FileDiff } from '@server/core/diff';
+import { buildPresenceIndex, checkAbsenceClaim, stripCommentsAndStrings } from '@codraoss/core/claim-checks';
+import type { FileDiff } from '@codraoss/core/diff';
 
 import { fileFromLines } from '../mocks/fixtures';
 const fileWith = fileFromLines;

@@ -1,4 +1,5 @@
 import picomatch from 'picomatch';
+import { MAX_TOTAL_DIFF_CHARS } from '../constants';
 import type { RepoConfig } from '@codraoss/schema';
 import {
   type DiffLineKind,
@@ -267,6 +268,8 @@ export function filterReviewableFiles(
   files: FileDiff[],
   config: RepoConfig['review'],
   maxFiles: number,
+  // Overridable for tests; production always uses the constant.
+  maxTotalDiffChars: number = MAX_TOTAL_DIFF_CHARS,
 ): { files: FileDiff[]; skipped: number } {
   const customMatchers = config.skip_files.map((pattern) => picomatch(pattern, { dot: true }));
 
@@ -289,7 +292,7 @@ export function filterReviewableFiles(
       (sum, hunk) => sum + hunk.lines.reduce((lineSum, line) => lineSum + line.content.length + 1, 0),
       0,
     );
-    if (kept.length > 0 && totalChars + fileChars > config.max_total_diff_chars) break;
+    if (kept.length > 0 && totalChars + fileChars > maxTotalDiffChars) break;
     kept.push(file);
     totalChars += fileChars;
   }

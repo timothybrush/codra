@@ -31,7 +31,6 @@ export const reviewConfigSchema = z.object({
   large_file_threshold_lines: z.number().int().min(1).max(5_000).default(200),
   max_diff_lines_per_file: z.number().int().min(1).max(5_000).default(800),
   batch_small_files: z.boolean().default(true),
-  max_total_diff_chars: z.number().int().min(1).max(500_000).default(150_000),
   // Presentation cap: comments actually posted to the PR. Findings past this are still recorded
   // (disposition 'cap') and shown on the dashboard; nothing upstream of posting should read it.
   max_comments: z.number().int().min(1).max(150).default(10),

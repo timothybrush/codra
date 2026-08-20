@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseFileReviewResponse } from '@server/core/model-output';
-import { buildPresenceIndex, checkAbsenceClaim } from '@server/core/claim-checks';
-import type { FileDiff } from '@server/core/diff';
+import { parseFileReviewResponse } from '@codraoss/core/model-output';
+import { buildPresenceIndex, checkAbsenceClaim } from '@codraoss/core/claim-checks';
+import type { FileDiff } from '@codraoss/core/diff';
 
 import { reviewJson } from '../mocks/fixtures';
 
