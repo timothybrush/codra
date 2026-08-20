@@ -25,6 +25,8 @@
   },
   "files": [
     "dist",
+    "migrations",
+    "scripts",
     "LICENSE",
     "README.md"
   ],

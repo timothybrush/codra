@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import type { ApiEnv } from './ports';
 import { requireSession } from './middleware/auth';
 import { requireCsrfHeader } from './middleware/csrf';
@@ -24,10 +24,24 @@ async function serveIndex(c: Context<ApiEnv>) {
   return c.text('Not Found: Please mount UI static assets handler here.', 404);
 }
 
-export function createApiRouter() {
+export interface ApiRouterOptions {
+  // Cross-cutting request middleware; also sees /webhook and /auth, which the /api/* guards skip.
+  beforeAuth?: MiddlewareHandler<ApiEnv>[];
+  // Runs on /api/* after the session and CSRF guards, so `sessionUser` is populated.
+  afterAuth?: MiddlewareHandler<ApiEnv>[];
+  pages?: string[];
+  publicPages?: string[];
+  // Called last, so paths added under /api/* still inherit the session, CSRF and afterAuth middleware.
+  routes?: (app: Hono<ApiEnv>) => void;
+}
+
+export function createApiRouter(options: ApiRouterOptions = {}) {
   const app = new Hono<ApiEnv>();
 
   app.use('*', observability);
+  for (const middleware of options.beforeAuth ?? []) {
+    app.use('*', middleware);
+  }
   app.use('/auth/logout', requireSession);
   app.use('/auth/logout', requireCsrfHeader);
 
@@ -36,6 +50,9 @@ export function createApiRouter() {
 
   app.use('/api/*', requireSession);
   app.use('/api/*', requireCsrfHeader);
+  for (const middleware of options.afterAuth ?? []) {
+    app.use('/api/*', middleware);
+  }
 
   app.route('/api/auth', createAuthApiRouter());
   app.route('/api/jobs', createJobsRouter());
@@ -54,6 +71,15 @@ export function createApiRouter() {
   app.get('/health', requireSession, serveIndex);
   app.get('/settings', requireSession, serveIndex);
   app.get('/account', requireSession, serveIndex);
+
+  for (const path of options.publicPages ?? []) {
+    app.get(path, serveIndex);
+  }
+  for (const path of options.pages ?? []) {
+    app.get(path, requireSession, serveIndex);
+  }
+
+  options.routes?.(app);
 
   return app;
 }

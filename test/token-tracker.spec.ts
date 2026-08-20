@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TokenTracker } from '@server/core/token-tracker';
+import { TokenTracker } from '@codraoss/core/token-tracker';
 
 // Regression for subrequest-exhaustion incident (job bb9cf692): nothing checked remaining budget before more concurrent work.
 

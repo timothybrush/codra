@@ -14,8 +14,42 @@ export type JobsResponse = {
   total: number;
 };
 
+export const apiActions = [
+  'jobs.read',
+  'jobs.retry',
+  'jobs.rerun',
+  'jobs.stop',
+  'jobs.delete',
+  'jobs.label',
+  'repos.read',
+  'repos.install',
+  'repos.sync',
+  'repos.config.write',
+  'models.read',
+  'models.sync',
+  'models.test',
+  'models.provider.create',
+  'models.provider.update',
+  'models.provider.delete',
+  'models.mapping.write',
+  'models.global.write',
+  'settings.read',
+  'settings.write',
+  'stats.read',
+  'account.write',
+  'account.updatesEmail.write',
+  'reviews.enqueue',
+] as const;
+
+export type KnownApiAction = (typeof apiActions)[number];
+
+// Open union: consumers can add their own action names while the known list keeps autocomplete.
+export type ApiAction = KnownApiAction | (string & {});
+
 export type AuthSessionResponse = {
   user: AuthSessionUser;
+  // Omitted, or a '*' entry, means "allow everything".
+  permissions?: string[];
 };
 
 // Durable account record persisted in Postgres (account_settings).

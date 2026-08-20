@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isNonAnswerReview,
   NON_ANSWER_MIN_DIFF_LINES,
-} from '@server/core/model-output';
+} from '@codraoss/core/model-output';
 
 // The literal response gemini-3.5-flash-lite returned for a 253-line diff: valid JSON, zero findings,
 // one sentence, full confidence. 77 output tokens. Recorded verbatim so a future prompt or model change

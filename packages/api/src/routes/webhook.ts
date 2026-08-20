@@ -191,6 +191,19 @@ export async function handleGitHubWebhook(c: Context<ApiEnv>) {
         }, 202);
       }
 
+      const throttled = await c.env.deps.checkQuota?.({
+        action: 'reviews.enqueue',
+        subject: {
+          installationId: extracted.installationId,
+          owner: extracted.owner,
+          repo: extracted.repo,
+        },
+      });
+      if (throttled && !throttled.allowed) {
+        // Deliberately 202, not 429: GitHub redelivers failed webhooks, so 4xx causes retry storms.
+        return c.json({ ok: true, ignored: true, reason: 'quota_exceeded' }, 202);
+      }
+
       const job = await jobsRepo.insertJob(c.env as any, {
         installationId: extracted.installationId,
         owner: extracted.owner,

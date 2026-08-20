@@ -3,9 +3,9 @@ import {
   buildBatchReviewPrompts,
   buildFileReviewPrompts,
   changelogExcerptFromDiff,
-} from '@server/prompts/file-review';
+} from '@codraoss/core/prompts/file-review';
 import { defaultRepoConfig } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 function file(path: string, lines: Array<{ kind: 'add' | 'context'; content: string }>): FileDiff {
   return {

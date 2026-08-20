@@ -8,17 +8,17 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
-  root: '.',
-  publicDir: 'public',
+  // The dashboard app is the Vite root, so publicDir and outDir stay absolute and output still lands at the repo root where wrangler.jsonc expects ../../dist/client.
+  root: path.resolve(rootDir, 'apps/dashboard'),
+  publicDir: path.resolve(rootDir, 'public'),
   resolve: {
     alias: {
-      '@client': path.resolve(rootDir, 'src/client'),
-      '@server': path.resolve(rootDir, 'src/server'),
-      '@': path.resolve(rootDir, 'src/client'),
+      '@client': path.resolve(rootDir, 'apps/dashboard/src'),
+      '@': path.resolve(rootDir, 'apps/dashboard/src'),
     },
   },
   build: {
-    outDir: 'dist/client',
+    outDir: path.resolve(rootDir, 'dist/client'),
     emptyOutDir: mode !== 'development',
     rollupOptions: {
       output: {

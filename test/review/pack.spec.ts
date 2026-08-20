@@ -7,7 +7,7 @@ import {
   planReviewUnits,
   unitFiles,
 } from '@server/core/review';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 function file(path: string, lineCount: number, contentWidth = 20): FileDiff {
   return {

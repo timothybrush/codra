@@ -1,0 +1,7 @@
+# LF in the repository and on disk, on every platform. eol=lf rather than plain text=auto because
+# this working tree is shared byte-for-byte through Dropbox: if one machine checked out CRLF the
+# other would see the whole tree as modified after every sync.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary

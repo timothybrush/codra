@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { scanFileForRuleHits, ruleHitsToComments } from '@server/core/rules/detect';
-import { RULES } from '@server/core/rules/table';
+import { scanFileForRuleHits, ruleHitsToComments } from '@codraoss/core/rules/detect';
+import { RULES } from '@codraoss/core/rules/table';
 import { CLAIM_TYPE_DECIDABILITY, DEFAULT_SHADOW_RULE_IDS } from '@codraoss/schema';
 
 import { addedLinesFile } from '../mocks/fixtures';

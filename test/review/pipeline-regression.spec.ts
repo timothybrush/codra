@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseFileReviewResponse } from '@server/core/model-output';
+import { parseFileReviewResponse } from '@codraoss/core/model-output';
 import { DEFAULT_DENIED_CLAIM_TYPES } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 // Regression over the full parse chain (JSON extraction, grounding, denylist, labels, fingerprints), one pass.
 // Replaces a 3.4MB corpus that caught regressions without naming the broken behavior. Not an accuracy benchmark; see comment_feedback for that.

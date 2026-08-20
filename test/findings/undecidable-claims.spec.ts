@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeExternalVersionClaim, refuteUndecidableClaim } from '@server/core/claim-checks';
-import { parseFileReviewResponse } from '@server/core/model-output';
-import type { FileDiff } from '@server/core/diff';
+import { looksLikeExternalVersionClaim, refuteUndecidableClaim } from '@codraoss/core/claim-checks';
+import { parseFileReviewResponse } from '@codraoss/core/model-output';
+import type { FileDiff } from '@codraoss/core/diff';
 
 // Verbatim PR #86 findings: all false, all asserting facts outside the diff. Evidence grounding
 // and the verifier both passed them, so only deterministic refutation catches this.

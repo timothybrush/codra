@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dedupeFindings } from '@server/core/model-output';
+import { dedupeFindings } from '@codraoss/core/model-output';
 import type { ParsedReviewComment } from '@codraoss/schema';
 
 // Dedupe is a UNION, not a vote. It exists to stop the same finding being posted twice, and it must

@@ -1,10 +1,10 @@
 import type { JobOrchestrator } from '@codraoss/core';
 import type { ReviewJobMessage } from '@codraoss/schema';
 import { FRESH_INVOCATION_YIELD_SECONDS } from '@codraoss/core';
-import { runReviewJob } from '@server/core/review';
+import { runReviewJob } from '../core/review';
 import { setJobWorkflowInstance } from '@codraoss/db/jobs';
 import { logger } from '@codraoss/core/logger';
-import { runBestEffortJobMaintenance } from '@server/core/job-recovery';
+import { runBestEffortJobMaintenance } from '../core/job-recovery';
 import type { AppBindings } from '../env';
 import type { WorkflowStep } from 'cloudflare:workers';
 
@@ -65,7 +65,7 @@ export class CloudflareOrchestrator implements JobOrchestrator {
         });
       } catch (error) {
         await step.do(`telemetry-failure-${currentPhase}-${attempt}`, async () => {
-          const { sendTelemetryEvent } = await import('@server/core/telemetry');
+          const { sendTelemetryEvent } = await import('../core/telemetry');
           await sendTelemetryEvent(env, {
             linesReviewed: 0,
             findingsReported: 0,

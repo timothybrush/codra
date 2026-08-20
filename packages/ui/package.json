@@ -14,7 +14,9 @@
     "url": "https://github.com/devarshishimpi/codra/issues"
   },
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "**/*.css"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./theme": "./src/lib/theme.tsx",
@@ -26,7 +28,8 @@
     "./prompt-diff": "./src/lib/prompt-diff.ts",
     "./markdown-plugins": "./src/lib/markdown-plugins.ts",
     "./motion": "./src/components/motion/index.ts",
-    "./hooks": "./src/hooks/index.ts"
+    "./hooks": "./src/hooks/index.ts",
+    "./styles": "./src/styles/tokens.css"
   },
   "files": [
     "dist",
@@ -82,11 +85,12 @@
       "./hooks": {
         "types": "./dist/hooks/index.d.ts",
         "import": "./dist/hooks/index.js"
-      }
+      },
+      "./styles": "./dist/styles/tokens.css"
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ./scripts/copy-styles.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "prepack": "node ../../scripts/swap-publish-exports.mjs promote",
     "postpack": "node ../../scripts/swap-publish-exports.mjs restore"

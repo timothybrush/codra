@@ -5,6 +5,7 @@ import { jsonError } from '../../http';
 import { parseUnifiedDiff } from '@codraoss/core/diff';
 import { buildFileReviewPrompts, changelogExcerptFromDiff, wantsFileContext } from '@codraoss/core/prompts/file-review';
 import type { ApiEnv } from '../../ports';
+import { requirePermission, requireQuota } from '../../middleware/authorize';
 
 // Best-effort: .get()/.terminate() throw if instance is gone/already terminal; both non-fatal.
 async function terminateJobWorkflow(c: Context<ApiEnv>, job: { id: string; workflowInstanceId?: string | null }) {
@@ -28,6 +29,8 @@ export function createJobsRouter() {
   const app = new Hono<ApiEnv>();
 
   app.get('/', async (c) => {
+    const denied = await requirePermission(c, 'jobs.read');
+    if (denied) return denied;
     c.env.deps.platform.scheduleBestEffortJobMaintenance(getExecutionContext(c));
 
     const rawQuery = c.req.query();
@@ -38,6 +41,8 @@ export function createJobsRouter() {
   });
 
   app.get('/:id', async (c) => {
+    const denied = await requirePermission(c, 'jobs.read', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
     c.env.deps.platform.scheduleBestEffortJobMaintenance(getExecutionContext(c));
 
     const job = await c.env.deps.repositories.jobs.getJobDetail(c.env as any, c.req.param('id'));
@@ -66,6 +71,8 @@ export function createJobsRouter() {
 
   // diff_input isn't persisted; rebuilt from the job's own base/head commits (not the live PR), via KV cache.
   app.get('/:id/diffs', async (c) => {
+    const denied = await requirePermission(c, 'jobs.read', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
     const job = await c.env.deps.repositories.jobs.getJobDetail(c.env as any, c.req.param('id'));
     if (!job) {
       return jsonError('Job not found.', 404);
@@ -171,6 +178,10 @@ export function createJobsRouter() {
   }
 
   app.post('/:id/retry', async (c) => {
+    const denied = await requirePermission(c, 'jobs.retry', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
+    const throttled = await requireQuota(c, { action: 'jobs.retry' });
+    if (throttled) return throttled;
     const jobs = c.env.deps.repositories.jobs;
     const rawSource = await jobs.getJobForProcessing(c.env as any, c.req.param('id'));
     if (!rawSource) {
@@ -182,6 +193,10 @@ export function createJobsRouter() {
 
   // No inheritance; stops the current run first so two workflows can't race.
   app.post('/:id/rerun', async (c) => {
+    const denied = await requirePermission(c, 'jobs.rerun', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
+    const throttled = await requireQuota(c, { action: 'jobs.rerun' });
+    if (throttled) return throttled;
     const jobs = c.env.deps.repositories.jobs;
     const rawSource = await jobs.getJobForProcessing(c.env as any, c.req.param('id'));
     if (!rawSource) {
@@ -196,6 +211,8 @@ export function createJobsRouter() {
   });
 
   app.post('/:id/stop', async (c) => {
+    const denied = await requirePermission(c, 'jobs.stop', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
     const jobs = c.env.deps.repositories.jobs;
     const id = c.req.param('id');
     const raw = await jobs.getJobForProcessing(c.env as any, id);
@@ -214,6 +231,8 @@ export function createJobsRouter() {
 
   // "wrong" suppresses this finding repo-wide; "right" is measurement only.
   app.put('/:id/findings/:fingerprint/label', async (c) => {
+    const denied = await requirePermission(c, 'jobs.label', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
     const jobId = c.req.param('id');
     const fingerprint = c.req.param('fingerprint');
 
@@ -240,6 +259,8 @@ export function createJobsRouter() {
 
   // Scoped to dashboard rows; a real GitHub deletion still stays recorded.
   app.delete('/:id/findings/:fingerprint/label', async (c) => {
+    const denied = await requirePermission(c, 'jobs.label', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
     const jobId = c.req.param('id');
     const fingerprint = c.req.param('fingerprint');
 
@@ -251,6 +272,8 @@ export function createJobsRouter() {
   });
 
   app.delete('/:id', async (c) => {
+    const denied = await requirePermission(c, 'jobs.delete', { type: 'job', id: c.req.param('id') });
+    if (denied) return denied;
     const jobs = c.env.deps.repositories.jobs;
     const id = c.req.param('id');
     const raw = await jobs.getJobForProcessing(c.env as any, id);

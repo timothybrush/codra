@@ -13,24 +13,24 @@ import * as dbWebhookDeliveries from '@codraoss/db/webhook-deliveries';
 
 import { GitHubClient, normalizeGitHubWebhook } from '@codraoss/provider-github';
 import { GitHubIdentityProvider } from '@codraoss/provider-github/oauth';
-import { getGlobalConfig, updateGlobalConfig, loadRepoConfig, invalidateRepoConfigCache } from '../../../src/server/core/config';
+import { getGlobalConfig, updateGlobalConfig, loadRepoConfig, invalidateRepoConfigCache } from './core/config';
 
-import { getUpdatesEmailPreference, syncUpdatesEmail } from '../../../src/server/core/updates-email';
+import { getUpdatesEmailPreference, syncUpdatesEmail } from './core/updates-email';
 
-import { getOrFetchRawDiffForCompletedJob, extractReviewRequest } from '../../../src/server/core/review';
+import { getOrFetchRawDiffForCompletedJob, extractReviewRequest } from './core/review';
 
-import { createOAuthState, consumeOAuthState } from '../../../src/server/core/oauth';
+import { createOAuthState, consumeOAuthState } from './core/oauth';
 
-import { verifyGitHubWebhookSignature } from '../../../src/server/core/verify';
+import { verifyGitHubWebhookSignature } from '@codraoss/core/verify';
 
 import { CloudflareSessionStore } from './sessions';
-import { makeKvStore } from '../../../src/server/adapters/platform';
-import { logger } from '../../../src/server/core/logger';
+import { makeKvStore } from './adapters/platform';
+import { logger } from './core/logger';
 
 // model sync dependencies
 import { listLlmProviderSecrets, upsertDiscoveredModelConfigs, createLlmProvider, updateLlmProvider, getResolvedModelConfig, getLlmProvider } from '@codraoss/db/model-configs';
 import { encryptLlmApiKey, decryptLlmApiKey, listProviderModels, reviewWithCloudflare, reviewWithGoogle, reviewWithVertex, reviewWithOpenAI, reviewWithAnthropic, ProviderRequestError } from '@codraoss/models';
-import { buildReviewResponseSchema } from '../../../src/server/prompts/file-review';
+import { buildReviewResponseSchema } from '@codraoss/core/prompts/file-review';
 
 function getSecretStore(env: AppBindings) {
   return { getSecret: async (key: string) => (env as any)[key] as string || null };
@@ -48,7 +48,7 @@ function optionalEnv(value: () => string) {
 // `IDENTITY_PROVIDER` is a test-only seam; production has no such binding.
 const githubIdentity = new GitHubIdentityProvider();
 function identityProvider(env: AppBindings) {
-  return ((env as any).IDENTITY_PROVIDER as any) ?? githubIdentity;
+  return env.IDENTITY_PROVIDER ?? githubIdentity;
 }
 
 export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): ApiRouterDeps {
@@ -70,10 +70,10 @@ export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): A
       createService: (installationId?: number | string | null) => new GitHubClient(env as any, String(installationId)),
     },
     config: {
-      getGlobalConfig: async () => await getGlobalConfig(env as any),
-      updateGlobalConfig: async (config: any) => await updateGlobalConfig(env as any, config),
-      loadRepoConfig: async (input: any) => await loadRepoConfig(env as any, input),
-      invalidateRepoConfigCache: async (owner: string, repo: string) => await invalidateRepoConfigCache(env as any, owner, repo),
+      getGlobalConfig: async () => await getGlobalConfig(env),
+      updateGlobalConfig: async (config: any) => await updateGlobalConfig(env, config),
+      loadRepoConfig: async (input: any) => await loadRepoConfig(env, input),
+      invalidateRepoConfigCache: async (owner: string, repo: string) => await invalidateRepoConfigCache(env, owner, repo),
     },
     modelRunner: {
       syncProviderModelCatalog: async () => {
@@ -236,13 +236,13 @@ export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): A
       scheduleBestEffortJobMaintenance: (executionContext: any) => {
         try {
             executionContext?.waitUntil(
-              import('../../../src/server/core/job-recovery').then(m => m.runBestEffortJobMaintenance(env))
+              import('./core/job-recovery').then(m => m.runBestEffortJobMaintenance(env))
             );
         } catch (e) { /* ignore */ }
       },
       createReviewRuntime: () => ({ kv: makeKvStore(env) } as any),
-      getUpdatesEmailPreference: async (githubUserId: number) => await getUpdatesEmailPreference(env as any, githubUserId),
-      syncUpdatesEmail: async (githubUserId: number, email: string | null | undefined) => await syncUpdatesEmail(env as any, githubUserId, email),
+      getUpdatesEmailPreference: async (githubUserId: number) => await getUpdatesEmailPreference(env, githubUserId),
+      syncUpdatesEmail: async (githubUserId: number, email: string | null | undefined) => await syncUpdatesEmail(env, githubUserId, email),
       terminateJobWorkflow: async (job: { id: string; workflowInstanceId?: string | null }) => {
         if (job.workflowInstanceId) {
           try {
@@ -260,8 +260,8 @@ export function createApiRouterDeps(env: AppBindings, _ctx: ExecutionContext): A
       logger,
     },
     authProvider: {
-      createOAuthState: async () => await createOAuthState(env as any),
-      consumeOAuthState: async (state: string) => await consumeOAuthState(env as any, state),
+      createOAuthState: async () => await createOAuthState(env),
+      consumeOAuthState: async (state: string) => await consumeOAuthState(env, state),
       beginAuthorization: async (callbackUrl: string, state: string) =>
         await identityProvider(env).beginAuthorization(callbackUrl, state, env),
       completeAuthorization: async (code: string, state: string, expectedState: string) =>

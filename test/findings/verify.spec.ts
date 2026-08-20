@@ -1,5 +1,5 @@
-import { parseVerifyResponse, renderDiffSnippet, buildVerifyPrompt, type VerifyCandidate } from '@server/prompts/verify';
-import type { FileDiff } from '@server/core/diff';
+import { parseVerifyResponse, renderDiffSnippet, buildVerifyPrompt, type VerifyCandidate } from '@codraoss/core/prompts/verify';
+import type { FileDiff } from '@codraoss/core/diff';
 
 const file: FileDiff = {
   path: 'src/foo.ts',

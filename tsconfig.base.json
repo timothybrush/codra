@@ -5,11 +5,6 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "ignoreDeprecations": "6.0",
-    "paths": {
-      "@client/*": ["./src/client/*", "../../src/client/*"],
-      "@server/*": ["./src/server/*", "../../src/server/*"],
-      "@/*": ["./src/client/*", "../../src/client/*"]
-    },
     "strict": true,
     "composite": true,
     "declaration": true,

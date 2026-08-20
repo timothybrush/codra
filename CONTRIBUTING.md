@@ -14,7 +14,7 @@ Before we can merge your pull request, you must sign our Contributor License Agr
 
 ## 📦 Repository Layout
 
-Codra is migrating to an npm workspace monorepo. The repository is structured into `apps/` (deployable entrypoints) and `packages/` (reusable modules):
+Codra is an npm workspace monorepo. The repository is structured into `apps/` (deployable entrypoints) and `packages/` (reusable modules):
 
 ```text
 packages/
@@ -31,7 +31,7 @@ apps/
 └── dashboard/          # React SPA frontend (depends on ui, schema)
 ```
 
-**Note:** We are incrementally migrating code from the legacy `src/` directory into this workspace structure. New logic should be placed in the appropriate `packages/` or `apps/` directory when possible.
+**Note:** The `packages/*` modules are published to npm as `@codraoss/*`; the workspace consumes them as TypeScript source and only the published tarballs carry compiled output. Reusable logic belongs in a package, deployment wiring in `apps/worker`, and UI in `apps/dashboard`.
 
 ---
 

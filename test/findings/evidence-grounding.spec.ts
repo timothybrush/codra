@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseFileReviewResponse } from '@server/core/model-output';
-import { buildAnchorHash, buildFindingFingerprint, fnv1a32Hex, normalizeDiffText } from '@server/core/fingerprint';
-import type { FileDiff } from '@server/core/diff';
+import { parseFileReviewResponse } from '@codraoss/core/model-output';
+import { buildAnchorHash, buildFindingFingerprint, fnv1a32Hex, normalizeDiffText } from '@codraoss/core/fingerprint';
+import type { FileDiff } from '@codraoss/core/diff';
 
 import { reviewJson } from '../mocks/fixtures';
 const file: FileDiff = {

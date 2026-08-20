@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildFileReviewPrompts, buildFileReviewSystemPromptBase, wantsFileContext } from '@server/prompts/file-review';
+import { buildFileReviewPrompts, buildFileReviewSystemPromptBase, wantsFileContext } from '@codraoss/core/prompts/file-review';
 import { contentMatchesDiff } from '../../packages/core/src/review/file-context';
 import { defaultRepoConfig, type RepoConfig } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 const SOURCE = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`);
 

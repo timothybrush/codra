@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildUnifiedDiffFromFiles, parseUnifiedDiff } from '@server/core/diff';
+import { buildUnifiedDiffFromFiles, parseUnifiedDiff } from '@codraoss/core/diff';
 
 // GitHub's unified-diff media type answers 406 `too_large` above 20,000 lines, so a large PR has to
 // be rebuilt from `GET /pulls/{n}/files`. What matters is that the rebuilt text is indistinguishable

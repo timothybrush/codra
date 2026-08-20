@@ -1,4 +1,5 @@
 import type { DashboardSessionUser, SessionStore, ReviewRuntime } from '@codraoss/core/ports';
+import type { ApiAction } from '@codraoss/schema/api';
 
 // Type stubs that represent what the API layer requires.
 // By importing types from @codraoss/db, we avoid a runtime dependency while retaining type safety.
@@ -76,6 +77,32 @@ export interface WebhookPort {
   extractReviewRequest: (input: any) => any;
 }
 
+export interface AuthorizeContext {
+  user: DashboardSessionUser;
+  action: ApiAction;
+  resource?: { type: string; id?: string };
+}
+
+export type AuthorizeResult = { allowed: true } | { allowed: false; reason?: string };
+
+export interface AuthzPort {
+  authorize(ctx: AuthorizeContext): Promise<AuthorizeResult>;
+  // Returning undefined means "no restrictions"; computed per request, not stored on the session.
+  listPermissions?(user: DashboardSessionUser): Promise<string[] | undefined>;
+}
+
+export interface QuotaCheckInput {
+  action: ApiAction;
+  // Absent on the webhook path, which runs without a signed-in user.
+  user?: DashboardSessionUser;
+  subject?: { installationId?: string; owner?: string; repo?: string };
+  cost?: number;
+}
+
+export type QuotaResult =
+  | { allowed: true }
+  | { allowed: false; retryAfterSeconds?: number; reason?: string };
+
 export interface ApiRouterDeps {
   repositories: RepositoriesPort;
   gitProvider: {
@@ -89,6 +116,8 @@ export interface ApiRouterDeps {
   platform: PlatformPort;
   authProvider: AuthProviderPort;
   webhook: WebhookPort;
+  authz?: AuthzPort;
+  checkQuota?: (input: QuotaCheckInput) => Promise<QuotaResult>;
 }
 
 export interface ApiEnv {

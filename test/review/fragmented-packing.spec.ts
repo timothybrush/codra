@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { planReviewUnits, unitFiles } from '@server/core/review';
-import { wantsFileContext } from '@server/prompts/file-review';
-import { filterReviewableFiles } from '@server/core/diff';
+import { wantsFileContext } from '@codraoss/core/prompts/file-review';
+import { filterReviewableFiles } from '@codraoss/core/diff';
 import { defaultRepoConfig, reviewMaxFilesRange } from '@codraoss/schema';
 import { MAX_TOTAL_DIFF_CHARS } from '../../packages/core/src/constants';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 // Bins deliberately get no whole-file context: they exist to save subrequests, and four extra GitHub
 // fetches per bin inverts that. The alternative is to pull the one kind of file that suffers most from

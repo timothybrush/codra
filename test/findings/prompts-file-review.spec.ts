@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { getLanguageForFile } from '@server/prompts/languages';
+import { getLanguageForFile } from '@codraoss/core/prompts/languages';
 import {
   buildFileReviewPrompts,
   buildFileReviewSystemPromptBase,
   buildReviewResponseSchema,
   generatorFindingCap,
   reviewBreadth,
-} from '@server/prompts/file-review';
+} from '@codraoss/core/prompts/file-review';
 import { defaultRepoConfig } from '@codraoss/schema';
-import type { FileDiff } from '@server/core/diff';
+import type { FileDiff } from '@codraoss/core/diff';
 
 function fileAt(path: string): FileDiff {
   return {

@@ -2,8 +2,8 @@
  *  signal for unacted rules.  npx vite-node scripts/outdated-rate.ts -- --repo devarshishimpi/codra */
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
-import { buildUnifiedDiffFromFiles, parseUnifiedDiff } from '@server/core/diff';
-import { buildAnchorHash } from '@server/core/fingerprint';
+import { buildUnifiedDiffFromFiles, parseUnifiedDiff } from '@codraoss/core/diff';
+import { buildAnchorHash } from '@codraoss/core/fingerprint';
 
 const argOf = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);

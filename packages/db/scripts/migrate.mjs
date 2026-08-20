@@ -8,6 +8,14 @@ import { splitSqlStatements } from './migrate-sql-split.mjs';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const migrationsDir = path.join(rootDir, 'migrations');
 const migrationLockId = 93741624;
+
+// An extra migrations directory can be layered on top of the core set: resolved against cwd so it works from anywhere, and tracked with an `extra:` prefix so its 002_x.sql cannot collide with a core 002_y.sql.
+const extraDirInput =
+  process.argv.find((arg) => arg.startsWith('--extra-dir='))?.slice('--extra-dir='.length)
+  ?? process.env.CODRA_EXTRA_MIGRATIONS_DIR
+  ?? null;
+const extraMigrationsDir = extraDirInput ? path.resolve(process.cwd(), extraDirInput) : null;
+const extraTrackingPrefix = 'extra:';
 const kimiK25Model = '@cf/moonshotai/kimi-k2.5';
 const kimiK26Model = '@cf/moonshotai/kimi-k2.6';
 
@@ -56,16 +64,22 @@ async function ensureMigrationTable() {
   `);
 }
 
-async function runMigration(name) {
-  const filePath = path.join(migrationsDir, name);
+async function runMigration(dir, fileName, trackedName) {
+  const filePath = path.join(dir, fileName);
   const migrationSql = await readFile(filePath, 'utf8');
 
-  console.log(`Applying ${name}...`);
+  console.log(`Applying ${trackedName}...`);
   for (const statement of splitSqlStatements(migrationSql)) {
     await query(statement);
   }
-  await query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
-  console.log(`Applied ${name}.`);
+  await query('INSERT INTO schema_migrations (name) VALUES ($1)', [trackedName]);
+  console.log(`Applied ${trackedName}.`);
+}
+
+async function listMigrationFiles(dir) {
+  return (await readdir(dir))
+    .filter((name) => /^\d+_.+\.sql$/.test(name))
+    .sort();
 }
 
 async function ensureModelCatalog() {
@@ -111,9 +125,6 @@ async function ensureModelCatalog() {
       ('Vertex AI', 'vertex', NULL, FALSE)
     ON CONFLICT (name) DO UPDATE SET
       api_format = EXCLUDED.api_format,
-      -- COALESCE, not EXCLUDED: this seed re-runs on every deploy, and Vertex ships with a NULL
-      -- base_url because the endpoint is project- and region-specific. A bare assignment would
-      -- wipe the URL the operator configured in Settings every time they deployed.
       base_url = COALESCE(EXCLUDED.base_url, llm_providers.base_url),
       updated_at = now()
   `);
@@ -277,24 +288,36 @@ async function main() {
     console.log('Starting database migrations...');
     await query('BEGIN');
     try {
-      // Transaction-scoped on purpose: a session-scoped pg_advisory_lock once leaked in production
-      // when the process died before its `finally` unlock, leaving the pooler holding it and
-      // blocking every later migrate until pg_terminate_backend. pg_advisory_xact_lock and SET LOCAL
-      // release automatically on COMMIT/ROLLBACK/disconnect.
+      // Transaction-scoped on purpose: a session-scoped lock survives a process that dies before unlocking and blocks every later migrate, while these release on COMMIT/ROLLBACK/disconnect.
       console.log('Acquiring advisory lock...');
       await query("SET LOCAL lock_timeout = '30s'");
       await query('SELECT pg_advisory_xact_lock($1)', [migrationLockId]);
 
       await ensureMigrationTable();
 
-      const migrationFiles = (await readdir(migrationsDir))
-        .filter((name) => /^\d+_.+\.sql$/.test(name))
-        .sort();
+      const migrationFiles = await listMigrationFiles(migrationsDir);
 
       const applied = await appliedMigrations();
       for (const migration of migrationFiles) {
         if (!applied.has(migration)) {
-          await runMigration(migration);
+          await runMigration(migrationsDir, migration, migration);
+        }
+      }
+
+      // Strictly after the core set, since extra migrations may reference core tables, and inside the same transaction and advisory lock so a failure rolls the core ones back too.
+      if (extraMigrationsDir) {
+        let extraFiles;
+        try {
+          extraFiles = await listMigrationFiles(extraMigrationsDir);
+        } catch (error) {
+          throw new Error(`Extra migrations directory not readable: ${extraMigrationsDir}`, { cause: error });
+        }
+
+        for (const migration of extraFiles) {
+          const trackedName = `${extraTrackingPrefix}${migration}`;
+          if (!applied.has(trackedName)) {
+            await runMigration(extraMigrationsDir, migration, trackedName);
+          }
         }
       }
 
@@ -312,7 +335,6 @@ async function main() {
 
     console.log('Database migrations are up to date.');
   } finally {
-    // No explicit unlock needed: COMMIT/ROLLBACK already released the transaction-scoped lock.
     await sql.end();
   }
 }

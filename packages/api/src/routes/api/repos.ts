@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { ApiEnv } from '../../ports';
+import { requirePermission, requireQuota } from '../../middleware/authorize';
 import { jsonError } from '../../http';
 import { repoConfigSchema } from '@codraoss/schema';
 
@@ -39,11 +40,15 @@ export function createReposRouter() {
   const app = new Hono<ApiEnv>();
 
   app.get('/', async (c) => {
+    const denied = await requirePermission(c, 'repos.read');
+    if (denied) return denied;
     const repos = await c.env.deps.repositories.repoConfigs.listRepoConfigs(c.env as any);
     return c.json({ repos });
   });
 
   app.get('/install', async (c) => {
+    const denied = await requirePermission(c, 'repos.install');
+    if (denied) return denied;
     try {
       return c.redirect(await c.env.deps.gitProvider.getAppInstallationUrl(), 302);
     } catch (error) {
@@ -53,6 +58,10 @@ export function createReposRouter() {
   });
 
   app.post('/sync', async (c) => {
+    const denied = await requirePermission(c, 'repos.sync');
+    if (denied) return denied;
+    const throttled = await requireQuota(c, { action: 'repos.sync' });
+    if (throttled) return throttled;
     try {
       const installations = await c.env.deps.gitProvider.listInstallations();
       const synced: string[] = [];
@@ -102,6 +111,8 @@ export function createReposRouter() {
   });
 
   app.get('/:owner/:repo/config', async (c) => {
+    const denied = await requirePermission(c, 'repos.read', { type: 'repo', id: `${c.req.param('owner')}/${c.req.param('repo')}` });
+    if (denied) return denied;
     const repo = await c.env.deps.repositories.repoConfigs.getRepoConfigRecord(c.env as any, c.req.param('owner'), c.req.param('repo'));
     if (!repo) {
       return jsonError('Repository config not found.', 404);
@@ -111,6 +122,8 @@ export function createReposRouter() {
   });
   
   app.patch('/:owner/:repo/config', async (c) => {
+    const denied = await requirePermission(c, 'repos.config.write', { type: 'repo', id: `${c.req.param('owner')}/${c.req.param('repo')}` });
+    if (denied) return denied;
     const { owner, repo } = c.req.param();
     const body = await c.req.json();
     const parsedPatch = repoConfigPatchSchema.safeParse(body);
