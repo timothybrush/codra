@@ -6,12 +6,16 @@ import path from 'node:path';
 // I/O). No handles held across calls, so importing this has no side effects; the imperative
 // provisioning flow stays in setup-cloudflare.js.
 
-export const WRANGLER_JSONC_PATH = path.join(process.cwd(), 'wrangler.jsonc');
+// The Worker's own package -- and its wrangler.jsonc -- live under apps/worker in the monorepo.
+// `.dev.vars` stays at the repo root (see dev:worker's --env-file ../../.dev.vars), so only the
+// wrangler config path moves.
+export const WORKER_DIR = path.join(process.cwd(), 'apps', 'worker');
+export const WRANGLER_JSONC_PATH = path.join(WORKER_DIR, 'wrangler.jsonc');
 export const DEV_VARS_PATH = path.join(process.cwd(), '.dev.vars');
 
-export function spawnAsync(command, args) {
+export function spawnAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.platform === 'win32' ? `${command}.cmd` : command, args);
+    const child = spawn(process.platform === 'win32' ? `${command}.cmd` : command, args, { cwd: WORKER_DIR, ...options });
     let stdout = '', stderr = '';
     child.stdout.on('data', d => stdout += d);
     child.stderr.on('data', d => stderr += d);
@@ -53,7 +57,8 @@ export function getEnvVars() {
 
 export function setSecret(secretName, secretValue) {
   return new Promise((resolve, reject) => {
-    const child = exec(`npx wrangler secret put ${secretName}`, (error, stdout, stderr) => {
+    // `wrangler secret put` needs the worker's own config to know which script to attach to.
+    const child = exec(`npx wrangler secret put ${secretName}`, { cwd: WORKER_DIR }, (error, stdout, stderr) => {
       if (error) reject(new Error(stderr || error.message));
       else resolve();
     });

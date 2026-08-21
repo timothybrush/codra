@@ -3,7 +3,7 @@ import { exec } from 'node:child_process';
 import chalk from 'chalk';
 import ora from 'ora';
 import prompts from 'prompts';
-import { extractId, spawnAsync } from './setup-helpers.js';
+import { extractId, spawnAsync, WORKER_DIR } from './setup-helpers.js';
 
 const execAsync = util.promisify(exec);
 
@@ -41,7 +41,7 @@ export async function handleKVNamespace(baseBinding, isPreview) {
         if (action === 'fetch') {
            const fetchSpinner = ora('Fetching existing KV namespaces...').start();
            try {
-             const { stdout: listOut } = await execAsync('npx wrangler kv namespace list');
+             const { stdout: listOut } = await execAsync('npx wrangler kv namespace list', { cwd: WORKER_DIR });
              fetchSpinner.succeed();
              
              let searchTitle = isPreview ? `${baseBinding}_preview` : baseBinding;
@@ -126,7 +126,7 @@ export async function handleHyperdrive(dbUrl) {
         if (action === 'fetch') {
            const fetchSpinner = ora('Fetching existing Hyperdrive configs...').start();
            try {
-             const { stdout: listOut } = await execAsync('npx wrangler hyperdrive list');
+             const { stdout: listOut } = await execAsync('npx wrangler hyperdrive list', { cwd: WORKER_DIR });
              fetchSpinner.succeed();
              
              let parsed = null;

@@ -8,7 +8,7 @@ import prompts from 'prompts';
 
 const execAsync = util.promisify(exec);
 
-import { WRANGLER_JSONC_PATH, getEnvVars, setSecret } from './setup-helpers.js';
+import { WRANGLER_JSONC_PATH, WORKER_DIR, getEnvVars, setSecret } from './setup-helpers.js';
 import { handleHyperdrive, handleKVNamespace } from './setup-provisioning.js';
 
 
@@ -22,7 +22,7 @@ async function main() {
   const authSpinner = ora('Checking Cloudflare authentication...').start();
   let globallyAuthenticated = true;
   try {
-    const { stdout, stderr } = await execAsync('npx wrangler whoami');
+    const { stdout, stderr } = await execAsync('npx wrangler whoami', { cwd: WORKER_DIR });
     const output = (stdout + (stderr || '')).toLowerCase();
     
     // Wrangler sometimes exits with 0 even when not logged in
@@ -52,7 +52,7 @@ async function main() {
   console.log(chalk.cyan.bold('📨 Queues'));
   const jobsSpinner = ora('Creating jobs queue (codra-review-jobs)...').start();
   try {
-    await execAsync('npx wrangler queues create codra-review-jobs');
+    await execAsync('npx wrangler queues create codra-review-jobs', { cwd: WORKER_DIR });
     jobsSpinner.succeed();
   } catch (e) {
     if (e.stderr && (e.stderr.includes('already taken') || e.stderr.includes('already exists'))) {
