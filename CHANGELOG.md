@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.9.5
+
+### What's New
+
+- **Monorepo & Public npm Packages:** Codra is now an npm workspace monorepo, with the review engine, model adapters, GitHub provider, API router, and design system published under `@codraoss/*`.
+- **Evidence-Grounded Findings:** Findings must quote the diff they claim to describe; candidates that can't ground themselves are dropped before posting.
+- **Precision Gates & Gatekeeper Verifier:** A claim-type denylist, a dedicated verifier pass, and disposition tracking for degraded reviews.
+- **Batched Reviews & New Providers:** Files are packed into bins with structured Gemini output; Vertex AI, NVIDIA, and xAI joined the model catalog.
+- **Language Personas & Secondary Reviewer:** Configurable per-language personas and an optional second reviewer pass.
+- **Clean-Pass Summaries:** A review that finds nothing now posts a real summary and reacts with a thumbs-up instead of an empty comment.
+- **Job Detail & Stats Overhaul:** Rebuilt views with new chart primitives and bucketed trends.
+
+### Bug Fixes
+
+- Fixed `GET /api/jobs/:id` returning 503s while polling — Cloudflare's edge rewrites strong ETags to weak ones, so the 304 path never matched.
+- Dropped an invalid `propertyOrdering` keyword from Gemini response grammars that was silently disabling constrained decoding on every Google review.
+- Fixed issue-accuracy and "files reviewed" reporting, telemetry/repo settings UI, and CI dependency install failures.
+
+**Full Changelog**: https://github.com/devarshishimpi/codra/compare/v0.9.4...v0.9.5
+
 ## v0.9.4
 
 ### What's New
